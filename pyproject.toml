@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kudiostudio"
+dynamic = ["version"]
+description = "A desktop workbench for the Kudio audio toolkit — inspect, edit, synthesize and measure audio."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "RL" }]
+keywords = ["audio", "gui", "pyside6", "spectrogram", "speech-enhancement", "dsp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Multimedia :: Sound/Audio :: Editors",
+]
+dependencies = [
+    "kudio[audio,viz]>=3.2",
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "numpy>=1.22",
+]
+
+[project.optional-dependencies]
+theme = ["QDarkStyle>=3.1"]
+eval = ["kudio[eval]>=3.2"]
+# learned denoising in the Enhance panel; pulls in TensorFlow, hence optional
+enhance = ["kudio-enhance>=0.1"]
+all = ["kudiostudio[theme,eval,enhance]"]
+dev = ["kudiostudio[theme,eval]", "pytest>=7.0", "pytest-qt>=4.2"]
+
+[project.scripts]
+kudiostudio = "kudiostudio.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/recklight/KudioStudio"
+Issues = "https://github.com/recklight/KudioStudio/issues"
+Kudio = "https://pypi.org/project/kudio/"
+
+[tool.setuptools.dynamic]
+version = { attr = "kudiostudio.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["kudiostudio*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
