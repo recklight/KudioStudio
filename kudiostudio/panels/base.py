@@ -31,6 +31,37 @@ class Panel(QWidget):
     #: one-line note for the status bar
     status = Signal(str)
 
+    #: audio to audition -- ``(waveform, sample_rate)`` -- without touching the
+    #: session. This is how a panel says "here is what it would sound like".
+    preview_ready = Signal(object, int)
+
+    #: the panel wants auditioning to stop
+    preview_stopped = Signal()
+
+    #: a live take has begun at this sample rate -- start a rolling display
+    monitor_started = Signal(int)
+
+    #: audio that has just arrived -- ``(waveform, sample_rate)`` -- with no
+    #: playback and no session change. What a recording looks like while it
+    #: happens.
+    #:
+    #: **Each sample is emitted exactly once.** The view accumulates them, so
+    #: a panel must send `StreamRecorder.drain()` and never `tail()`: an
+    #: overlapping window would draw the same audio twice, at two different
+    #: times, and any per-column analysis downstream would compute it twice.
+    monitor_chunk = Signal(object, int)
+
+    #: the live take is over; the rolling display can be released
+    monitor_stopped = Signal()
+
+    #: a curve to draw over the time-frequency view -- ``(times, hz)``, in
+    #: seconds on the clip's own timeline and in Hz. NaN means "nothing here",
+    #: and the view leaves a gap rather than joining across it.
+    overlay_ready = Signal(object, object)
+
+    #: take the curve back down
+    overlay_cleared = Signal()
+
     #: tab caption
     title = "Panel"
 
@@ -40,6 +71,21 @@ class Panel(QWidget):
         self.jobs = WorkerHost(self)
 
     # -------------------------------------------------------------- helpers
+
+    def cancel_preview(self) -> None:
+        """The window stopped auditioning. Drop any live-preview state.
+
+        Called when something else claims playback, so a panel's Preview button
+        never claims to be running when it is not. Override if the panel has
+        preview state; the default is for panels that have none.
+        """
+
+    def shutdown(self) -> None:
+        """Release anything the panel is holding open. Override as needed.
+
+        Called once when the window closes. A worker thread is already handled
+        by ``jobs.wait``; this is for devices, which stay open until told.
+        """
 
     def require_audio(self) -> bool:
         """Guard for actions that need a loaded clip."""

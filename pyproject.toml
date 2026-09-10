@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Editors",
 ]
 dependencies = [
-    "kudio[audio,viz]>=3.2",
+    "kudio[audio,viz]>=3.5",
     "PySide6>=6.6",
     "pyqtgraph>=0.13",
     "numpy>=1.22",
@@ -36,10 +36,13 @@ dependencies = [
 
 [project.optional-dependencies]
 theme = ["QDarkStyle>=3.1"]
-eval = ["kudio[eval]>=3.2"]
+eval = ["kudio[eval]>=3.5"]
+# DNSMOS in the Metrics panel. The weights are NOT bundled -- see
+# kudio.find_dnsmos_model for where to get them.
+dnsmos = ["kudio[dnsmos]>=3.5"]
 # learned denoising in the Enhance panel; pulls in TensorFlow, hence optional
 enhance = ["kudio-enhance>=0.1"]
-all = ["kudiostudio[theme,eval,enhance]"]
+all = ["kudiostudio[theme,eval,dnsmos,enhance]"]
 dev = ["kudiostudio[theme,eval]", "pytest>=7.0", "pytest-qt>=4.2"]
 
 [project.scripts]

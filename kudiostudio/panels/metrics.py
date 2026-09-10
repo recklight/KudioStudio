@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Objective quality metrics — `kudio.core.evaluator`.
+"""Objective quality metrics, with and without a clean reference.
 
-SNR / SI-SDR / segmental SNR are pure numpy and always available. PESQ, STOI
-and BSS-SDR need `kudio[eval]`; the panel reports which back-ends are present
-instead of failing.
+`kudio.audio_report` needs nothing to compare against and always works. The
+reference metrics — SNR / SI-SDR / segmental SNR in pure numpy, PESQ / STOI /
+BSS-SDR from `kudio[eval]` — need the clean signal beside the degraded one,
+which a synthetic dataset has and a real recording never does.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QLineEdit,
     QPushButton,
     QTableWidget,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import Panel
+from kudiostudio.theme import HINT_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +71,7 @@ class MetricsPanel(Panel):
         form.addRow("Reference", self.reference)
         form.addRow("File", picker)
 
-        box = QGroupBox("Reference")
+        box = QGroupBox("Against a clean reference")
         box_layout = QVBoxLayout(box)
         box_layout.addLayout(form)
         box_layout.addWidget(self.run_button)
@@ -76,6 +79,7 @@ class MetricsPanel(Panel):
             "kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg)"))
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self._build_inspect_box())
         layout.addWidget(box)
         layout.addWidget(self.table, stretch=1)
         self._availability = self.hint("")
@@ -87,6 +91,130 @@ class MetricsPanel(Panel):
         self.jobs.busy_changed.connect(lambda b: self.run_button.setEnabled(not b))
         self._sync()
         self._refresh_availability()
+
+    # --------------------------------------------------------- no reference
+
+    def _build_inspect_box(self) -> QGroupBox:
+        """The half of quality assessment that needs nothing to compare to.
+
+        Everything below this box needs the clean signal beside the degraded
+        one. A synthetic dataset has that. A real recording never does -- its
+        "original" *is* the noisy one, so scoring against it measures how much
+        you changed the audio, not whether you improved it.
+        """
+        self.inspect_button = QPushButton("Inspect this audio")
+        self.inspect_result = QLabel("")
+        self.inspect_result.setWordWrap(True)
+        self.inspect_result.setVisible(False)
+        self.inspect_button.clicked.connect(self._inspect)
+
+        self.dnsmos_button = QPushButton("Predict opinion score (DNSMOS)")
+        self.dnsmos_button.setToolTip(
+            "ITU-T P.835: what a listener would say, with no reference.\n"
+            "Needs onnxruntime and the DNS-Challenge weights, which kudio\n"
+            "does not ship.")
+        self.dnsmos_result = QLabel("")
+        self.dnsmos_result.setWordWrap(True)
+        self.dnsmos_result.setVisible(False)
+        self.dnsmos_button.clicked.connect(self._dnsmos)
+
+        box = QGroupBox("No reference needed")
+        box_layout = QVBoxLayout(box)
+        box_layout.addWidget(self.hint(
+            "Clipping, level, DC offset, noise floor and the bandwidth the "
+            "content really occupies — the questions you can still ask about "
+            "a recording that has no clean version anywhere."))
+        box_layout.addWidget(self.call_label("kudio.audio_report(y, sr)"))
+        box_layout.addWidget(self.inspect_button)
+        box_layout.addWidget(self.inspect_result)
+        box_layout.addWidget(self.call_label("kudio.dnsmos(y, sr, model_dir=…)"))
+        box_layout.addWidget(self.dnsmos_button)
+        box_layout.addWidget(self.dnsmos_result)
+        return box
+
+    def _dnsmos(self) -> None:
+        """Ask the model what a listener would say about this clip.
+
+        `audio_report` answers "is this recording technically sound"; this is
+        the other half — "does it sound good" — and the only way to get it
+        without a listening panel. SIG and BAK move in opposite directions
+        under denoising, so all three numbers are shown rather than the average.
+        """
+        if not self.require_audio():
+            return
+        y = np.asarray(self.session.y, dtype=np.float32)
+        sr = self.session.sr
+        self.report("Running DNSMOS …")
+        self.dnsmos_button.setEnabled(False)
+        started = self.jobs.run(kudio.dnsmos, y, sr,
+                                on_done=self._dnsmos_done,
+                                on_failed=self._dnsmos_failed)
+        if not started:
+            self.dnsmos_button.setEnabled(True)
+            self.report("Another job is already running.")
+
+    def _dnsmos_done(self, score) -> None:
+        self.dnsmos_button.setEnabled(True)
+        self._fill([
+            ("SIG (speech)", f"{score.sig:.2f} / 5"),
+            ("BAK (background)", f"{score.bak:.2f} / 5"),
+            ("OVRL (overall)", f"{score.ovrl:.2f} / 5"),
+            ("Windows averaged", str(score.segments)),
+        ])
+        self.dnsmos_result.setText(score.summary())
+        self.dnsmos_result.setStyleSheet(f"color: {HINT_COLOR};")
+        self.dnsmos_result.setVisible(True)
+        self.report(f"DNSMOS — {score}")
+
+    def _dnsmos_failed(self, message: str) -> None:
+        self.dnsmos_button.setEnabled(True)
+        # the useful failure here is "you do not have the model", and the
+        # message from kudio says where to get it -- so show it in full
+        self.dnsmos_result.setText(message)
+        self.dnsmos_result.setStyleSheet(f"color: {WARN_COLOR};")
+        self.dnsmos_result.setVisible(True)
+        self.report("DNSMOS unavailable — see the panel for what is missing.")
+
+    def _inspect(self) -> None:
+        if not self.require_audio():
+            return
+        try:
+            report = kudio.audio_report(np.asarray(self.session.y,
+                                                   dtype=np.float32),
+                                        self.session.sr)
+        except Exception as e:
+            self.report(f"Inspection failed — {type(e).__name__}: {e}")
+            return
+
+        lufs = "n/a (shorter than 400 ms)" if not np.isfinite(report.lufs) \
+            else f"{report.lufs:+.2f} LUFS"
+        self._fill([
+            ("Peak", "silence" if report.peak_dbfs == float("-inf")
+             else f"{report.peak_dbfs:+.2f} dBFS"),
+            ("RMS", f"{report.rms_dbfs:+.2f} dBFS"),
+            ("Loudness (BS.1770)", lufs),
+            ("Clipped samples", f"{report.clipped_samples} "
+                                f"({report.clipped_ratio * 100:.3f}%)"),
+            ("DC offset", f"{report.dc_offset:+.5f}"),
+            ("Silence", f"{report.silence_ratio * 100:.1f}%"),
+            ("Noise floor", f"{report.noise_floor_dbfs:+.2f} dBFS"),
+            ("Estimated SNR", f"{report.estimated_snr_db:+.1f} dB"),
+            ("Bandwidth", f"{report.bandwidth_hz:.0f} Hz of "
+                          f"{report.sr / 2:.0f} Hz available"),
+        ])
+
+        problems = report.problems()
+        if problems:
+            self.inspect_result.setText("· " + "\n· ".join(problems))
+            self.inspect_result.setStyleSheet(f"color: {WARN_COLOR};")
+        else:
+            self.inspect_result.setText(
+                "Nothing wrong with the recording itself. This says the audio "
+                "is technically sound, not that it sounds good — for that, "
+                "try the DNSMOS button below.")
+            self.inspect_result.setStyleSheet(f"color: {HINT_COLOR};")
+        self.inspect_result.setVisible(True)
+        self.report("Inspection complete.")
 
     # ------------------------------------------------------------------- ui
 

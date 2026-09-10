@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 
 def test_load_sets_audio_and_original(session, tone):
@@ -76,6 +77,109 @@ def test_replace_selection_handles_length_change(session):
     session.replace_selection(np.zeros(100, dtype=np.float32),
                               undo_label="stretch")
     assert len(session.y) == 4000 + 100 + 4000
+
+
+def test_compare_is_refused_until_something_has_changed(session):
+    assert session.can_compare() is False
+    assert session.set_compare(True) is False
+    assert session.comparing is False
+
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    assert session.can_compare() is True
+
+
+def test_compare_swaps_what_preview_returns_but_not_y(session):
+    edited = session.y * 0.5
+    session.set_audio(edited, session.sr, undo_label="gain", keep_original=True)
+    session.set_loudness_match(False)
+    original = session.original()[0]
+
+    seen = []
+    session.compare_changed.connect(seen.append)
+
+    assert session.set_compare(True) is True
+    y, sr = session.preview()
+    assert np.allclose(y, original)
+    assert sr == session.sr
+    assert np.allclose(session.y, edited)       # the panels' view is untouched
+    assert seen == [True]
+
+    session.set_compare(False)
+    assert np.allclose(session.preview()[0], edited)
+    assert seen == [True, False]
+
+
+def test_loudness_match_levels_the_original_to_the_edit(session):
+    """A -6 dB edit must not be compared against a 6 dB louder original."""
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    assert session.loudness_matched is True, "the fair comparison is the default"
+    assert session.loudness_gap() == pytest.approx(6.02, abs=0.05)
+
+    session.set_compare(True)
+    matched = session.preview()[0]
+    assert np.allclose(matched, session.y, atol=1e-6)   # gain-only edit cancels
+
+    session.set_loudness_match(False)
+    assert np.allclose(session.preview()[0], session.original()[0])
+
+
+def test_turning_the_match_on_or_off_announces_the_change(session):
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    session.set_compare(True)
+
+    seen = []
+    session.compare_changed.connect(seen.append)
+    session.set_loudness_match(False)
+    session.set_loudness_match(False)        # no change, no signal
+    session.set_loudness_match(True)
+    assert seen == [True, True], "still comparing, but preview() changed"
+
+
+def test_loudness_gap_is_none_when_it_cannot_be_measured(session, tone):
+    """Shorter than BS.1770's 400 ms block: report honestly, do not guess."""
+    short = session.y[:2000]                 # 0.125 s at 16 kHz
+    session.load_file(tone)
+    session.set_audio(short, session.sr, undo_label="trim", keep_original=True)
+
+    assert session.loudness_gap() is None
+    session.set_compare(True)
+    assert np.allclose(session.preview()[0], session.original()[0]), \
+        "unmatched rather than wrongly matched"
+
+
+def test_the_loudness_gap_is_remeasured_after_a_new_edit(session):
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    assert session.loudness_gap() == pytest.approx(6.02, abs=0.05)
+
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    assert session.loudness_gap() == pytest.approx(12.04, abs=0.05)
+
+
+def test_compare_ends_when_the_audio_changes(session):
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain", keep_original=True)
+    session.set_compare(True)
+
+    session.set_audio(session.y * 0.5, session.sr,
+                      undo_label="gain again", keep_original=True)
+    assert session.comparing is False
+
+
+def test_compare_survives_a_length_changing_edit(session):
+    """A trim leaves the two buffers different lengths; preview must still work."""
+    session.set_audio(session.y[:4000], session.sr,
+                      undo_label="trim", keep_original=True)
+    assert session.can_compare() is True
+
+    session.set_compare(True)
+    y, sr = session.preview()
+    assert len(y) == 16000
+    assert len(session.y) == 4000
 
 
 def test_save_round_trips(session, tmp_path):

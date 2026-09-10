@@ -13,5 +13,18 @@ HINT_COLOR = "#9aa5b1"
 WAVE_COLOR = "#4aa3df"
 #: selection region and playback cursor
 ACCENT_COLOR = "#e8a33d"
+#: something is wrong with the audio itself -- clipping, silence, a bad rate
+WARN_COLOR = "#e06c5a"
+#: a measurement that came back clean
+OK_COLOR = "#7fbf7f"
+#: markers -- deliberately not the selection colour, since both can be on
+#: screen at once and "which of these is the thing I am editing" has to be
+#: answerable at a glance
+MARKER_COLOR = "#9b8ec4"
+#: the f0 contour drawn over the spectrogram. Viridis runs blue-green-yellow,
+#: so a curve has to be outside that ramp to read as an overlay rather than as
+#: part of the image -- pink is the one hue the colour map never reaches.
+PITCH_COLOR = "#ff5fa2"
 
-__all__ = ["CALL_COLOR", "HINT_COLOR", "WAVE_COLOR", "ACCENT_COLOR"]
+__all__ = ["CALL_COLOR", "HINT_COLOR", "WAVE_COLOR", "ACCENT_COLOR",
+           "WARN_COLOR", "OK_COLOR", "MARKER_COLOR", "PITCH_COLOR"]

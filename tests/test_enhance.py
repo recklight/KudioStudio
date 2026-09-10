@@ -10,44 +10,63 @@ import pytest
 from kudiostudio.panels.enhance import LEARNED, TRAD, WAVELET, EnhancePanel
 
 
+def select(panel, key: str) -> None:
+    """Pick a method by its key, not its row.
+
+    The combo gained seven statistical methods above the original three, and
+    every test that hardcoded index 0 broke. Names survive reordering; indices
+    are a convention two files have to agree on by hand.
+    """
+    index = panel.method.findData(key)
+    assert index >= 0, f"no method {key!r} in the combo"
+    panel.method.setCurrentIndex(index)
+
+
 def test_method_switch_greys_out_the_other_rows(session):
     panel = EnhancePanel(session)
 
-    panel.method.setCurrentIndex(0)
+    select(panel, TRAD)
     assert panel._method() == TRAD
     assert panel.thres.isEnabled() is False
     assert panel.run_dir.isEnabled() is False
+    assert panel.noise.isEnabled() is False
 
-    panel.method.setCurrentIndex(1)
-    assert panel._method() == WAVELET
+    select(panel, WAVELET)
     assert panel.thres.isEnabled() is True
     assert panel.run_dir.isEnabled() is False
 
-    panel.method.setCurrentIndex(2)
-    assert panel._method() == LEARNED
+    select(panel, LEARNED)
     assert panel.thres.isEnabled() is False
     assert panel.run_dir.isEnabled() is True
+
+    select(panel, "logmmse")
+    assert panel.noise.isEnabled() is True
+    assert panel.thres.isEnabled() is False
 
 
 def test_call_hint_tracks_the_method(session):
     panel = EnhancePanel(session)
 
-    panel.method.setCurrentIndex(0)
+    select(panel, TRAD)
     assert panel.call.text() == "kudio.trad_enhance(y, sr)"
 
-    panel.method.setCurrentIndex(1)
+    select(panel, WAVELET)
     panel.thres.setValue(0.5)
     assert "wavelet_low_pass_filter" in panel.call.text()
     assert "thres=0.5" in panel.call.text()
 
-    panel.method.setCurrentIndex(2)
+    select(panel, LEARNED)
     panel.run_dir.edit.setText("runs/exp1")
     assert "kudio_enhance.Enhancer.load('runs/exp1')" in panel.call.text()
+
+    select(panel, "omlsa")
+    assert "kudio.spectral_enhance(y, sr, 'omlsa'" in panel.call.text()
+    assert "noise='mcra'" in panel.call.text()
 
 
 def test_learned_without_a_run_directory_reports(session):
     panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(2)
+    select(panel, LEARNED)
     messages = []
     panel.status.connect(messages.append)
 
@@ -60,7 +79,7 @@ def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch
 
     monkeypatch.setattr(module, "kudio_enhance_available", lambda: False)
     panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(2)
+    select(panel, LEARNED)
     panel.run_dir.edit.setText("runs/exp1")
     messages = []
     panel.status.connect(messages.append)
@@ -68,6 +87,75 @@ def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch
     panel._run()
     assert messages and "pip install" in messages[0]
     assert "kudiostudio[enhance]" in messages[0]
+
+
+# -------------------------------------------- statistical methods (kudio 3.4)
+
+def test_every_kudio_method_is_offered(session):
+    """The list is built from kudio.METHODS, so it cannot fall behind it."""
+    panel = EnhancePanel(session)
+    offered = {panel.method.itemData(i) for i in range(panel.method.count())}
+    assert set(kudio_methods()) <= offered
+
+
+def kudio_methods():
+    import kudio
+    return kudio.METHODS
+
+
+def test_controls_are_built_from_kudios_own_description(session):
+    """A parameter added in kudio must appear here without editing the panel."""
+    import kudio
+
+    panel = EnhancePanel(session)
+    for name, spec in kudio.METHODS.items():
+        select(panel, name)
+        boxes = panel._params[name]
+        assert set(boxes) == {p.name for p in spec.params}, name
+        for param in spec.params:
+            box = boxes[param.name]
+            assert box.value() == pytest.approx(param.default)
+            assert box.minimum() == pytest.approx(param.low)
+            assert box.maximum() == pytest.approx(param.high)
+            assert box.toolTip() == param.help
+
+
+@pytest.mark.parametrize("method", ["wiener", "logmmse", "omlsa", "specsub",
+                                    "multiband", "mmse_stsa", "spectral_gate"])
+def test_each_statistical_method_runs_through_the_panel(session, method):
+    panel = EnhancePanel(session)
+    select(panel, method)
+    fn, args, kwargs, label = panel._operation(np.asarray(session.y), session.sr)
+    out = fn(*args, **kwargs)
+    assert len(out) == len(session.y)
+    assert method in label or kudio_methods()[method].label in label
+
+
+def test_the_noise_estimator_reaches_the_call(session):
+    panel = EnhancePanel(session)
+    select(panel, "logmmse")
+    index = panel.noise.findData("quantile")
+    panel.noise.setCurrentIndex(index)
+    assert "noise='quantile'" in panel.call.text()
+    _, _, kwargs, _ = panel._operation(np.asarray(session.y), session.sr)
+    assert kwargs["noise"] == "quantile"
+
+
+def test_the_noise_estimator_explains_itself(session):
+    panel = EnhancePanel(session)
+    select(panel, "logmmse")
+    assert "recursive averaging" in panel.noise_hint.text()
+    panel.noise.setCurrentIndex(panel.noise.findData("initial"))
+    assert "room tone" in panel.noise_hint.text()
+
+
+def test_the_separator_row_does_not_crash_the_panel(session):
+    """A combo separator has no data; _sync_params sees None."""
+    panel = EnhancePanel(session)
+    separator = next(i for i in range(panel.method.count())
+                     if panel.method.itemData(i) is None)
+    panel.method.setCurrentIndex(separator)      # Qt normally skips these
+    assert panel.call.text()                     # ...and nothing raised
 
 
 def test_availability_note_matches_the_environment(session):
