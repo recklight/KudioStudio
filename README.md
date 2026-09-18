@@ -510,7 +510,7 @@ learned-denoising tests train a one-epoch model for real and skip cleanly when
 the `enhance` extra is not installed; the open-ended recorder is driven through
 a fake device, since CI has no microphone.
 
-`tools/smoke.py` is the other half: 49 end-to-end checks in one process,
+`tools/smoke.py` is the other half: 166 end-to-end checks in one process,
 covering what the unit suites cannot — real files, non-default sample rates,
 minute-long feeds, the `kudio` command line, and the window driving a real
 worker thread. It exits non-zero on any failure.
