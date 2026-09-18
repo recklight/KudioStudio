@@ -15,6 +15,7 @@ from typing import Optional, Tuple
 import numpy as np
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -60,6 +61,17 @@ class MetricsPanel(Panel):
         picker_layout.addWidget(self.ref_edit)
         picker_layout.addWidget(self.browse)
 
+        self.align = QCheckBox("Line up with the reference first")
+        self.align.setChecked(True)
+        self.align.setToolTip(
+            "Every metric here compares sample i of one signal with sample i\n"
+            "of the other. A clip scored against itself reads +145 dB; one\n"
+            "sample of delay costs 134 of them, and a millisecond scores worse\n"
+            "than not processing at all — with nothing in the number to say\n"
+            "which of the two happened.\n\n"
+            "The delay is measured and reported either way. This decides\n"
+            "whether it is taken out before scoring.")
+
         self.run_button = QPushButton("Evaluate")
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Metric", "Value"])
@@ -74,9 +86,11 @@ class MetricsPanel(Panel):
         box = QGroupBox("Against a clean reference")
         box_layout = QVBoxLayout(box)
         box_layout.addLayout(form)
+        box_layout.addWidget(self.align)
         box_layout.addWidget(self.run_button)
         box_layout.addWidget(self.call_label(
-            "kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg)"))
+            "kudio.align(ref, deg, sr)  +  kudio.snr / si_sdr / segmental_snr"
+            "  +  kudio.eval_metrics(sr, ref, deg)"))
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._build_inspect_box())
@@ -269,16 +283,18 @@ class MetricsPanel(Panel):
 
         deg = np.asarray(self.session.y, dtype=np.float32)
         ref = np.asarray(ref, dtype=np.float32)
-        n = min(len(ref), len(deg))
-        if n == 0:
+        if min(len(ref), len(deg)) == 0:
             self.report("Nothing to compare.")
             return
+
+        rows, ref, deg = self._line_up(ref, deg)
+        n = min(len(ref), len(deg))
         ref, deg = ref[:n], deg[:n]
 
-        rows = [("SNR", f"{kudio.snr(ref, deg):+.3f} dB"),
-                ("SI-SDR", f"{kudio.si_sdr(ref, deg):+.3f} dB"),
-                ("Segmental SNR", f"{kudio.segmental_snr(ref, deg):+.3f} dB"),
-                ("Compared samples", f"{n} ({n / self.session.sr:.2f} s)")]
+        rows += [("SNR", f"{kudio.snr(ref, deg):+.3f} dB"),
+                 ("SI-SDR", f"{kudio.si_sdr(ref, deg):+.3f} dB"),
+                 ("Segmental SNR", f"{kudio.segmental_snr(ref, deg):+.3f} dB"),
+                 ("Compared samples", f"{n} ({n / self.session.sr:.2f} s)")]
         self._fill(rows)
         self.report("Computing PESQ / STOI / SDR …")
         started = self.jobs.run(kudio.eval_metrics, self.session.sr, ref, deg,
@@ -286,6 +302,38 @@ class MetricsPanel(Panel):
                                 on_failed=self._failed)
         if not started:
             self.report("An evaluation is already running.")
+
+    def _line_up(self, ref, deg):
+        """Measure the offset, report it, and take it out if asked.
+
+        Always measured, because a bad score from a misalignment and a bad
+        score from bad processing look identical and mean opposite things.
+        """
+        try:
+            found = kudio.find_delay(ref, deg, self.session.sr)
+        except Exception as e:                          # noqa: BLE001
+            log.debug("alignment failed: %s", e)
+            return [], ref, deg
+
+        rows = [("Alignment", str(found))]
+        if not found.confident():
+            rows.append(("⚠ Reference", "these do not look like the same "
+                                        "recording — the scores below are "
+                                        "about two unrelated signals"))
+            self.report("The reference does not look like this recording.")
+            return rows, ref, deg
+
+        if found.delay == 0:
+            return rows, ref, deg
+        if not self.align.isChecked():
+            rows.append(("⚠ Not aligned",
+                         f"{abs(found.milliseconds):.1f} ms of offset is left "
+                         f"in; the scores below are mostly measuring it"))
+            return rows, ref, deg
+
+        self.report(f"Reference {found}; lined up before scoring.")
+        ref, deg = found.apply(ref, deg)
+        return rows, ref, deg
 
     def _optional_done(self, rows, result) -> None:
         pesq, stoi, sdr = result

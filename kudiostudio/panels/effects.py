@@ -58,7 +58,15 @@ def _int_spin(lo: int, hi: int, value: int, step: int = 1) -> QSpinBox:
 
 
 class EffectsPanel(Panel):
-    """Gain, pitch, time, reverb, noise mixing and silence trimming."""
+    """Gain, pitch, time, rooms, channels, noise mixing and silence trimming.
+
+    Several of these degrade rather than improve, and that is the point: a
+    training set needs the degradation its model will meet, and all three
+    kinds are here. `add_noise_snr` is **additive**, `room` is
+    **convolutive** -- a real impulse response, reproducible from its seed --
+    and `telephone` / `bit_depth` / `dropouts` are the **channel**, which is
+    neither and cannot be written as arithmetic on the signal at all.
+    """
 
     title = "Effects"
 
@@ -68,7 +76,8 @@ class EffectsPanel(Panel):
     EFFECTS = ("gain", "random_gain",
                "fade_in", "fade_out", "fade", "reverse", "remove_dc",
                "highpass", "lowpass", "bandpass", "bandstop",
-               "pitch_shift", "time_stretch", "reverb", "add_noise_snr",
+               "pitch_shift", "time_stretch", "reverb", "room",
+               "add_noise_snr", "telephone", "bit_depth", "dropouts",
                "trim_silence", "vad_trim", "split_on_silence")
 
     #: fade shapes offered, in kudio's own vocabulary
@@ -233,6 +242,88 @@ class EffectsPanel(Panel):
         self.rev_delay = _spin(1.0, 500.0, 50.0, 5.0, 1, " ms")
         self.params.addWidget(self._page([("decay", self.rev_decay),
                                           ("delay_ms", self.rev_delay)]))
+
+        # room -- a real impulse response, unlike `reverb` above
+        self.room_rt60 = _spin(0.05, 5.0, 0.5, 0.05, 2, " s")
+        self.room_rt60.setToolTip(
+            "How long the tail takes to fall 60 dB. A treated studio is under\n"
+            "0.3 s, a living room around 0.5, a hall over 1.5.")
+        self.room_drr = _spin(-20.0, 30.0, 0.0, 1.0, 1, " dB")
+        self.room_drr.setToolTip(
+            "Direct-to-reverberant ratio — distance, in a readable unit.\n"
+            "A close microphone is +10 dB or more; a metre or two away is\n"
+            "around 0; the far end of a hall is negative.")
+        self.room_seed = QSpinBox()
+        self.room_seed.setRange(-1, 10_000)
+        self.room_seed.setValue(0)
+        self.room_seed.setSpecialValueText("random")
+        self.room_seed.setToolTip(
+            "The same seed is the same room, so a dataset built from it can\n"
+            "be rebuilt. -1 draws a new one each time.")
+        self.params.addWidget(self._page([("rt60", self.room_rt60),
+                                          ("drr_db", self.room_drr),
+                                          ("seed", self.room_seed)]))
+
+        # telephone / bit_depth / dropouts -- the channel
+        self.phone_codec = QComboBox()
+        self.phone_codec.addItems(["mu_law", "a_law", "none"])
+        self.phone_codec.setToolTip(
+            "G.711 companding. `none` band-limits and resamples without it,\n"
+            "which separates what the line did from what the codec did.")
+        self.params.addWidget(self._page([("codec", self.phone_codec)]))
+
+        self.depth_bits = QSpinBox()
+        self.depth_bits.setRange(2, 24)
+        self.depth_bits.setValue(8)
+        self.depth_dither = QCheckBox("dither")
+        self.depth_dither.setToolTip(
+            "Add a triangular dither of one step before rounding. It raises\n"
+            "the noise floor and decorrelates the error from the signal,\n"
+            "which is what stops quiet passages sounding granular.")
+        self.params.addWidget(self._page([("bits", self.depth_bits),
+                                          ("", self.depth_dither)]))
+
+        self.loss_pct = _spin(0.0, 100.0, 5.0, 1.0, 1, " %")
+        self.loss_pct.setToolTip(
+            "Fraction of packets to drop. Achieved exactly, so a corpus\n"
+            "labelled 5% carries 5%.")
+        self.loss_packet = _spin(5.0, 200.0, 20.0, 5.0, 0, " ms")
+        self.loss_packet.setToolTip(
+            "Packet length. 20 ms is G.711 over RTP. The loss rate is a\n"
+            "fraction of packets, so this changes whether the damage arrives\n"
+            "as many short holes or a few long ones — not how much of it.")
+        # whole packets: a run of 1.5 is a mean nobody types on purpose, and
+        # anything under 1 is not a run length at all
+        self.loss_burst = _spin(0.0, 50.0, 0.0, 1.0, 0, " pkt")
+        self.loss_burst.setSpecialValueText("independent")
+        self.loss_burst.setToolTip(
+            "Mean run length. Real links lose packets in runs — a fade, a\n"
+            "queue overflowing — and a run is far harder to conceal than the\n"
+            "same packets scattered about, because there is no recent speech\n"
+            "left to repeat.\n\n"
+            "`independent` is not runs of 1: independent draws land side by\n"
+            "side sometimes, so they already average 1/(1-loss) — 1.05\n"
+            "packets at 5%. Asking for 1 is asking for something less\n"
+            "clustered than leaving it alone.")
+        self.loss_conceal = QComboBox()
+        self.loss_conceal.addItems(["silence", "hold"])
+        self.loss_conceal.setToolTip(
+            "`hold` repeats the last packet that arrived, the crudest\n"
+            "concealment a decoder does. Whether it measures better or worse\n"
+            "than a hole is decided by whether the repeat lands in phase —\n"
+            "an accident of the talker's pitch against the packet length —\n"
+            "so a waveform metric cannot choose a concealment strategy.\n\n"
+            "Across a burst it tiles one 20 ms packet over the whole gap,\n"
+            "and there it is unambiguously worse.")
+        self.loss_seed = QSpinBox()
+        self.loss_seed.setRange(-1, 10_000)
+        self.loss_seed.setValue(0)
+        self.loss_seed.setSpecialValueText("random")
+        self.params.addWidget(self._page([("loss", self.loss_pct),
+                                          ("packet_ms", self.loss_packet),
+                                          ("burst", self.loss_burst),
+                                          ("conceal", self.loss_conceal),
+                                          ("seed", self.loss_seed)]))
 
         # add_noise_snr
         self.noise_edit = QLineEdit()
@@ -442,6 +533,44 @@ class EffectsPanel(Panel):
             decay, delay = self.rev_decay.value(), self.rev_delay.value()
             return (f"kudio.reverb(y, sr, decay={decay}, delay_ms={delay})",
                     lambda y, sr: kudio.reverb(y, sr, decay=decay, delay_ms=delay))
+
+        if name == "room":
+            rt60 = self.room_rt60.value()
+            drr = self.room_drr.value()
+            seed = self._seed(self.room_seed)
+            return (f"kudio.apply_rir(y, kudio.rir(sr, rt60={rt60}, "
+                    f"drr_db={drr}, seed={seed}))",
+                    lambda y, sr: kudio.apply_rir(
+                        y, kudio.rir(sr, rt60=rt60, drr_db=drr, seed=seed)))
+
+        if name == "telephone":
+            codec = self.phone_codec.currentText()
+            return (f"kudio.telephone(y, sr, codec={codec!r})",
+                    lambda y, sr: kudio.telephone(y, sr, codec=codec))
+
+        if name == "bit_depth":
+            bits = self.depth_bits.value()
+            dither = self.depth_dither.isChecked()
+            seed = self._seed(self.loss_seed)
+            return (f"kudio.bit_depth(y, bits={bits}, dither={dither})",
+                    lambda y, sr: kudio.bit_depth(y, bits, dither=dither,
+                                                  seed=seed))
+
+        if name == "dropouts":
+            loss = self.loss_pct.value() / 100.0
+            packet = self.loss_packet.value()
+            conceal = self.loss_conceal.currentText()
+            # 0 is the spin box's "independent", which is `burst=None` and
+            # not `burst=0` — the two mean different things and only one of
+            # them is a number kudio accepts
+            burst = self.loss_burst.value() or None
+            seed = self._seed(self.loss_seed)
+            return (f"kudio.dropouts(y, sr, loss={loss:g}, "
+                    f"packet_ms={packet:g}, burst={burst}, "
+                    f"conceal={conceal!r}, seed={seed})",
+                    lambda y, sr: kudio.dropouts(
+                        y, sr, loss=loss, packet_ms=packet, burst=burst,
+                        conceal=conceal, seed=seed))
 
         if name == "add_noise_snr":
             snr, seed = self.snr_db.value(), self._seed(self.noise_seed)

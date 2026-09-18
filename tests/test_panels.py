@@ -2,6 +2,8 @@
 """Panels build, describe the call they will make, and actually make it."""
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -315,7 +317,10 @@ def test_metrics_scores_against_the_original(session):
     panel._run()
 
     labels = [panel.table.item(r, 0).text() for r in range(panel.table.rowCount())]
-    assert labels[:3] == ["SNR", "SI-SDR", "Segmental SNR"]
+    # the alignment is reported first, because a bad score from a misalignment
+    # and a bad score from bad processing look identical and mean the opposite
+    assert labels[0] == "Alignment"
+    assert labels[1:4] == ["SNR", "SI-SDR", "Segmental SNR"]
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -687,3 +692,312 @@ def test_the_denoise_summary_refuses_to_call_it_better(qapp, tmp_path):
     text = panel.result.text()
     assert "14.5 dB on average" in text
     assert "not of whether it sounds better" in text
+
+
+def test_the_room_effect_uses_a_real_impulse_response(session):
+    """`reverb` is a comb filter; `room` convolves with an impulse response
+    that can be measured afterwards."""
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("room")
+    panel.room_rt60.setValue(0.7)
+    panel.room_drr.setValue(6.0)
+    panel.room_seed.setValue(3)
+
+    call, operation = panel._operation()
+    assert "kudio.apply_rir" in call and "rt60=0.7" in call and "seed=3" in call
+
+    wet = operation(session.y, session.sr)
+    assert len(wet) == len(session.y), "the length is kept"
+    assert not np.allclose(wet, session.y, atol=1e-3)
+
+    # the room the panel asked for is the room that came out
+    measured = kudio.rt60(kudio.rir(session.sr, rt60=0.7, drr_db=6.0, seed=3),
+                          session.sr)
+    assert measured.t30 == pytest.approx(0.7, rel=0.06)
+    assert measured.drr == pytest.approx(6.0, abs=0.2)
+
+
+def test_the_room_effect_is_reproducible_from_its_seed(session):
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("room")
+    panel.room_seed.setValue(7)
+    first = panel._operation()[1](session.y, session.sr)
+    second = panel._operation()[1](session.y, session.sr)
+    assert np.array_equal(first, second)
+
+    panel.room_seed.setValue(8)
+    assert not np.array_equal(panel._operation()[1](session.y, session.sr), first)
+
+
+def test_every_effect_has_a_parameter_page(session):
+    """The two lists are indexed together, so a new effect inserted in one and
+    not the other silently shows the wrong controls."""
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    assert panel.params.count() == len(EffectsPanel.EFFECTS)
+    for index, name in enumerate(EffectsPanel.EFFECTS):
+        panel.effect.setCurrentIndex(index)
+        assert panel.effect.currentText() == name
+        assert panel.params.currentIndex() == index
+
+
+# ------------------------------------------------- synthesis with rooms
+
+@pytest.mark.parametrize("text, expected", [
+    ("", None),
+    ("0.3", [0.3]),
+    ("0.3, 0.6, 0.9", [0.3, 0.6, 0.9]),
+    ("0.4;0.8", [0.4, 0.8]),
+])
+def test_parse_rt60(text, expected):
+    """Empty means something here — no rooms at all, which is the default and
+    has to stay reachable."""
+    from kudiostudio.panels.synth import parse_rt60
+    assert parse_rt60(text) == expected
+
+
+@pytest.mark.parametrize("text", ["0", "-0.5", "0.3, 0"])
+def test_parse_rt60_refuses_an_impossible_room(text):
+    from kudiostudio.panels.synth import parse_rt60
+    with pytest.raises(ValueError, match="positive"):
+        parse_rt60(text)
+
+
+def test_the_synth_panel_names_the_rooms_it_will_build(qapp, session):
+    from kudiostudio.panels.synth import SynthPanel
+
+    panel = SynthPanel(session)
+    assert "rt60" not in panel.call.text(), "no rooms by default"
+
+    panel.rt60.setText("0.3, 0.8")
+    panel.drr.setValue(3.0)
+    assert "rt60=[0.3, 0.8]" in panel.call.text()
+    assert "drr_db=3.0" in panel.call.text()
+
+
+def test_the_synth_panel_refuses_a_bad_room_list(qapp, session):
+    from kudiostudio.panels.synth import SynthPanel
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(".")
+    panel.noise.edit.setText(".")
+    panel.out.edit.setText(".")
+    panel.rt60.setText("0.3, -1")
+
+    messages = []
+    panel.status.connect(messages.append)
+    panel._run()
+    assert messages and "Bad rt60" in messages[-1]
+
+
+def test_the_synth_panel_writes_a_manifest_with_the_rooms(qapp, session,
+                                                          tmp_path):
+    """The four-tuples cannot carry the room; the manifest can, and a training
+    run needs to know what it was given."""
+    import kudio
+    from kudiostudio.panels.synth import SynthPanel
+
+    clean, noise = tmp_path / "clean", tmp_path / "noise"
+    clean.mkdir()
+    noise.mkdir()
+    sr = 16000
+    t = np.arange(sr) / sr
+    kudio.save_wave(clean / "a.wav",
+                    (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32), sr)
+    kudio.save_wave(noise / "n.wav",
+                    (0.05 * np.random.default_rng(0)
+                     .standard_normal(sr)).astype(np.float32), sr)
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(tmp_path / "mixed"))
+    panel.rt60.setText("0.5")
+
+    produced = panel._synthesize([0], [0.5])
+    assert produced
+
+    manifest = kudio.load_manifest(tmp_path / "mixed" / "manifest.json")
+    assert manifest and all(p.rt60 == 0.5 for p in manifest)
+    assert all("rt500ms" in p.noisy for p in manifest)
+
+
+# ------------------------------------------------------------- the channel
+
+@pytest.mark.parametrize("name, fragment", [
+    ("telephone", "kudio.telephone(y, sr, codec='mu_law')"),
+    ("bit_depth", "kudio.bit_depth(y, bits=8"),
+    ("dropouts", "kudio.dropouts(y, sr, loss=0.05"),
+])
+def test_the_channel_effects_name_the_call_they_make(session, name, fragment):
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText(name)
+    call, operation = panel._operation()
+    assert fragment in call
+
+    out = operation(session.y, session.sr)
+    assert len(out) == len(session.y)
+    assert np.all(np.isfinite(out))
+
+
+def test_the_phone_line_narrows_the_band(session):
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("telephone")
+    out = panel._operation()[1](session.y, session.sr)
+
+    assert kudio.audio_report(out, session.sr).band_limited
+    assert kudio.audio_report(out, session.sr).bandwidth_hz < 4200
+
+
+def test_packet_loss_is_reproducible_from_the_panel(session):
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("dropouts")
+    panel.loss_pct.setValue(10.0)
+    panel.loss_seed.setValue(4)
+
+    first = panel._operation()[1](session.y, session.sr)
+    second = panel._operation()[1](session.y, session.sr)
+    assert np.array_equal(first, second)
+    assert np.count_nonzero(first == 0.0) > 0
+
+    panel.loss_conceal.setCurrentText("hold")
+    held = panel._operation()[1](session.y, session.sr)
+    assert np.count_nonzero(held == 0.0) < np.count_nonzero(first == 0.0)
+
+
+def test_the_burst_control_is_independent_at_zero_rather_than_a_run_of_none(
+        session):
+    """`burst=0` is not a run length kudio accepts, and `independent` is not
+    `burst=1`. The spin box's special value has to become None, not 0."""
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("dropouts")
+    assert panel.loss_burst.value() == 0
+    assert "burst=None" in panel._operation()[0]
+
+    panel.loss_burst.setValue(6)
+    assert "burst=6" in panel._operation()[0]
+    out = panel._operation()[1](session.y, session.sr)
+    assert len(out) == len(session.y) and np.all(np.isfinite(out))
+
+
+def test_a_burst_from_the_panel_leaves_one_long_hole(session):
+    """The same number of packets, arranged so the longest gap is far
+    longer — which is what makes burst loss hard to conceal."""
+    from kudiostudio.panels.effects import EffectsPanel
+
+    def longest_hole(y):
+        longest = run = 0
+        for value in y == 0.0:
+            run = run + 1 if value else 0
+            longest = max(longest, run)
+        return longest
+
+    # 20 seconds, not the fixture's one: 50 packets lose five at 10%, which
+    # is one or two runs and far too few to say anything about their length
+    long = np.tile(session.y, 20)
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("dropouts")
+    panel.loss_pct.setValue(10.0)
+    panel.loss_seed.setValue(2)
+    scattered = panel._operation()[1](long, session.sr)
+    panel.loss_burst.setValue(8)
+    bursty = panel._operation()[1](long, session.sr)
+
+    # the same number of packets either way, to within the short last one
+    packet = int(0.02 * session.sr)
+    assert abs(np.count_nonzero(scattered == 0.0)
+               - np.count_nonzero(bursty == 0.0)) < packet
+    assert longest_hole(bursty) > 2 * longest_hole(scattered)
+
+
+# ------------------------------------------- the link, and the wet target
+
+def test_the_synth_panel_leaves_the_link_out_of_the_call_when_there_is_none(
+        qapp, session):
+    """`none` is a name in the box and not a name in the call, so what is
+    shown stays copy-pasteable."""
+    from kudiostudio.panels.synth import SynthPanel
+
+    panel = SynthPanel(session)
+    assert "channel" not in panel.call.text()
+    assert "write_targets" not in panel.call.text()
+
+    panel.channel.setCurrentText("telephone")
+    assert "channel='telephone'" in panel.call.text()
+    panel.targets.setChecked(True)
+    assert "write_targets=True" in panel.call.text()
+
+
+def test_the_synth_panel_refuses_targets_without_a_room(qapp, session,
+                                                        tmp_path):
+    """With no room the clean file already is the reverberant-clean signal,
+    and a copy of it would be a second name for one file."""
+    from kudiostudio.panels.synth import SynthPanel
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(tmp_path))
+    panel.noise.edit.setText(str(tmp_path))
+    panel.out.edit.setText(str(tmp_path / "out"))
+    panel.targets.setChecked(True)
+
+    messages = []
+    panel.status.connect(messages.append)
+    panel._run()
+    assert messages and "need rt60" in messages[-1]
+
+
+def test_the_synth_panel_records_the_link_and_the_target(qapp, session,
+                                                         tmp_path):
+    """Everything the four-tuples cannot carry, in one manifest: the room,
+    the link the mixture travelled down, and where the wet target went."""
+    import kudio
+    from kudiostudio.panels.synth import SynthPanel
+
+    clean, noise = tmp_path / "clean", tmp_path / "noise"
+    clean.mkdir()
+    noise.mkdir()
+    sr = 16000
+    t = np.arange(sr) / sr
+    kudio.save_wave(clean / "a.wav",
+                    (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32), sr)
+    kudio.save_wave(noise / "n.wav",
+                    (0.05 * np.random.default_rng(0)
+                     .standard_normal(sr)).astype(np.float32), sr)
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(tmp_path / "mixed"))
+    panel.rt60.setText("0.5")
+    panel.channel.setCurrentText("telephone")
+    panel.targets.setChecked(True)
+
+    produced, link, targets = panel._synthesize([0], [0.5])
+    assert produced and link == "telephone" and targets == len(produced)
+
+    manifest = kudio.load_manifest(tmp_path / "mixed" / "manifest.json")
+    assert manifest
+    for pair in manifest:
+        assert pair.rt60 == 0.5
+        assert pair.channel == "telephone"
+        assert pathlib.Path(pair.target).is_file()
+        # the link is constant for the run, so it is not in the names
+        assert "telephone" not in pathlib.Path(pair.noisy).name
+        y, _ = kudio.file_load(pair.noisy, sr=None, mono=True)
+        assert kudio.audio_report(y, sr).band_limited

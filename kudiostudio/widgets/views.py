@@ -14,6 +14,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -30,6 +31,7 @@ import kudio
 from kudiostudio.theme import (
     ACCENT_COLOR,
     CALL_COLOR,
+    LOUDNESS_COLOR,
     MARKER_COLOR,
     PITCH_COLOR,
     WAVE_COLOR,
@@ -61,6 +63,29 @@ MONITOR_REDRAW_EVERY = 4
 #: one of them ever gets near full scale.
 MONITOR_LEVELS = (-75.0, -15.0)
 
+#: Width reserved for the right-hand loudness axis. Fixed, and applied to the
+#: spectrogram's empty right axis too: the two plots share a time axis, and a
+#: gutter on one and not the other slides them apart horizontally -- which is
+#: exactly the alignment the shared axis exists to guarantee.
+RIGHT_AXIS_WIDTH = 62
+
+#: Width pinned on both plots' left axes. The waveform's wants 71 px for
+#: "Amplitude" plus labels like "-0.5"; the spectrogram's wants 35-59
+#: depending on the view and the sample rate. Left to themselves they put the
+#: same instant in two different places on two plots that share a time axis.
+LEFT_AXIS_WIDTH = 72
+
+#: Smallest loudness span the right axis will show, in LU. A steady take
+#: varies by a fraction of a dB, and autoscaling to that magnifies its own
+#: dither into a level that looks all over the place.
+MIN_LOUDNESS_SPAN = 12.0
+
+LOUDNESS_TOOLTIP = (
+    "Short-term loudness (EBU Tech 3341) over the waveform, on its own LUFS\n"
+    "axis. The integrated figure in the Levels box is one number for the whole\n"
+    "clip; this is where it moved."
+)
+
 
 class TimePlot(pg.PlotWidget):
     """A plot whose x axis is time, with a selection region and a playhead.
@@ -87,6 +112,14 @@ class TimePlot(pg.PlotWidget):
     def __init__(self, parent: QWidget = None):
         super().__init__(parent, background=None)
         self.setLabel("bottom", "Time", units="s")
+        # Both plots are x-linked, which makes them show the same time range --
+        # and does nothing about where that range lands on screen. The left
+        # axis is as wide as its tick labels need, so "Amplitude" (70 px) and
+        # "Frequency" (35-59 px, depending on the rate and the view) put the
+        # same instant in two different places, and the offset *changed* when
+        # you switched modes. Pinning the width is what actually makes the
+        # shared axis mean what this class promises.
+        self.plotItem.getAxis("left").setWidth(LEFT_AXIS_WIDTH)
 
         self._region = pg.LinearRegionItem(
             brush=pg.mkBrush(*self.REGION_FILL),
@@ -210,6 +243,83 @@ class WaveformView(TimePlot):
         self._curve.setDownsampling(auto=True, method="peak")
         self._curve.setClipToView(True)
 
+        # A second view box sharing the time axis, so the loudness curve can be
+        # read in LUFS instead of being squashed into the amplitude scale --
+        # "-31 LUFS here" is a number you can act on; "about a third as tall"
+        # is not.
+        self._loudness_vb = pg.ViewBox(enableMenu=False)
+        self._loudness_vb.setMouseEnabled(x=False, y=False)
+        self.plotItem.scene().addItem(self._loudness_vb)
+        # NOT setXLink: the time axis is copied one way, in _sync_loudness_box.
+        # A real link makes this box push its x range back onto the plot, which
+        # re-fires the sync that set it -- the two then hand the same range to
+        # each other until the process stops responding. Found by a test that
+        # toggled the curve off and on again.
+
+        right = self.plotItem.getAxis("right")
+        right.linkToView(self._loudness_vb)
+        right.setLabel("Loudness", units="LUFS")
+        right.setWidth(RIGHT_AXIS_WIDTH)
+
+        self._loudness = pg.PlotDataItem(
+            pen=pg.mkPen(LOUDNESS_COLOR, width=2), connect="finite")
+        self._loudness.setZValue(15)
+        self._loudness_vb.addItem(self._loudness)
+        # resize moves the box; a zoom or a scroll changes the range inside it
+        self.plotItem.vb.sigResized.connect(self._sync_loudness_box)
+        self.plotItem.vb.sigXRangeChanged.connect(self._sync_loudness_box)
+        self.plotItem.hideAxis("right")
+
+    # ------------------------------------------------------------- loudness
+
+    def _sync_loudness_box(self) -> None:
+        """Keep the second view box exactly on top of the first.
+
+        pyqtgraph does not lay a second ViewBox out for you; without this it
+        keeps whatever geometry it was created with and the curve drifts off
+        the plot the first time the window is resized.
+        """
+        self._loudness_vb.setGeometry(self.plotItem.vb.sceneBoundingRect())
+        self._loudness_vb.linkedViewChanged(self.plotItem.vb,
+                                            self._loudness_vb.XAxis)
+
+    def set_loudness(self, times, lufs) -> None:
+        """Draw a loudness curve against the right-hand axis, in LUFS."""
+        values = np.asarray(lufs, dtype=np.float64) if lufs is not None \
+            else np.zeros(0)
+        if times is None or values.size == 0:
+            self.clear_loudness()
+            return
+        # -inf is digital silence; pyqtgraph breaks the line at non-finite
+        # values, which is what silence should look like
+        values = np.where(np.isfinite(values), values, np.nan)
+        self._loudness.setData(np.asarray(times, dtype=np.float64), values)
+
+        finite = values[np.isfinite(values)]
+        if finite.size:
+            lo, hi = float(np.min(finite)), float(np.max(finite))
+            if hi - lo < MIN_LOUDNESS_SPAN:
+                # a steady take would otherwise have its own dither magnified
+                # to fill the plot, which reads as a level that is all over the
+                # place
+                middle = (hi + lo) / 2.0
+                lo, hi = (middle - MIN_LOUDNESS_SPAN / 2,
+                          middle + MIN_LOUDNESS_SPAN / 2)
+            self._loudness_vb.setYRange(lo - 1.0, hi + 1.0, padding=0.0)
+
+        self.plotItem.showAxis("right")
+        self._loudness.show()
+        self._sync_loudness_box()
+
+    def clear_loudness(self) -> None:
+        self._loudness.clear()
+        self._loudness.hide()
+        self.plotItem.hideAxis("right")
+
+    @property
+    def loudness_visible(self) -> bool:
+        return bool(self._loudness.isVisible())
+
     # ------------------------------------------------------------------ data
 
     def set_waveform(self, y: Optional[np.ndarray], sr: int,
@@ -247,6 +357,7 @@ class WaveformView(TimePlot):
         self._curve.setData([], [])
         self._region.hide()
         self._cursor.hide()
+        self.clear_loudness()
 
 
 class SpectrogramView(TimePlot):
@@ -347,6 +458,18 @@ class SpectrogramView(TimePlot):
         self.setYRange(0.0, y_max, padding=0.0)
         self._duration = duration
 
+    def reserve_right_gutter(self, on: bool) -> None:
+        """Show or hide an empty right axis the same width as the waveform's.
+
+        Nothing is drawn against it. It exists so that turning the loudness
+        curve on does not shift this plot's time axis relative to the one
+        above it.
+        """
+        axis = self.plotItem.getAxis("right")
+        axis.setWidth(RIGHT_AXIS_WIDTH)
+        axis.setStyle(showValues=False)
+        self.plotItem.showAxis("right") if on else self.plotItem.hideAxis("right")
+
     def clear_image(self) -> None:
         self._image.clear()
         self._levels = None
@@ -377,6 +500,9 @@ class AnalysisView(QWidget):
         self._syncing = False       # guards the spin box <-> region round trip
         #: (times, Hz) drawn over the spectrogram, or None
         self._overlay: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        #: the short-term loudness curve for the current audio, or None. Held
+        #: whether or not it is being drawn, so the checkbox is instant.
+        self._loudness = None
         # live take state; _monitor_sr > 0 is what "a take is running" means
         self._monitor_sr = 0
         self._monitor_wave = np.zeros(0, dtype=np.float32)
@@ -409,12 +535,18 @@ class AnalysisView(QWidget):
         self.n_mfcc.setRange(4, 128)
         self.n_mfcc.setValue(40)
 
+        self.show_loudness = QCheckBox("Loudness over time")
+        self.show_loudness.setToolTip(LOUDNESS_TOOLTIP)
+        self.show_loudness.setEnabled(False)
+        self.show_loudness.toggled.connect(self._apply_loudness)
+
         controls = QFormLayout()
         controls.addRow("View", self.mode)
         controls.addRow("n_fft", self.n_fft)
         controls.addRow("hop_length", self.hop)
         controls.addRow("n_mels", self.n_mels)
         controls.addRow("n_mfcc", self.n_mfcc)
+        controls.addRow("", self.show_loudness)
 
         self.call_hint = QLabel()
         self.call_hint.setWordWrap(True)
@@ -429,6 +561,9 @@ class AnalysisView(QWidget):
 
         selection_box = self._build_selection_box()
         self.levels = LevelReadout(self)
+        # the readout already walks the signal for its report; the curve comes
+        # out of the same pass rather than being measured a second time here
+        self.levels.curve_ready.connect(self.set_loudness_curve)
 
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
@@ -645,6 +780,34 @@ class AnalysisView(QWidget):
 
     # --------------------------------------------------------------- overlay
 
+    def set_loudness_curve(self, curve) -> None:
+        """Take the short-term loudness for the current audio, or ``None``.
+
+        Held rather than drawn: the checkbox then costs nothing, and a curve
+        measured from audio that has since been edited is replaced rather than
+        left on screen describing something else.
+        """
+        self._loudness = curve
+        self._apply_loudness()
+
+    def _apply_loudness(self) -> None:
+        curve = self._loudness
+        # A checkbox that ticks and does nothing is worse than one that says
+        # why it cannot: short-term loudness needs three seconds, and a clip
+        # that has not got them has no curve rather than a degraded one.
+        self.show_loudness.setEnabled(curve is not None)
+        self.show_loudness.setToolTip(
+            LOUDNESS_TOOLTIP if curve is not None else
+            f"The clip is shorter than the {kudio.SHORT_TERM:g} s short-term "
+            f"window (EBU Tech 3341), so there is no curve to draw.")
+
+        if curve is None or not self.show_loudness.isChecked():
+            self.waveform.clear_loudness()
+            self.spectrogram.reserve_right_gutter(False)
+            return
+        self.waveform.set_loudness(curve.times, curve.lufs)
+        self.spectrogram.reserve_right_gutter(True)
+
     def set_pitch_overlay(self, times, hz) -> None:
         """Draw an f0 contour over the spectrogram.
 
@@ -684,6 +847,8 @@ class AnalysisView(QWidget):
         self._monitor_wave = np.zeros(0, dtype=np.float32)
         self._monitor_ticks = 0
         self._monitor_stream = self._build_monitor_stream()
+        self._loudness = None
+        self._apply_loudness()
         self._apply_overlay()
         self._update_hint()
 

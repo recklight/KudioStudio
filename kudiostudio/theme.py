@@ -25,6 +25,11 @@ MARKER_COLOR = "#9b8ec4"
 #: so a curve has to be outside that ramp to read as an overlay rather than as
 #: part of the image -- pink is the one hue the colour map never reaches.
 PITCH_COLOR = "#ff5fa2"
+#: the short-term loudness curve drawn over the waveform. Warm against the
+#: waveform's blue, and distinct from the selection's amber, because both can
+#: be on screen at once.
+LOUDNESS_COLOR = "#f0d264"
 
 __all__ = ["CALL_COLOR", "HINT_COLOR", "WAVE_COLOR", "ACCENT_COLOR",
-           "WARN_COLOR", "OK_COLOR", "MARKER_COLOR", "PITCH_COLOR"]
+           "WARN_COLOR", "OK_COLOR", "MARKER_COLOR", "PITCH_COLOR",
+           "LOUDNESS_COLOR"]

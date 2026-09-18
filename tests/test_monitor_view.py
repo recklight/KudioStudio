@@ -24,7 +24,18 @@ SR = 16000
 
 @pytest.fixture
 def view(qapp):
-    return AnalysisView()
+    v = AnalysisView()
+    # A real size, because pyqtgraph peak-decimates the waveform to the plot's
+    # pixel width and `getData()` returns what it drew. On a zero-width widget
+    # the decimation factor is arbitrary, and assertions about where the curve
+    # ends become assertions about the default widget size.
+    v.resize(900, 500)
+    yield v
+    # `set_audio` debounces a measurement onto a worker; dropping the view
+    # while that thread runs takes the QThread down with it, and the suite
+    # then stops on the *next* test rather than this one.
+    v.levels._timer.stop()
+    v.levels.jobs.wait(5000)
 
 
 def noise(n: int, seed: int = 0) -> np.ndarray:
@@ -269,9 +280,11 @@ def test_the_two_rolling_plots_agree_about_where_now_is(view):
         view.feed_monitor(noise(SR // 4), SR)          # 1 s into a 3 s window
 
     assert view.waveform.duration == pytest.approx(MONITOR_SECONDS, abs=0.05)
+    # getData() is the decimated curve, so the last point sits within one
+    # bucket of the true end rather than exactly on it
     x = view.waveform._curve.getData()[0]
-    assert x[-1] == pytest.approx(MONITOR_SECONDS, abs=0.05)
     assert x[0] == pytest.approx(MONITOR_SECONDS - 1.0, abs=0.05)
+    assert MONITOR_SECONDS - 0.1 < x[-1] <= MONITOR_SECONDS + 0.05
 
 
 def test_a_full_window_starts_at_zero_again(view):
@@ -281,4 +294,4 @@ def test_a_full_window_starts_at_zero_again(view):
 
     x = view.waveform._curve.getData()[0]
     assert x[0] == pytest.approx(0.0, abs=0.02)
-    assert x[-1] == pytest.approx(MONITOR_SECONDS, abs=0.02)
+    assert MONITOR_SECONDS - 0.1 < x[-1] <= MONITOR_SECONDS + 0.05

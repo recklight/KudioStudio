@@ -50,6 +50,26 @@ def demo_clip(path: Path) -> Path:
     return path
 
 
+def drifting_clip(path: Path) -> Path:
+    """20 s of speech-like audio whose level wanders, for the loudness shot.
+
+    A steady tone would draw a flat line, which demonstrates nothing; this is
+    a take where somebody leaned away from the microphone in the middle and
+    came back, which is what the curve exists to find.
+    """
+    t = np.arange(int(20 * SR), dtype=np.float64) / SR
+    syllables = 0.5 + 0.5 * np.sin(2 * np.pi * 3.5 * t)
+    # down 13 dB between 7 s and 13 s, easing in and out over half a second
+    away = np.clip((t - 7.0) / 0.5, 0, 1) * np.clip((13.0 - t) / 0.5, 0, 1)
+    level = 10 ** (-13.0 * away / 20.0)
+    voice = sum(np.sin(2 * np.pi * 180 * k * t) / k for k in range(1, 12)) / 6
+    y = voice * syllables * level
+    y = y / np.max(np.abs(y)) * 0.7
+    y += 0.004 * np.random.default_rng(3).standard_normal(len(t))
+    kudio.save_wave(path, y.astype(np.float32), SR)
+    return path
+
+
 def settle(app, ms: int = 60) -> None:
     app.processEvents()
     loop = QEventLoop()
@@ -124,6 +144,28 @@ def main() -> int:
     save(app, pitch, "panel_pitch")
     window.session.set_selection(0.8, 1.6)
     save(app, window.analysis, "analysis_pitch")
+
+    print("loudness over time")
+    # A 2.5 s clip is shorter than the 3 s short-term window, so it has no
+    # curve at all -- and a picture of this feature wants material that
+    # actually drifts. Loaded on its own, then put back.
+    window.open_files([str(drifting_clip(IMAGES / "drift.wav"))])
+    for _ in range(200):            # the readout measures on a worker
+        settle(app, 30)
+        if window.analysis._loudness is not None:
+            break
+    else:
+        raise SystemExit("the loudness curve never arrived")
+    window.analysis.show_loudness.setChecked(True)
+    settle(app, 150)
+    save(app, window.analysis, "analysis_loudness")
+    save(app, window.analysis.levels, "dock_levels")
+    window.analysis.show_loudness.setChecked(False)
+
+    (IMAGES / "drift.wav").unlink(missing_ok=True)
+    window.open_files([str(demo_clip(IMAGES / "demo.wav"))])
+    window.session.set_selection(0.8, 1.6)
+    settle(app, 150)
 
     print("a take in progress")
     # the real path: the Record panel emits arriving audio and the view builds

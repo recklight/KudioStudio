@@ -51,14 +51,14 @@ kudiostudio --reset            # forget saved window geometry
 
 | Panel | `kudio` behind it | What you get |
 |---|---|---|
-| **Analysis** (centre) | `STFT`, `melspectrogram`, `mfcc`, `audio_report` | Waveform + log-power STFT, log-mel or MFCC, x-linked, live `n_fft` / `hop_length` / `n_mels` / `n_mfcc`, plus a live **Levels** readout |
-| **Effects** | `kudio.effects` | Fades, `reverse`, `remove_dc`, four Butterworth filters, `gain`, `pitch_shift`, `time_stretch`, `reverb`, `add_noise_snr`, `trim_silence`, `vad_trim`, `split_on_silence` — with a looping **Preview** that commits nothing |
+| **Analysis** (centre) | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` | Waveform + log-power STFT, log-mel or MFCC, x-linked, live `n_fft` / `hop_length` / `n_mels` / `n_mfcc`, a **loudness curve** on its own LUFS axis, plus a live **Levels** readout with true peak and loudness range |
+| **Effects** | `kudio.effects`, `kudio.rir`, `kudio.effects.channel` | Fades, `reverse`, `remove_dc`, four Butterworth filters, `gain`, `pitch_shift`, `time_stretch`, `reverb`, **`room`** (a real impulse response, seeded and measurable), **`telephone`** / **`bit_depth`** / **`dropouts`** (the channel, scattered or in bursts), `add_noise_snr`, `trim_silence`, `vad_trim`, `split_on_silence` — with a looping **Preview** that commits nothing |
 | **Enhance** | `kudio.spectral_enhance` + `kudio-enhance` | Seven statistical denoisers × four noise estimators, `wavelet_low_pass_filter`, and **learned models** from a [kudio-enhance](https://github.com/recklight/KudioEnhance) run |
 | **Compare** | `kudio.compare_enhancers` | Every method × every noise estimator over the same clip, ranked, with per-row audition — and a trained model in the same table |
 | **Record** | `kudio.record`, `kudio.StreamRecorder`, `kudio.StreamEnhancer`, `kudio.SpectrogramStream` | Fixed-length capture, **or record until you stop** with a live level meter, a **rolling waveform and spectrogram**, and optional **live denoised monitoring** |
-| **Synthesize** | `kudio.Synthesizer` | clean × noise × SNR dataset generation, seeded and reproducible |
+| **Synthesize** | `kudio.Synthesizer` | clean × noise × SNR **× room** dataset generation, optionally **down a link** (telephone / VoIP) and with **reverberant targets** beside the mixtures, seeded and reproducible, writing a manifest that records what came from what |
 | **Pitch** | `kudio.f0` | pYIN fundamental frequency **with** the voiced/unvoiced decision — median, range in Hz and semitones, the contour drawn over the spectrogram, and the voiced spans as markers |
-| **Metrics** | `kudio.audio_report`, `kudio.dnsmos`, `kudio.core.evaluator` | **No reference needed**: clipping, level, DC, noise floor, real bandwidth, and a predicted **DNSMOS** opinion. **With a reference**: SNR / SI-SDR / segmental SNR always, PESQ / STOI / SDR when installed |
+| **Metrics** | `kudio.audio_report`, `kudio.dnsmos`, `kudio.core.evaluator`, `kudio.find_delay` | **No reference needed**: clipping, level, DC, noise floor, real bandwidth, and a predicted **DNSMOS** opinion. **With a reference**: SNR / SI-SDR / segmental SNR always, PESQ / STOI / SDR when installed |
 | **Batch** | `kudio.convert_folder`, `kudio.enhance_folder` | Folder-wide resample, bit depth, mono downmix, trim, peak **or LUFS** normalise, **and denoise** — mirroring the input's folder structure |
 
 Edits apply to the **selected range** when there is one, otherwise to the whole
@@ -224,6 +224,67 @@ script would use — the caption under the controls is the exact call:
 The same pair of plots also carries the two things that are *not* the clip: the
 rolling picture of a take as it arrives, and an f0 contour over the
 spectrogram. Both are below.
+
+### Where did the level go?
+
+<img src="docs/images/analysis_loudness.png" width="600" alt="short-term loudness over the waveform">
+
+The Levels box gives one integrated LUFS figure for the whole clip — the
+number you normalise against, and no help at all in finding the moment
+somebody leaned away from the microphone. **Loudness over time** draws the
+short-term curve (EBU Tech 3341, 3 s window, 100 ms hop) over the waveform on
+its own LUFS axis, so "-31 LUFS here" is a number you can act on rather than
+"about a third as tall".
+
+Above, a take that drifts 13 dB and comes back. The Levels box agrees: `range
+13.0 LU`.
+
+It costs no extra measurement. The Levels readout already walks the signal for
+its report, so the curve, the true peak and the range come out of that same
+pass — four answers from one worker job, which also means they cannot describe
+four different moments of an edit.
+
+Two things it is deliberate about:
+
+- **The curve is ungated.** Gating is what stops pauses dragging the
+  *integrated* figure down; a curve with holes punched in it where the gate
+  fired would describe a recording that stops existing between words. Real
+  silence still breaks the line, because there the level genuinely is nothing.
+- **A clip shorter than the 3 s window has no curve**, and the checkbox says so
+  rather than ticking and doing nothing. Falling back to the 400 ms window
+  would quietly answer a different question.
+
+**True peak** is in the Levels box beside the sample peak, and the two
+disagree more often than you would think. Samples are points on a curve that
+passes between them, and the curve overshoots — so a file with no sample at
+full scale can still clip in a converter or a lossy encoder. `audio_report`
+cannot see that (nothing in the samples is wrong), so it is reported
+separately, in dBTP, and warns at the usual -1 dBTP delivery ceiling.
+
+### Two files that are the same take, eight milliseconds apart
+
+Every metric in the Metrics panel compares sample *i* of the reference with
+sample *i* of the current audio. A clip scored against **itself** reads
++145 dB; one sample of delay costs 134 of them, and a millisecond scores worse
+than not processing at all. Nothing in the resulting number distinguishes
+"your processing was bad" from "these two are misaligned", and those mean
+opposite things.
+
+So the panel measures the offset with `kudio.find_delay` **every time**, puts
+it in the table, and takes it out before scoring unless you say otherwise:
+
+```
+Alignment          lags by 128 samples (8.0 ms), correlation 0.982
+SI-SDR             +14.210 dB          ...instead of -7.890 dB
+```
+
+Untick `Line up with the reference first` and it still reports the offset,
+with a warning that the scores below are mostly measuring it.
+
+When the reference does not look like the same recording at all, it says so
+and does **not** line the two up — aligning two unrelated signals produces a
+confident-looking number about nothing, which is worse than an obviously bad
+one.
 
 ### What note is this?
 
@@ -437,13 +498,14 @@ you read is what runs.
 pytest -q
 ```
 
-305 tests covering the session's undo/selection/clipboard/marker arithmetic,
+352 tests covering the session's undo/selection/clipboard/marker arithmetic,
 loudness matching, the playhead's timing, the preview and playback loops, the
 shared axes and colour scale, the comparison table's ranking and its refusal
 to crown a winner when the reference is not clean, the rolling views' promise
 that every column is computed once and that real audio always wins over a live
-one, where the pitch contour refuses to draw, each panel's behaviour, and the
-main window's wiring. Qt runs headless (`offscreen`), so the suite works in CI. The
+one, where the pitch contour refuses to draw, the two plots' left and right
+gutters staying the same width so a shared time axis actually lines up, each
+panel's behaviour, and the main window's wiring. Qt runs headless (`offscreen`), so the suite works in CI. The
 learned-denoising tests train a one-epoch model for real and skip cleanly when
 the `enhance` extra is not installed; the open-ended recorder is driven through
 a fake device, since CI has no microphone.
