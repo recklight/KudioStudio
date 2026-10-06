@@ -33,7 +33,8 @@ Requires **Python 3.9+**. Everything heavy is an opt-in extra:
 | Extra | Adds |
 |---|---|
 | `kudiostudio[theme]` | dark theme (QDarkStyle) |
-| `kudiostudio[eval]` | PESQ / STOI / SDR metrics |
+| `kudiostudio[eval]` | STOI / SDR metrics |
+| `kudio[pesq]` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
 | `kudiostudio[dnsmos]` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
 | `kudiostudio[enhance]` | learned denoising — pulls in TensorFlow |
 | `kudiostudio[all]` | all of the above |
@@ -426,8 +427,11 @@ SNR, SI-SDR and segmental SNR are pure numpy and always available. PESQ, STOI
 and BSS-SDR need the optional back-ends:
 
 ```bash
-pip install "kudio[eval]"
+pip install "kudio[eval]"      # STOI and BSS-SDR
+pip install "kudio[pesq]"      # PESQ — builds from source, needs a C compiler
 ```
+
+PESQ comes on two different scales. kudio reports MOS-LQO by default; enhancement papers mostly quote the raw narrowband P.862 score, and the two are not interchangeable — raw 2.03 is about 1.65 MOS-LQO. The Metrics panel names which one it is showing and lets you switch.
 
 The panel reports which ones are present rather than failing.
 

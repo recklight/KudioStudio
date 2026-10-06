@@ -14,8 +14,10 @@ across the run and lives in the manifest rather than in the file names.
 from __future__ import annotations
 
 import logging
+import math
+import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import List, NamedTuple, Optional, Sequence, Union
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,16 +36,35 @@ from PySide6.QtWidgets import (
 import kudio
 from kudiostudio.panels.base import DirPicker, Panel
 
+#: What a mixture can be written as. PCM_16 clips at full
+#: scale; FLOAT keeps whatever is past it.
+SUBTYPES = ("PCM_16", "PCM_24", "FLOAT")
+
 log = logging.getLogger(__name__)
 
 
-def parse_snr(text: str) -> List[int]:
-    """``"-5, 0, 5"`` -> ``[-5, 0, 5]``."""
-    values = []
+def parse_snr(text: str) -> List[Union[int, float]]:
+    """``"-5, 0, 5"`` -> ``[-5, 0, 5]``; ``"2.5, 2.7"`` -> ``[2.5, 2.7]``.
+
+    A whole number comes back as an ``int`` and a fractional one as a
+    ``float``. kudio normalises either into the same output name and the same
+    manifest value, so the distinction is purely so that the call shown under
+    the form stays ``[-5, 0, 5]`` rather than ``[-5.0, 0.0, 5.0]``.
+
+    This used to be ``int(float(chunk))``, which silently truncated: ``2.5``
+    became ``2``, and ``"2.5, 2.7"`` became ``[2, 2]`` -- two SNRs that then
+    wrote the same file name, so one overwrote the other and the corpus came
+    out half the size the panel claimed.
+    """
+    values: List[Union[int, float]] = []
     for chunk in text.replace(";", ",").split(","):
         chunk = chunk.strip()
-        if chunk:
-            values.append(int(float(chunk)))
+        if not chunk:
+            continue
+        value = float(chunk)
+        if value != value or value in (float('inf'), float('-inf')):
+            raise ValueError(f"{chunk!r} is not a usable SNR")
+        values.append(int(value) if value.is_integer() else value)
     if not values:
         raise ValueError("no SNR values given")
     return values
@@ -65,6 +86,28 @@ def parse_rt60(text: str) -> Optional[List[float]]:
                                  f"got {value:g}")
             values.append(value)
     return values or None
+
+
+class SynthResult(NamedTuple):
+    """What one synthesis run produced, by name.
+
+    `wanted` is what `syn()` was asked for and `on_disk` is what exists: two
+    outputs that share a name leave one file, so the two differ exactly when
+    something was overwritten. Named rather than positional because this grew
+    from three fields to five and broke a caller doing so — and `.clipped` and
+    the write subtype are still to be added.
+    """
+
+    produced: Optional[list]
+    link: str
+    targets: int
+    wanted: int
+    on_disk: int
+    # Optional[...] = None rather than {} / (): a NamedTuple evaluates its
+    # defaults once, so a mutable one is shared by every instance that omits it.
+    clipped: Optional[dict] = None
+    notices: Sequence[str] = ()
+    subtype: str = "PCM_16"
 
 
 class SynthPanel(Panel):
@@ -89,6 +132,11 @@ class SynthPanel(Panel):
         self.noise = DirPicker("folder of noise audio")
         self.out = DirPicker("output folder for the mixture")
         self.snr = QLineEdit("-5, 0, 5")
+        self.snr.setToolTip(
+            "Signal-to-noise ratios in dB, one corpus axis per value.\n\n"
+            "Fractional values are allowed: 2.5 is written `_2p5dB`, because\n"
+            "a decimal point in a file name reads as the start of the suffix.\n"
+            "A whole number keeps its plain name, so `0` is still `_0dB`.")
         self.rt60 = QLineEdit("")
         self.rt60.setPlaceholderText("no rooms — e.g. 0.3, 0.6, 0.9")
         self.rt60.setToolTip(
@@ -108,6 +156,16 @@ class SynthPanel(Panel):
             "Direct-to-reverberant ratio — distance, in a readable unit.\n"
             "+10 and above is a close microphone; 0 is a metre or two;\n"
             "negative is the far end of a hall.")
+        self.subtype = QComboBox()
+        self.subtype.addItems(SUBTYPES)
+        self.subtype.setToolTip(
+            "What the mixtures are written as.\n\n"
+            "PCM_16 is the usual choice and clips anything past full scale —\n"
+            "kudio says how many files and how far over, and they are listed\n"
+            "under the result.\n\n"
+            "FLOAT keeps values past 1.0 instead of clipping them, which is\n"
+            "what you want when a loud talker at a low SNR would otherwise\n"
+            "lose its peaks. PCM_24 still clips, with a finer step.")
         self.channel = QComboBox()
         self.channel.addItems(self.LINKS)
         self.channel.setToolTip(
@@ -151,6 +209,7 @@ class SynthPanel(Panel):
         form.addRow("snr_ratio", self.snr)
         form.addRow("rt60", self.rt60)
         form.addRow("drr_db", self.drr)
+        form.addRow("subtype", self.subtype)
         form.addRow("channel", self.channel)
         form.addRow("mode", self.mode)
         form.addRow("seed", self.seed)
@@ -179,6 +238,7 @@ class SynthPanel(Panel):
                   self.out.edit):
             w.textChanged.connect(self._update_call)
         self.mode.currentIndexChanged.connect(self._update_call)
+        self.subtype.currentIndexChanged.connect(self._update_call)
         self.channel.currentIndexChanged.connect(self._update_call)
         self.targets.toggled.connect(self._update_call)
         self.seed.valueChanged.connect(self._update_call)
@@ -211,6 +271,8 @@ class SynthPanel(Panel):
             room_args += f", channel={link!r}"
         if self.targets.isChecked():
             room_args += ", write_targets=True"
+        if self.subtype.currentText() != "PCM_16":
+            room_args += f", subtype={self.subtype.currentText()!r}"
         self.call.setText(
             f"kudio.Synthesizer({self.clean.path()!r}, {self.noise.path()!r}, "
             f"out_path={self.out.path()!r}, snr_ratio={snr}{room_args})"
@@ -252,34 +314,80 @@ class SynthPanel(Panel):
         if not started:
             self.report("A synthesis job is already running.")
 
-    def _synthesize(self, snr: List[int], rooms: Optional[List[float]]):
+    def _synthesize(self, snr: Sequence[Union[int, float]],
+                    rooms: Optional[List[float]]):
         syx = kudio.Synthesizer(self.clean.path(), self.noise.path(),
                                 out_path=self.out.path(), snr_ratio=snr,
                                 rt60=rooms, drr_db=self.drr.value(),
                                 channel=self._link(),
-                                write_targets=self.targets.isChecked())
-        produced = syx.syn(mode=self.mode.currentText(),
-                           is_add_clean=self.add_clean.isChecked(),
-                           overwrite=self.overwrite.isChecked(),
-                           seed=self._seed())
+                                write_targets=self.targets.isChecked(),
+                                subtype=self.subtype.currentText())
+        # kudio warns about clipping and about names that overwrite each other.
+        # Nothing in this app routes warnings anywhere, so without this they
+        # reach stderr and a GUI user never learns their corpus was clipped.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            produced = syx.syn(mode=self.mode.currentText(),
+                               is_add_clean=self.add_clean.isChecked(),
+                               overwrite=self.overwrite.isChecked(),
+                               seed=self._seed())
+            notices = [str(w.message) for w in caught
+                       if issubclass(w.category, UserWarning)]
         # the manifest carries the room, the link and the target, none of
         # which the four-tuples can; written beside the mixture so a training
         # run can read what it was given
         if produced:
             kudio.save_manifest(Path(self.out.path()) / "manifest.json",
                                 syx.manifest())
-        return produced, syx.channel_tag, len(syx.targets)
 
-    def _finished(self, result) -> None:
-        produced, link, targets = result
-        count = len(produced) if produced else 0
-        note = "" if count == 0 else "  ·  manifest.json beside them"
-        if link:
-            note += f"  ·  down a {link} link"
-        if targets:
-            note += f"  ·  {targets} reverberant target(s) in TARGETS/"
-        self.result.setText(f"{count} file(s) written to {self.out.path()}{note}")
-        self.report(f"Synthesis complete — {count} file(s).")
+        # What `syn` returns is what was *asked for*. Two outputs that share a
+        # name leave one file, so counting the request would report a corpus
+        # that is not there -- and the manifest written above would agree with
+        # the wrong number. Count the distinct paths that exist instead, on
+        # this thread, where walking the disk costs the UI nothing.
+        wanted = len(produced or [])
+        paths = {Path(out) for out, *_ in (produced or [])}
+        return SynthResult(produced=produced, link=syx.channel_tag,
+                           targets=len(syx.targets), wanted=wanted,
+                           on_disk=sum(1 for p in paths if p.is_file()),
+                           clipped=dict(syx.clipped), notices=notices,
+                           subtype=self.subtype.currentText())
+
+    def _finished(self, result: SynthResult) -> None:
+        note = "" if result.on_disk == 0 else "  ·  manifest.json beside them"
+        if result.link:
+            note += f"  ·  down a {result.link} link"
+        if result.targets:
+            note += f"  ·  {result.targets} reverberant target(s) in TARGETS/"
+        if result.clipped:
+            worst = max(result.clipped.values())
+            note += (f"  ·  {len(result.clipped)} clipped "
+                     f"(worst peak {worst:.2f})")
+        self.result.setText(
+            f"{result.on_disk} file(s) written to {self.out.path()}{note}")
+
+        if result.clipped:
+            worst = max(result.clipped.values())
+            over_db = 20 * math.log10(worst) if worst > 0 else 0.0
+            self.report(
+                f"{len(result.clipped)} of {result.on_disk} file(s) went past "
+                f"full scale and were clipped as {result.subtype} (worst peak "
+                f"{worst:.2f}, +{over_db:.1f} dBFS). Lower the clean level, "
+                f"raise the SNR, or write subtype='FLOAT' to keep them.")
+            return
+
+        wanted, on_disk = result.wanted, result.on_disk
+        if wanted > on_disk:
+            # the only way to ask for N and get fewer is a name collision, and
+            # it is worth saying out loud rather than quietly reporting N
+            short = wanted - on_disk
+            self.report(
+                f"Synthesis complete — {on_disk} file(s), but {wanted} were "
+                f"asked for: {short} output(s) shared a name and overwrote "
+                f"each other. Give the clashing files distinct names, or keep "
+                f"mkdir_parents on so the folder layout separates them.")
+        else:
+            self.report(f"Synthesis complete — {on_disk} file(s).")
 
     def _failed(self, message: str) -> None:
         self.result.setText("—")

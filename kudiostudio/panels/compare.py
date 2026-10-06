@@ -142,7 +142,8 @@ class ComparePanel(Panel):
             "methods. 'Is the model actually better than log-MMSE' is not a "
             "question two separate printouts answer.")
 
-        self.metrics = QCheckBox("PESQ / STOI (slow, needs kudio[eval])")
+        self.metrics = QCheckBox("PESQ / STOI (slow; STOI needs kudio[eval], "
+                                 "PESQ needs kudio[pesq])")
         self.selection_only = QCheckBox("compare only the selected range")
         self.selection_only.setToolTip(
             "Faster, and lets you judge one difficult passage. Noise estimation "

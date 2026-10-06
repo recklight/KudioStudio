@@ -339,6 +339,136 @@ def test_parse_snr_rejects_empty():
         parse_snr("  ")
 
 
+@pytest.mark.parametrize("text, expected", [
+    ("2.5", [2.5]),
+    ("2.5, 2.7", [2.5, 2.7]),
+    ("-2.5", [-2.5]),
+    ("0.5;1.5", [0.5, 1.5]),
+])
+def test_parse_snr_keeps_a_fractional_snr(text, expected):
+    """kudio 3.7.0 names 2.5 as `_2p5dB` and records 2.5 in the manifest, so
+    there is nothing left for the panel to round. This used to be
+    `int(float(chunk))`: 2.5 became 2, and "2.5, 2.7" became [2, 2] -- two
+    SNRs that then wrote one file name and overwrote each other."""
+    from kudiostudio.panels.synth import parse_snr
+    assert parse_snr(text) == expected
+
+
+@pytest.mark.parametrize("text", ["-5, 0, 5", "0", "3;6;9", "2.0", "-0.0"])
+def test_a_whole_snr_stays_an_int_so_output_names_do_not_move(text):
+    """A compatibility guard, not a style preference. kudio writes `_5dB` for
+    5 and `_5dB` for 5.0 alike, but the call shown under the form is meant to
+    be copy-pasteable, and `[-5.0, 0.0, 5.0]` is not what anyone typed."""
+    from kudiostudio.panels.synth import parse_snr
+    assert all(isinstance(v, int) for v in parse_snr(text))
+
+
+@pytest.mark.parametrize("text", ["nan", "inf", "-inf"])
+def test_parse_snr_refuses_what_float_would_accept(text):
+    """`float("nan")` succeeds, and an SNR of NaN would reach kudio and come
+    back as a file called `_nandB`."""
+    from kudiostudio.panels.synth import parse_snr
+    with pytest.raises(ValueError):
+        parse_snr(text)
+
+
+def _tiny_corpus(root, n_clean=3):
+    import kudio
+    sr = 16000
+    clean, noise = root / "clean", root / "noise"
+    clean.mkdir()
+    noise.mkdir()
+    for i in range(n_clean):
+        t = np.arange(sr) / sr
+        kudio.save_wave(clean / f"c{i}.wav",
+                        (0.2 * np.sin(2 * np.pi * (180 + 40 * i) * t)
+                         ).astype(np.float32), sr)
+    kudio.save_wave(noise / "n0.wav",
+                    (0.02 * np.random.default_rng(0).standard_normal(sr * 2)
+                     ).astype(np.float32), sr)
+    return clean, noise
+
+
+def test_two_fractional_snrs_reach_the_disk_as_two_files(qapp, session,
+                                                        tmp_path):
+    """The whole point of the fix, measured where it matters: on disk."""
+    import kudio
+    from kudiostudio.panels.synth import SynthPanel, parse_snr
+
+    clean, noise = _tiny_corpus(tmp_path)
+    out = tmp_path / "mix"
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(out))
+    panel.snr.setText("2.5, 2.7")
+    panel.mode.setCurrentText("inc")
+
+    result = panel._synthesize(parse_snr(panel.snr.text()), None)
+    assert result.wanted == result.on_disk == 6
+
+    names = sorted(p.name for p in out.glob("*.wav"))
+    assert names == ["c0_n0_2p5dB.wav", "c0_n0_2p7dB.wav",
+                     "c1_n0_2p5dB.wav", "c1_n0_2p7dB.wav",
+                     "c2_n0_2p5dB.wav", "c2_n0_2p7dB.wav"]
+    manifest = kudio.load_manifest(out / "manifest.json")
+    assert sorted({p.snr_db for p in manifest}) == [2.5, 2.7]
+    assert all(pathlib.Path(p.noisy).is_file() for p in manifest)
+
+
+def test_the_panel_reports_the_disk_and_not_the_request(qapp, session,
+                                                        tmp_path):
+    """Asking for the same SNR twice is a user error, and the honest answer is
+    the number of files that exist. Reporting the request made a half-built
+    corpus look complete -- and the manifest beside it agreed with the wrong
+    number."""
+    from kudiostudio.panels.synth import SynthPanel, parse_snr
+
+    clean, noise = _tiny_corpus(tmp_path)
+    out = tmp_path / "mix"
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(out))
+    panel.snr.setText("2.5, 2.5")
+    panel.mode.setCurrentText("inc")
+
+    messages = []
+    panel.status.connect(messages.append)
+    result = panel._synthesize(parse_snr(panel.snr.text()), None)
+    panel._finished(result)
+
+    assert result.wanted == 6 and result.on_disk == 3
+    assert "3 file(s) written" in panel.result.text()
+    assert "6 were asked for" in messages[-1]
+    assert "shared a name" in messages[-1]
+
+
+def test_a_clean_run_does_not_mention_collisions(qapp, session, tmp_path):
+    """The warning has to stay rare, or it stops being read."""
+    from kudiostudio.panels.synth import SynthPanel, parse_snr
+
+    clean, noise = _tiny_corpus(tmp_path)
+    out = tmp_path / "mix"
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(out))
+    panel.snr.setText("-5, 0, 5")
+    panel.mode.setCurrentText("inc")
+
+    messages = []
+    panel.status.connect(messages.append)
+    result = panel._synthesize(parse_snr(panel.snr.text()), None)
+    panel._finished(result)
+
+    assert result.wanted == result.on_disk == 9
+    assert "asked for" not in messages[-1]
+    # and the integer names are the ones every earlier corpus already uses
+    assert sorted(p.name for p in out.glob("*.wav"))[:3] == [
+        "c0_n0_0dB.wav", "c0_n0_5dB.wav", "c0_n0_n5.wav"]
+
+
 def test_batch_converts_a_folder(qapp, tmp_path, tone):
     from kudiostudio.panels.batch import BatchPanel
     from kudiostudio.session import AudioSession
@@ -988,8 +1118,10 @@ def test_the_synth_panel_records_the_link_and_the_target(qapp, session,
     panel.channel.setCurrentText("telephone")
     panel.targets.setChecked(True)
 
-    produced, link, targets = panel._synthesize([0], [0.5])
-    assert produced and link == "telephone" and targets == len(produced)
+    result = panel._synthesize([0], [0.5])
+    assert result.produced and result.link == "telephone"
+    assert result.targets == len(result.produced)
+    assert result.wanted == result.on_disk == len(result.produced)
 
     manifest = kudio.load_manifest(tmp_path / "mixed" / "manifest.json")
     assert manifest
@@ -1001,3 +1133,151 @@ def test_the_synth_panel_records_the_link_and_the_target(qapp, session,
         assert "telephone" not in pathlib.Path(pair.noisy).name
         y, _ = kudio.file_load(pair.noisy, sr=None, mono=True)
         assert kudio.audio_report(y, sr).band_limited
+
+
+# ------------------------------------- the clipping that kudio reports (item 3)
+
+def test_the_panel_can_choose_not_to_clip(qapp, session, tmp_path):
+    """3.7.0 clips at full scale instead of wrapping, and says so. The panel
+    had no way to avoid it and no way to see it, so a corpus built here was
+    clipped as silently as before the fix."""
+    from kudiostudio.panels.synth import SUBTYPES, SynthPanel
+
+    assert SUBTYPES == ("PCM_16", "PCM_24", "FLOAT")
+    clean, noise = _tiny_corpus(tmp_path, n_clean=1)
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.subtype.setCurrentText("FLOAT")
+    assert "subtype='FLOAT'" in panel.call.text()
+    panel.subtype.setCurrentText("PCM_16")
+    assert "subtype=" not in panel.call.text(), "the default stays out of the call"
+
+
+def test_clipping_reaches_the_user_instead_of_stderr(qapp, session, tmp_path):
+    """Nothing in this app routes warnings anywhere, so the panel has to catch
+    them on the worker thread or kudio's warning is lost."""
+    import kudio
+    from kudiostudio.panels.synth import SynthPanel
+
+    # a loud clean file at a low SNR is the case that clips
+    sr = 16000
+    clean, noise = tmp_path / "c", tmp_path / "n"
+    clean.mkdir()
+    noise.mkdir()
+    t = np.arange(sr) / sr
+    kudio.save_wave(clean / "loud.wav",
+                    (0.9 * np.sin(2 * np.pi * 200 * t)).astype(np.float32), sr)
+    kudio.save_wave(noise / "w.wav",
+                    (0.3 * np.random.default_rng(0).standard_normal(sr * 2)
+                     ).astype(np.float32), sr)
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(tmp_path / "mix"))
+    panel.snr.setText("-10")
+    panel.mode.setCurrentText("reg")
+
+    messages = []
+    panel.status.connect(messages.append)
+    result = panel._synthesize([-10], None)
+    panel._finished(result)
+
+    assert result.clipped, "kudio clipped and the panel did not notice"
+    assert any("past full scale" in n for n in result.notices)
+    assert "clipped" in panel.result.text()
+    assert "went past full scale" in messages[-1]
+    assert "subtype='FLOAT'" in messages[-1], "and says how to avoid it"
+
+
+def test_float_keeps_what_pcm16_would_have_clipped(qapp, session, tmp_path):
+    import kudio
+    from kudiostudio.panels.synth import SynthPanel
+
+    sr = 16000
+    clean, noise = tmp_path / "c", tmp_path / "n"
+    clean.mkdir()
+    noise.mkdir()
+    t = np.arange(sr) / sr
+    kudio.save_wave(clean / "loud.wav",
+                    (0.9 * np.sin(2 * np.pi * 200 * t)).astype(np.float32), sr)
+    kudio.save_wave(noise / "w.wav",
+                    (0.3 * np.random.default_rng(0).standard_normal(sr * 2)
+                     ).astype(np.float32), sr)
+
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(tmp_path / "wide"))
+    panel.snr.setText("-10")
+    panel.mode.setCurrentText("reg")
+    panel.subtype.setCurrentText("FLOAT")
+
+    result = panel._synthesize([-10], None)
+    assert not result.clipped, "FLOAT should keep values past 1.0"
+    y, _ = kudio.file_load(sorted((tmp_path / "wide").glob("*.wav"))[0], sr=None)
+    assert float(np.max(np.abs(y))) > 1.0
+
+
+# ------------------------------------------- the PESQ scale, and why (item 4)
+
+def test_the_metrics_panel_names_which_pesq_scale_it_shows(qapp, session):
+    """Raw P.862 and MOS-LQO are different scales -- raw 2.03 is about 1.65
+    MOS-LQO -- so a bare 'PESQ' row does not say what the number is."""
+    from kudiostudio.panels.metrics import MetricsPanel
+
+    panel = MetricsPanel(session)
+    assert [panel.pesq_scale.itemText(i)
+            for i in range(panel.pesq_scale.count())] == ["MOS-LQO", "raw P.862"]
+    assert panel._pesq_scale() == "lqo" and panel._pesq_label() == "MOS-LQO"
+    panel.pesq_scale.setCurrentIndex(1)
+    assert panel._pesq_scale() == "raw" and panel._pesq_label() == "raw P.862"
+
+    panel._installed = {"PESQ": True, "STOI": True, "SDR": True}
+    rows = []
+    panel._fill = lambda r: rows.extend(r)
+    panel._optional_done([], (2.409, 0.9, 12.0))
+    assert rows[0][0] == "PESQ (raw P.862)"
+
+
+def test_pesq_install_advice_names_the_extra_that_installs_it(qapp, session):
+    """`kudio[eval]` has not carried PESQ since 3.0.1, so one hint for all
+    three back-ends sent people to an extra that installs nothing new."""
+    from kudiostudio.panels.metrics import MetricsPanel
+
+    assert "kudio[pesq]" in MetricsPanel.INSTALL_HINT["PESQ"]
+    assert "compiler" in MetricsPanel.INSTALL_HINT["PESQ"]
+    assert MetricsPanel.INSTALL_HINT["STOI"] == 'pip install "kudio[eval]"'
+    assert MetricsPanel.INSTALL_HINT["SDR"] == 'pip install "kudio[eval]"'
+
+    panel = MetricsPanel(session)
+    panel._installed = {"PESQ": False, "STOI": True, "SDR": True}
+    panel._refresh_availability()        # re-reads the real state
+    text = panel._availability.text()
+    if "PESQ unavailable" in text:
+        assert "kudio[pesq]" in text and "kudio[eval]" not in text.split("·")[0]
+
+
+@pytest.mark.parametrize("installed, sr, expected", [
+    (False, 16000, "not installed"),
+    (True, 16000, "could not be computed"),
+    (True, 44100, "not defined at 44100 Hz"),
+])
+def test_none_means_two_different_things(qapp, tmp_path, installed, sr,
+                                        expected):
+    """Before 3.7.0 a None metric meant the back-end was missing. Now an
+    installed back-end also returns None when it cannot run on this pair, and
+    calling that 'not installed' told people to install what they had."""
+    import kudio
+    from kudiostudio.panels.metrics import MetricsPanel
+    from kudiostudio.session import AudioSession
+
+    path = tmp_path / f"t{sr}.wav"
+    kudio.save_wave(path, (0.3 * np.sin(2 * np.pi * 200 * np.arange(sr) / sr)
+                           ).astype(np.float32), sr)
+    sess = AudioSession()
+    sess.load_file(path)
+    panel = MetricsPanel(sess)
+    panel._installed = {"PESQ": installed, "STOI": True, "SDR": True}
+    assert expected in panel._why_missing("PESQ")

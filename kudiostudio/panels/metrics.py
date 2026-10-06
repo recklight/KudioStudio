@@ -2,11 +2,18 @@
 """Objective quality metrics, with and without a clean reference.
 
 `kudio.audio_report` needs nothing to compare against and always works. The
-reference metrics — SNR / SI-SDR / segmental SNR in pure numpy, PESQ / STOI /
-BSS-SDR from `kudio[eval]` — need the clean signal beside the degraded one,
-which a synthetic dataset has and a real recording never does.
+reference metrics — SNR / SI-SDR / segmental SNR in pure numpy, STOI and
+BSS-SDR from `kudio[eval]`, PESQ from `kudio[pesq]` — need the clean signal
+beside the degraded one, which a synthetic dataset has and a real recording
+never does.
+
+**PESQ is two scales, not one number.** kudio reports MOS-LQO by default;
+enhancement papers mostly quote the raw narrowband P.862 score, and raw 2.03 is
+about 1.65 MOS-LQO. The panel names which one it is showing, and lets you pick.
 """
 from __future__ import annotations
+
+from functools import partial
 
 import logging
 from pathlib import Path
@@ -85,12 +92,21 @@ class MetricsPanel(Panel):
 
         box = QGroupBox("Against a clean reference")
         box_layout = QVBoxLayout(box)
+        self.pesq_scale = QComboBox()
+        self.pesq_scale.addItems([name for name, _ in MetricsPanel.PESQ_SCALES])
+        self.pesq_scale.setToolTip(
+            "Which PESQ scale the table reports.\n\n"
+            "MOS-LQO is what kudio has always shown. raw P.862 is the\n"
+            "narrowband score most speech-enhancement papers quote. They are\n"
+            "different scales, not different roundings: raw 2.03 is about\n"
+            "1.65 MOS-LQO.")
+        form.addRow("PESQ scale", self.pesq_scale)
         box_layout.addLayout(form)
         box_layout.addWidget(self.align)
         box_layout.addWidget(self.run_button)
         box_layout.addWidget(self.call_label(
             "kudio.align(ref, deg, sr)  +  kudio.snr / si_sdr / segmental_snr"
-            "  +  kudio.eval_metrics(sr, ref, deg)"))
+            "  +  kudio.eval_metrics(sr, ref, deg, pesq_scale=...)"))
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._build_inspect_box())
@@ -245,16 +261,51 @@ class MetricsPanel(Panel):
             self._ref_path = Path(path)
             self.ref_edit.setText(self._ref_path.name)
 
+    #: The two PESQ scales, label first. They are different scales, not
+    #: different roundings, so the table has to say which one it shows.
+    PESQ_SCALES = (("MOS-LQO", "lqo"), ("raw P.862", "raw"))
+
+    #: Which extra actually installs each back-end. PESQ has its own because
+    #: it builds from source, so it is deliberately not in [eval] or [all].
+    INSTALL_HINT = {
+        "PESQ": 'pip install "kudio[pesq]" (builds from source: needs a C '
+                'compiler — on Windows, the MSVC Build Tools)',
+        "STOI": 'pip install "kudio[eval]"',
+        "SDR": 'pip install "kudio[eval]"',
+    }
+
+    def _pesq_scale(self) -> str:
+        return self.PESQ_SCALES[self.pesq_scale.currentIndex()][1]
+
+    def _pesq_label(self) -> str:
+        return self.PESQ_SCALES[self.pesq_scale.currentIndex()][0]
+
+    def _why_missing(self, name: str) -> str:
+        """`None` means two different things and they need different answers.
+
+        Before 3.7.0 a metric came back None only when its back-end was
+        absent. Now an installed back-end also returns None when it cannot run
+        on this pair -- PESQ is defined at 8 and 16 kHz only -- so labelling
+        every None 'not installed' told people to install what they had.
+        """
+        if not getattr(self, "_installed", {}).get(name, False):
+            return "not installed"
+        if name == "PESQ" and int(self.session.sr) not in (8000, 16000):
+            return f"not defined at {self.session.sr} Hz (PESQ is 8 or 16 kHz)"
+        return "could not be computed for this pair"
+
     def _refresh_availability(self) -> None:
-        pesq_ok, stoi_ok, sdr_ok = kudio.check_metrics_install()
-        missing = [n for n, ok in (("PESQ", pesq_ok), ("STOI", stoi_ok),
-                                   ("SDR", sdr_ok)) if not ok]
-        if missing:
-            self._availability.setText(
-                f"{', '.join(missing)} unavailable — install with: "
-                f"pip install \"kudio[eval]\"")
-        else:
+        self._installed = dict(zip(("PESQ", "STOI", "SDR"),
+                                   kudio.check_metrics_install()))
+        missing = [n for n, ok in self._installed.items() if not ok]
+        if not missing:
             self._availability.setText("PESQ, STOI and SDR back-ends available.")
+            return
+        # One hint per back-end. A single `kudio[eval]` for all three was a
+        # dead end for PESQ, which that extra has never carried.
+        self._availability.setText("  ·  ".join(
+            f"{name} unavailable — {self.INSTALL_HINT[name]}"
+            for name in missing))
 
     # ------------------------------------------------------------------ run
 
@@ -297,9 +348,11 @@ class MetricsPanel(Panel):
                  ("Compared samples", f"{n} ({n / self.session.sr:.2f} s)")]
         self._fill(rows)
         self.report("Computing PESQ / STOI / SDR …")
-        started = self.jobs.run(kudio.eval_metrics, self.session.sr, ref, deg,
-                                on_done=lambda r: self._optional_done(rows, r),
-                                on_failed=self._failed)
+        started = self.jobs.run(
+            partial(kudio.eval_metrics, pesq_scale=self._pesq_scale()),
+            self.session.sr, ref, deg,
+            on_done=lambda r: self._optional_done(rows, r),
+            on_failed=self._failed)
         if not started:
             self.report("An evaluation is already running.")
 
@@ -337,9 +390,13 @@ class MetricsPanel(Panel):
 
     def _optional_done(self, rows, result) -> None:
         pesq, stoi, sdr = result
-        extra = [("PESQ", f"{pesq:.3f}" if pesq is not None else "not installed"),
-                 ("STOI", f"{stoi:.3f}" if stoi is not None else "not installed"),
-                 ("SDR", f"{sdr:+.3f} dB" if sdr is not None else "not installed")]
+        extra = [(f"PESQ ({self._pesq_label()})",
+                  f"{pesq:.3f}" if pesq is not None
+                  else self._why_missing("PESQ")),
+                 ("STOI", f"{stoi:.3f}" if stoi is not None
+                  else self._why_missing("STOI")),
+                 ("SDR", f"{sdr:+.3f} dB" if sdr is not None
+                  else self._why_missing("SDR"))]
         self._fill(rows + extra)
         self.report("Evaluation complete.")
 
