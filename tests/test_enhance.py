@@ -86,7 +86,10 @@ def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch
 
     panel._run()
     assert messages and "pip install" in messages[0]
-    assert "kudiostudio[enhance]" in messages[0]
+    # kudio-enhance is not on PyPI, so the hint has to name the repository to
+    # clone rather than a distribution that cannot be resolved
+    assert "KudioEnhance" in messages[0]
+    assert "kudiostudio[enhance]" not in messages[0]
 
 
 # -------------------------------------------- statistical methods (kudio 3.4)

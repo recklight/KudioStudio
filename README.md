@@ -16,28 +16,26 @@ so anything you work out here translates straight into code.
 
 ## Install
 
-```bash
-pip install kudiostudio
-kudiostudio
-```
-
-From a checkout:
+Not on PyPI. Clone it and install from the checkout:
 
 ```bash
+git clone https://github.com/recklight/KudioStudio.git
+cd KudioStudio
 pip install -e ".[dev]"
 python -m kudiostudio
 ```
 
-Requires **Python 3.9+**. Everything heavy is an opt-in extra:
+Requires **Python 3.9+**. Everything heavy is an opt-in extra, added to that
+same editable install:
 
 | Extra | Adds |
 |---|---|
-| `kudiostudio[theme]` | dark theme (QDarkStyle) |
-| `kudiostudio[eval]` | STOI / SDR metrics |
-| `kudio[pesq]` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
-| `kudiostudio[dnsmos]` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
-| `kudiostudio[enhance]` | learned denoising — pulls in TensorFlow |
-| `kudiostudio[all]` | all of the above |
+| `pip install -e ".[theme]"` | dark theme (QDarkStyle) |
+| `pip install -e ".[eval]"` | STOI / SDR metrics |
+| `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
+| `pip install -e ".[dnsmos]"` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
+| `pip install -e ".[enhance]"` | learned denoising. [kudio-enhance](https://github.com/recklight/KudioEnhance) is not on PyPI either, so install it from a checkout of its own first; this extra then finds it |
+| `pip install -e ".[all]"` | all of the above, so it wants that checkout too |
 
 The base install stays light: no TensorFlow unless you ask for it.
 
@@ -198,7 +196,7 @@ what over-aggressive denoising looks like
 SIG and BAK move in opposite directions under denoising — suppress harder and
 the background gets cleaner while the speech gets eaten — so all three numbers
 are shown rather than averaged into one. Needs
-`pip install "kudiostudio[dnsmos]"` **and** the DNS-Challenge weights, which
+`pip install -e ".[dnsmos]"` **and** the DNS-Challenge weights, which
 neither kudio nor this app bundles; the panel tells you where to get them.
 
 ### Where is somebody actually talking?
@@ -402,9 +400,9 @@ the take is still committed raw.
 
 ### Learned denoising
 
-The Enhance panel runs classic DSP out of the box. With
-`pip install "kudiostudio[enhance]"` it also loads models trained by
-[kudio-enhance](https://github.com/recklight/KudioEnhance): point `run_dir` at
+The Enhance panel runs classic DSP out of the box. Install
+[kudio-enhance](https://github.com/recklight/KudioEnhance) from a checkout of
+its own and the panel also loads the models it trains: point `run_dir` at
 a run directory and it picks up the model, its normalisation statistics and the
 STFT geometry they were trained with — so inference cannot silently disagree
 with training.

@@ -71,8 +71,9 @@ def build_param_widget(param) -> QDoubleSpinBox:
     box.setToolTip(param.help)
     return box
 
-INSTALL_HINT = ('Learned models need the kudio-enhance package: '
-                'pip install "kudiostudio[enhance]"')
+INSTALL_HINT = ('Learned models need the kudio-enhance package, which is not '
+                'on PyPI: clone github.com/recklight/KudioEnhance and '
+                'pip install -e . in it')
 
 
 def kudio_enhance_available() -> bool:

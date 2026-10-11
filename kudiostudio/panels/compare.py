@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import DirPicker, Panel
-from kudiostudio.panels.enhance import kudio_enhance_available
+from kudiostudio.panels.enhance import INSTALL_HINT, kudio_enhance_available
 from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, OK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
@@ -258,9 +258,7 @@ class ComparePanel(Panel):
         if not run_dir or not Path(run_dir).is_dir():
             return None
         if not kudio_enhance_available():
-            raise RuntimeError(
-                'Learned models need the kudio-enhance package: '
-                'pip install "kudiostudio[enhance]"')
+            raise RuntimeError(INSTALL_HINT)
 
         def enhance(y, sr):
             from kudio_enhance.inference import Enhancer
