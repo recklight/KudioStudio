@@ -47,6 +47,11 @@ def qapp():
     from PySide6.QtWidgets import QApplication
     from kudiostudio.workers import collect_on_gui_thread
     app = QApplication.instance() or QApplication([])
+    # __main__ names the application, and a QSettings with no names has
+    # nowhere to write on Windows -- every value read back empty. A name of
+    # the suite's own also keeps it out of a developer's real settings
+    app.setOrganizationName("KudioTests")
+    app.setApplicationName("KudioStudioTests")
     # as the window does: tests let go of panels with no parent, and their
     # widgets must not be collected on the next test's worker thread
     collect_on_gui_thread()
@@ -151,3 +156,24 @@ def trained_run(tmp_path_factory):
     pipeline.synthesize(cfg, "exp")
     pipeline.train(cfg, "exp", epochs=1, verbose=0)
     return cfg.run_dir("exp"), sr
+
+
+def pytest_sessionfinish(session, exitstatus):
+    session.config._kudiostudio_exitstatus = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    """Leave with pytest's verdict, before PySide's own teardown runs.
+
+    Every test can pass and the process still die afterwards: PySide's
+    interpreter-exit cleanup of a QApplication that hundreds of windows have
+    passed through has crashed in shiboken's refcounting (bool_dealloc) on
+    some Linux runners, turning a green suite into exit code 134. The report
+    has been printed by now, so nothing is lost by skipping that teardown.
+    """
+    status = getattr(config, "_kudiostudio_exitstatus", None)
+    if status is None:
+        return
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status)

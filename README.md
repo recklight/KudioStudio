@@ -527,6 +527,8 @@ reproducible — the same noise offsets, the same pairings.
 
 ### Reading a corpus back
 
+<img src="docs/images/panel_manifest.png" width="420" alt="The Manifest panel">
+
 The Synthesize panel writes `manifest.json` beside every corpus, and half of
 what is in it — the room, the link, the target — is in none of the file names.
 `File → Open manifest…` — or `kudiostudio manifest.json` on the command line —
