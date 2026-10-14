@@ -444,6 +444,54 @@ def test_the_panel_reports_the_disk_and_not_the_request(qapp, session,
     assert "shared a name" in messages[-1]
 
 
+def test_the_run_uses_the_settings_it_started_with(qapp, session, tmp_path,
+                                                  monkeypatch):
+    """Through the real worker, with the output folder retyped mid-run. The
+    worker used to read the widgets as it went: the mixtures landed in the
+    first folder, manifest.json in the second, and the result named it."""
+    import threading
+
+    import kudio
+    from PySide6.QtCore import QEventLoop, QTimer
+    from kudiostudio.panels.synth import SynthPanel
+
+    clean, noise = _tiny_corpus(tmp_path)
+    first, second = tmp_path / "run_A", tmp_path / "run_B"
+    panel = SynthPanel(session)
+    panel.clean.edit.setText(str(clean))
+    panel.noise.edit.setText(str(noise))
+    panel.out.edit.setText(str(first))
+    panel.snr.setText("0")
+
+    started, release = threading.Event(), threading.Event()
+    real = kudio.Synthesizer.syn
+
+    def held(self, *args, **kwargs):
+        started.set()
+        release.wait(30)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(kudio.Synthesizer, "syn", held)
+    loop = QEventLoop()
+    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
+    QTimer.singleShot(60_000, loop.quit)
+    panel._run()
+    assert started.wait(30)
+    panel.out.edit.setText(str(second))
+    panel.subtype.setCurrentText("FLOAT")
+    release.set()
+    if panel.jobs.busy:
+        loop.exec()
+    panel.jobs.wait(60_000)
+
+    assert (first / "manifest.json").is_file()
+    assert len(list(first.glob("*.wav"))) == 3
+    assert not second.exists()
+    assert f"written to {first}" in panel.result.text()
+    assert all(pathlib.Path(p.noisy).parent == first
+               for p in kudio.load_manifest(first / "manifest.json"))
+
+
 def test_a_clean_run_does_not_mention_collisions(qapp, session, tmp_path):
     """The warning has to stay rare, or it stops being read."""
     from kudiostudio.panels.synth import SynthPanel, parse_snr
@@ -809,16 +857,16 @@ def test_batch_denoises_a_folder(qapp, tmp_path):
 
 
 def test_the_denoise_summary_refuses_to_call_it_better(qapp, tmp_path):
-    from kudiostudio.panels.batch import BatchPanel
+    from kudiostudio.panels.batch import BatchOutcome, BatchPanel
     from kudiostudio.session import AudioSession
     import kudio
 
     panel = BatchPanel(AudioSession())
     panel.dst.edit.setText(str(tmp_path))
-    panel._finished(kudio.EnhanceFolderResult(
+    panel._finished(BatchOutcome(result=kudio.EnhanceFolderResult(
         written=2, total=2, outputs=[], failed=[],
         floors=((tmp_path / "a.wav", -30.0, -45.0),
-                (tmp_path / "b.wav", -32.0, -46.0))))
+                (tmp_path / "b.wav", -32.0, -46.0)))))
     text = panel.result.text()
     assert "14.5 dB on average" in text
     assert "not of whether it sounds better" in text
@@ -862,6 +910,187 @@ def test_the_room_effect_is_reproducible_from_its_seed(session):
 
     panel.room_seed.setValue(8)
     assert not np.array_equal(panel._operation()[1](session.y, session.sr), first)
+
+
+# ---------------------------------------------------------- a measured room
+
+def measured_room(path, sr: int = 48000, delay_ms: float = 12.0,
+                  stereo: bool = True) -> pathlib.Path:
+    """A room as a measurement leaves it: the travel time before the direct
+    sound, a rate of its own, and two channels."""
+    import kudio
+
+    ir = np.concatenate([np.zeros(int(delay_ms / 1000 * sr), dtype=np.float32),
+                         kudio.rir(sr, rt60=0.6, drr_db=3.0, seed=1)])
+    data = np.stack([ir, 0.8 * ir], axis=1) if stereo else ir
+    kudio.save_wave(path, data, sr, subtype="FLOAT")
+    return pathlib.Path(path)
+
+
+def test_a_measured_room_is_read_at_the_clips_rate_and_in_mono(session, tmp_path):
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    path = measured_room(tmp_path / "hall.wav")
+    panel = EffectsPanel(session)
+    assert panel.load_ir(path) is True
+
+    assert panel._ir_sr == session.sr == 16000
+    assert panel._ir.ndim == 1
+    # the read the recorded call makes, sample for sample
+    assert np.array_equal(panel._ir, kudio.file_load(path, sr=16000)[0])
+
+
+def test_the_measured_room_caption_is_the_call_apply_makes(session, tmp_path):
+    """Copied out with y and sr bound, the call makes exactly what Apply did."""
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    path = measured_room(tmp_path / "hall.wav")
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("measured_room")
+    panel.load_ir(path)
+    onset = int(0.012 * 16000)                    # 12 ms of travel, at 16 kHz
+    assert panel.call.text() == (
+        f"kudio.apply_rir(y, kudio.file_load('hall.wav', sr=sr)[0][{onset}:])")
+
+    exact, _ = panel._operation(exact=True)
+    assert repr(str(path.absolute())) in exact
+    before = session.y.copy()
+    panel._apply()
+    pasted = eval(exact, {"kudio": kudio, "np": np,
+                          "y": before, "sr": session.sr})
+    assert np.array_equal(pasted, session.y)
+    assert len(session.y) == len(before), "the length is kept"
+
+
+def test_a_measured_rooms_travel_time_does_not_delay_the_audio(session, tmp_path):
+    """A response that is nothing but distance -- silence, then one impulse --
+    is no room at all once it starts at the direct sound. Left with its
+    travel time, it shifts the clip late by exactly that much."""
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    delay = 160
+    path = tmp_path / "distance.wav"
+    impulse = np.zeros(delay + 1, dtype=np.float32)
+    impulse[delay] = 1.0
+    kudio.save_wave(path, impulse, 16000, subtype="FLOAT")
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("measured_room")
+    panel.load_ir(path)
+    y = session.y
+    assert np.allclose(panel._operation()[1](y, 16000), y, atol=1e-6)
+
+    panel.ir_align.setChecked(False)
+    late = panel._operation()[1](y, 16000)
+    assert np.allclose(late[:delay], 0.0, atol=1e-6)
+    assert np.allclose(late[delay:], y[:-delay], atol=1e-6)
+
+
+def test_the_measured_reverberation_is_of_the_response_applied(session, tmp_path):
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+    from kudiostudio.theme import WARN_COLOR
+
+    path = measured_room(tmp_path / "hall.wav")
+    panel = EffectsPanel(session)
+    panel.load_ir(path)
+    ir = kudio.file_load(path, sr=16000)[0]
+    onset = int(np.argmax(np.abs(ir)))
+
+    applied = kudio.rt60(ir[onset:], 16000)
+    assert applied.t30 == pytest.approx(0.6, rel=0.08)   # the room it was built as
+    text = panel.ir_measured.text()
+    assert str(applied) in text
+    assert "direct sound at 12.0 ms" in text and "16000 Hz" in text
+    assert WARN_COLOR not in panel.ir_measured.styleSheet()
+
+    panel.ir_align.setChecked(False)
+    assert str(kudio.rt60(ir, 16000)) in panel.ir_measured.text()
+
+
+def test_a_file_that_is_not_a_room_is_measured_and_flagged(session, recording):
+    """Speech has a decay curve too; what it does not have is an EDT and a
+    T30 that agree, and the reading is coloured so it is not read past."""
+    from kudiostudio.panels.effects import EffectsPanel
+    from kudiostudio.theme import WARN_COLOR
+
+    panel = EffectsPanel(session)
+    panel.load_ir(recording)
+    assert " but " in panel.ir_measured.text()
+    assert WARN_COLOR in panel.ir_measured.styleSheet()
+
+
+def test_the_response_is_read_again_when_the_clip_changes_rate(session, tmp_path):
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    path = measured_room(tmp_path / "hall.wav")
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("measured_room")
+    panel.load_ir(path)
+
+    session.set_audio(kudio.resample(session.y, 16000, 8000), 8000)
+    panel.on_session_changed()
+    assert panel._ir_sr == 8000
+    assert np.array_equal(panel._ir, kudio.file_load(path, sr=8000)[0])
+    assert panel.call.text().endswith(f"[0][{int(0.012 * 8000)}:])")
+    assert "8000 Hz" in panel.ir_measured.text()
+
+
+def test_a_response_picked_with_nothing_open_is_read_again_for_the_clip(
+        qapp, tmp_path, tone):
+    """Picked first, it is read and measured at its own rate. The clip that
+    arrives later sets the rate the recorded call reads it at, and what is
+    held from then on is that read."""
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+    from kudiostudio.session import AudioSession
+
+    path = measured_room(tmp_path / "hall.wav", sr=48000)
+    session = AudioSession()
+    panel = EffectsPanel(session)
+    panel.load_ir(path)
+    assert panel._ir_sr == 48000 and "48000 Hz" in panel.ir_measured.text()
+
+    session.load_file(tone)
+    panel.on_session_changed()
+    assert panel._ir_sr == 16000
+    assert np.array_equal(panel._ir, kudio.file_load(path, sr=16000)[0])
+
+
+def test_a_response_that_cannot_be_used_leaves_the_loaded_one(session, tmp_path):
+    import kudio
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("measured_room")
+    messages = []
+    panel.status.connect(messages.append)
+    panel.load_ir(measured_room(tmp_path / "hall.wav"))
+
+    assert panel.load_ir(tmp_path / "missing.wav") is False
+    assert "Could not read missing.wav" in messages[-1]
+    silent = tmp_path / "silent.wav"
+    kudio.save_wave(silent, np.zeros(4000, dtype=np.float32), 16000)
+    assert panel.load_ir(silent) is False
+    assert "silent" in messages[-1]
+    assert "'hall.wav'" in panel.call.text()
+
+
+def test_without_a_response_the_measured_room_reports_instead_of_raising(session):
+    from kudiostudio.panels.effects import EffectsPanel
+
+    panel = EffectsPanel(session)
+    panel.effect.setCurrentText("measured_room")
+    assert "file_load('…'" in panel.call.text()
+    messages = []
+    panel.status.connect(messages.append)
+    panel._apply()
+    assert "failed" in messages[-1] and "no impulse response" in messages[-1]
+    assert session.can_undo() is False
 
 
 def test_every_effect_has_a_parameter_page(session):

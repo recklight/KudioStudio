@@ -118,7 +118,7 @@ class MetricsPanel(Panel):
         self.browse.clicked.connect(self._pick_reference)
         self.reference.currentIndexChanged.connect(self._sync)
         self.run_button.clicked.connect(self._run)
-        self.jobs.busy_changed.connect(lambda b: self.run_button.setEnabled(not b))
+        self.jobs.busy_changed.connect(self._set_busy)
         self._sync()
         self._refresh_availability()
 
@@ -247,6 +247,11 @@ class MetricsPanel(Panel):
         self.report("Inspection complete.")
 
     # ------------------------------------------------------------------- ui
+
+    def _set_busy(self, busy: bool) -> None:
+        # a method rather than a lambda over ``self``: the host holding that
+        # lambda is the panel's own child, and the cycle kept the panel alive
+        self.run_button.setEnabled(not busy)
 
     def _sync(self) -> None:
         by_file = self.reference.currentIndex() == 1

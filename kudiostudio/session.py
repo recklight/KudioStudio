@@ -4,18 +4,27 @@
 `AudioSession` owns the current waveform, its sample rate, an undo stack and
 the time selection. Panels never talk to each other -- they mutate the session
 and the views repaint on :attr:`AudioSession.changed`.
+
+Every undoable edit also records the Python that does it again, so the history
+can be handed back as a script (:meth:`AudioSession.edit_script`): what was
+worked out by ear here becomes something a batch job can run.
 """
 from __future__ import annotations
 
+import ast
+import hashlib
+import itertools
 import logging
-from dataclasses import dataclass, replace
+import os
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
 import kudio
+from kudiostudio import __version__
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +57,145 @@ class Marker:
     @property
     def duration(self) -> float:
         return max(0.0, self.end - self.start)
+
+
+@dataclass(frozen=True, eq=False)
+class EditStep:
+    """One entry of the edit history: what Undo calls it, and the code that
+    does it again.
+
+    *code* runs with ``y`` and ``sr`` bound to the audio and its rate and with
+    ``np`` and ``kudio`` imported, and leaves the result in ``y``. It is
+    ``None`` for an edit that arrived without any; the script export says so
+    out loud instead of skipping it, because a script that quietly leaves out
+    a step writes a different file and nothing about it looks wrong.
+
+    Steps compare by identity, not by text: two identical gains are still two
+    moments in the history, and a paste has to know which of them its
+    clipboard was copied after.
+    """
+    label: str
+    code: Optional[str] = None
+    #: for a paste, where the clipboard came from -- see `_Copied`
+    copied: Optional["_Copied"] = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class _Origin:
+    """Where a history starts: the file, and how `kudio.file_load` read it.
+
+    *path* is ``None`` for audio that never was a file -- a recording -- which
+    a script has no way to read back.
+
+    Two origins are the same audio when they compare equal, which is what lets
+    a paste copy from earlier in the same history instead of rebuilding it.
+    The same file opened twice is the same audio as long as its bytes are; two
+    recordings are never the same audio, whatever their rate, so each one is
+    a take of its own.
+    """
+    path: Optional[Path]
+    rate: int
+    #: the ``sr`` asked of file_load; ``None`` kept the file's own rate
+    requested_sr: Optional[int] = None
+    mono: bool = True
+    #: which recording this is, counted per session; 0 for a file
+    take: int = 0
+    #: SHA-256 of the file as it was read. The script checks it, so it cannot
+    #: run the edits on a later file at the same path -- the edited audio
+    #: itself, after Save As wrote over the original.
+    digest: Optional[str] = None
+    #: size and modification time as read: a cheap first look at whether the
+    #: file has changed since, before reading it all again to be sure
+    stat: Optional[Tuple[int, int]] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True, eq=False)
+class _Copied:
+    """What the clipboard holds, described as code rather than as samples.
+
+    It is samples *start:stop* of the audio that *origin* plus *steps*
+    produced. A paste usually happens further down that same history, where
+    one ``clip = y[start:stop].copy()`` line at the right moment is enough --
+    but the clipboard outlives undo and survives opening another file, and
+    then the script has to rebuild the audio it was copied from.
+    """
+    origin: Optional[_Origin]
+    steps: Tuple[EditStep, ...]
+    start: int
+    stop: int
+
+
+def _assigned_value(code: str) -> Optional[str]:
+    """The expression *code* assigns to ``y``, when it does nothing else and
+    does not read ``y`` while doing it; ``None`` otherwise.
+
+    A paste's replacement is ``y = clip``: it does not depend on the selection,
+    so it can be joined in directly rather than by binding the selection to
+    ``y`` first and throwing it away.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Assign):
+        return None
+    node = tree.body[0]
+    target = node.targets[0]
+    if len(node.targets) != 1 or not (isinstance(target, ast.Name)
+                                      and target.id == "y"):
+        return None
+    if any(isinstance(n, ast.Name) and n.id == "y" for n in ast.walk(node.value)):
+        return None
+    return ast.get_source_segment(code, node.value)
+
+
+def _span(start: int, stop: int, sr: int) -> str:
+    """``0.250–0.750 s``: the comment beside a range written in samples."""
+    return f"{start / sr:.3f}–{stop / sr:.3f} s"
+
+
+def _comment_safe(text) -> str:
+    """*text* on one line of a comment.
+
+    File names and undo labels go into the script's comments, and both can
+    hold anything a name can: a newline or a carriage return in one ends the
+    comment and makes the rest code -- code that ran when the script did. They
+    are escaped the way Python writes them in a string; anything printable,
+    accents and all, is kept as it is.
+    """
+    return "".join(repr(c)[1:-1] if (ord(c) < 0x20 and c != "\t") or c == "\x7f"
+                   else c for c in str(text))
+
+
+def file_digest(path) -> str:
+    """The SHA-256 of the file at *path*, read in blocks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _stat(path) -> Optional[Tuple[int, int]]:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_size, st.st_mtime_ns
+
+
+#: The function the script checks its sources with -- `file_digest`, written
+#: out, since a script has to run where KudioStudio is not installed.
+_DIGEST_CALL = "sha256("
+_DIGEST_FUNCTION = [
+    "def sha256(path):",
+    '    """The file\'s SHA-256: which file this is, not just its name."""',
+    "    digest = hashlib.sha256()",
+    '    with open(path, "rb") as fh:',
+    '        for block in iter(lambda: fh.read(1 << 20), b""):',
+    "            digest.update(block)",
+    "    return digest.hexdigest()",
+]
 
 
 class AudioSession(QObject):
@@ -83,6 +231,15 @@ class AudioSession(QObject):
         self._clipboard: Optional[Tuple[np.ndarray, int]] = None
         self._markers: Tuple[Marker, ...] = ()
         self._crossfade_ms: float = DEFAULT_CROSSFADE_MS
+        #: the edits since the baseline, as code. Not trimmed to UNDO_DEPTH
+        #: like the snapshots: an edit too old to undo is still in the audio.
+        self._history: List[EditStep] = []
+        self._origin: Optional[_Origin] = None
+        self._copied: Optional[_Copied] = None
+        #: numbers each recording, so two takes are never the same origin
+        self._takes = itertools.count(1)
+        #: every file Save As has written in this session, resolved
+        self._written: Set[str] = set()
 
     # ---------------------------------------------------------------- state
 
@@ -113,6 +270,14 @@ class AudioSession(QObject):
     def can_undo(self) -> bool:
         return bool(self._undo)
 
+    @property
+    def history(self) -> Tuple[EditStep, ...]:
+        """Every edit since the audio was loaded, recorded or reverted."""
+        return tuple(self._history)
+
+    def has_history(self) -> bool:
+        return bool(self._history)
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         if not self.has_audio:
             return "<AudioSession empty>"
@@ -127,6 +292,12 @@ class AudioSession(QObject):
         self._path = path
         self._original = (np.array(y, copy=True), int(rate))
         self._undo.clear()
+        self._history.clear()
+        # what the script repeats to get the same samples back, so it records
+        # the arguments that were passed rather than what they produced --
+        # and which bytes they were applied to
+        self._origin = _Origin(path.absolute(), int(rate), sr, mono,
+                               digest=file_digest(path), stat=_stat(path))
         # a different file entirely -- the previous clip's markers point at
         # moments in audio that is no longer loaded. `set_audio` does this for
         # recordings; `_apply` does not, so opening a second file used to
@@ -139,18 +310,26 @@ class AudioSession(QObject):
             f"Loaded {path.name} — {self.duration:.2f}s @ {rate} Hz{note}")
 
     def set_audio(self, y: np.ndarray, sr: int, name: str = "",
-                  *, undo_label: str = "", keep_original: bool = False) -> None:
+                  *, undo_label: str = "", keep_original: bool = False,
+                  code: Optional[str] = None) -> None:
         """Replace the current audio, pushing the previous state onto the undo stack.
 
         *keep_original* is for edits: the "original" used by A/B compare and
         :meth:`revert` stays untouched. New recordings pass ``False`` so they
         become the new baseline.
+
+        *code* is the Python that turns the current ``y`` into the new one --
+        see :class:`EditStep` -- and goes into the history beside
+        *undo_label*. An edit without it is still undoable, but the script
+        export can only say that it does not know how to repeat it.
         """
         if undo_label and self.has_audio:
-            self._push_undo(undo_label)
+            self._push_undo(undo_label, self._stored_as(code, y))
         if not keep_original:
             self._original = (np.array(y, copy=True), int(sr))
             self._undo.clear()
+            self._history.clear()
+            self._origin = _Origin(None, int(sr), take=next(self._takes))
             self._path = None
             # different audio entirely: markers placed on the old clip would
             # point at moments that no longer exist
@@ -169,17 +348,35 @@ class AudioSession(QObject):
 
     # ----------------------------------------------------------------- undo
 
-    def _push_undo(self, label: str) -> None:
+    def _push_undo(self, label: str, code: Optional[str] = None) -> None:
         # markers ride along: an edit moves them, so undoing the edit has to
         # move them back, and recomputing the inverse shift is guesswork
         self._undo.append((np.array(self._y, copy=True), self._sr, label,
                            self._markers))
         del self._undo[:-UNDO_DEPTH]
+        self._history.append(EditStep(label, code))
+
+    @staticmethod
+    def _stored_as(code: Optional[str], y) -> Optional[str]:
+        """*code*, followed by the float32 conversion `_apply` is about to make.
+
+        Only when it really makes one. Every kudio effect hands float32 back for
+        float32 in, and a script full of conversions that do nothing is harder
+        to read; but when one does happen it changes what the next step is fed,
+        and a script that skips it drifts away from the session a little more
+        with every step.
+        """
+        if code is None or np.asarray(y).dtype == np.float32:
+            return code
+        return f"{code}\ny = np.asarray(y, dtype=np.float32)"
 
     def undo(self) -> bool:
         if not self._undo:
             return False
         y, sr, label, markers = self._undo.pop()
+        # every snapshot was pushed together with its step, and the two lists
+        # are only ever cleared together, so the last step is this edit's
+        self._history.pop()
         self._set_markers(markers)
         self._apply(y, sr, self._name)
         self.message.emit(f"Undo: {label}")
@@ -191,6 +388,7 @@ class AudioSession(QObject):
             return False
         y, sr = self._original
         self._undo.clear()
+        self._history.clear()
         self._set_markers(())
         self._apply(np.array(y, copy=True), sr, self._name)
         self.message.emit("Reverted to the original audio")
@@ -375,9 +573,29 @@ class AudioSession(QObject):
         lost = (sum(len(p) for p in usable) - len(merged)) / self._sr
         return merged, lost
 
+    def _splice_code(self, parts: Sequence[Tuple[str, np.ndarray]],
+                     crossfade_ms: Optional[float] = None) -> str:
+        """The expression that does what :meth:`_splice` does with *parts*.
+
+        Each part is ``(code, audio)``. The audio is only asked whether it is
+        empty: `_splice` drops empty parts before joining, a seam with nothing
+        on one side is not a seam, and the script has to join exactly the same
+        pieces to lose exactly the same samples to the crossfades.
+        """
+        usable = [code for code, audio in parts if np.asarray(audio).size]
+        if not usable:
+            return "np.zeros(0, dtype=np.float32)"
+        if len(usable) == 1:
+            return usable[0]
+        applied = self._crossfade_for(crossfade_ms)
+        if applied <= 0:
+            return f"np.concatenate([{', '.join(usable)}])"
+        return f"kudio.splice([{', '.join(usable)}], sr, {applied / 1000.0!r})"
+
     def replace_selection(self, y_new: np.ndarray, *, undo_label: str,
                           crossfade: bool = False,
-                          crossfade_ms: Optional[float] = None) -> None:
+                          crossfade_ms: Optional[float] = None,
+                          code: Optional[str] = None) -> None:
         """Splice *y_new* over the selection (or replace everything if none).
 
         *crossfade* defaults to **off**, and the distinction matters:
@@ -389,23 +607,65 @@ class AudioSession(QObject):
         * A **structural** edit — paste, insert silence — joins audio that has
           nothing to do with its neighbours, and the step at the join is a
           click. Those pass ``crossfade=True``.
+
+        *code* computes *y_new* from ``y`` and ``sr``, where ``y`` is the audio
+        being replaced: the selection, or the whole clip. It is written for
+        the selected audio alone, the way an effect sees it; the session adds
+        the slicing and the join, since only the session knows which samples
+        and which crossfade it used.
         """
         if not self.has_audio:
             return
         sel = self.selection()
         if sel is None:
-            self.set_audio(y_new, self._sr, undo_label=undo_label, keep_original=True)
+            self.set_audio(y_new, self._sr, undo_label=undo_label,
+                           keep_original=True, code=code)
             return
         sl = self.selected_slice()
+        converted = np.asarray(y_new).dtype != np.float32
         y_new = np.asarray(y_new, dtype=np.float32)
         parts = [self._y[:sl.start], y_new, self._y[sl.stop:]]
         merged, lost = self._splice(parts, crossfade_ms) if crossfade \
             else (np.concatenate([p for p in parts if len(p)]), 0.0)
         delta = (len(y_new) - (sl.stop - sl.start)) / self._sr - lost
+        script = self._selection_code(code, sl, parts, converted,
+                                      crossfade_ms if crossfade else 0.0)
         # set_audio first: it snapshots the markers for undo, and the snapshot
         # has to be the positions from *before* this edit moved them
-        self.set_audio(merged, self._sr, undo_label=undo_label, keep_original=True)
+        self.set_audio(merged, self._sr, undo_label=undo_label,
+                       keep_original=True, code=script)
         self._shift_markers(sel[1], delta)
+
+    def _selection_code(self, code: Optional[str], sl: slice, parts,
+                        converted: bool, crossfade_ms: Optional[float]
+                        ) -> Optional[str]:
+        """Wrap *code*, written for the selected audio, into a whole-clip step.
+
+        The selection is bound to ``y`` while *code* runs and the result is
+        joined back between what came before and after it, the same way
+        :meth:`replace_selection` joined it. A replacement that never reads the
+        selection -- a paste, a silence -- is joined in directly instead.
+        """
+        if code is None:
+            return None
+        a, b = sl.start, sl.stop
+        head, new, tail = parts
+        span = _span(a, b, self._sr)
+        value = _assigned_value(code)
+        if value is not None:
+            if converted:
+                value = f"np.asarray({value}, dtype=np.float32)"
+            joined = self._splice_code(
+                [(f"y[:{a}]", head), (value, new), (f"y[{b}:]", tail)],
+                crossfade_ms)
+            return f"y = {joined}  # over {span}"
+        lines = [f"head, y, tail = y[:{a}], y[{a}:{b}], y[{b}:]  # {span}", code]
+        if converted:
+            lines.append("y = np.asarray(y, dtype=np.float32)")
+        joined = self._splice_code([("head", head), ("y", new), ("tail", tail)],
+                                   crossfade_ms)
+        lines.append(f"y = {joined}")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------- clipboard
 
@@ -431,7 +691,12 @@ class AudioSession(QObject):
         """Put the selection on the clipboard, leaving the audio alone."""
         if not self.can_copy():
             return False
+        sl = self.selected_slice()
         self._clipboard = (np.array(self.selected_audio(), copy=True), self._sr)
+        # Not an edit, so not a step -- but a later paste depends on it, and
+        # by then the audio it was copied from may have changed or be gone
+        self._copied = _Copied(self._origin, tuple(self._history),
+                               sl.start, sl.stop)
         self.clipboard_changed.emit(True)
         self.message.emit(f"Copied {self.clipboard_duration():.3f}s")
         return True
@@ -455,9 +720,13 @@ class AudioSession(QObject):
         sel = self.selection()
         sl = self.selected_slice()
         removed = (sl.stop - sl.start) / self._sr
-        merged, lost = self._splice([self._y[:sl.start], self._y[sl.stop:]],
-                                    crossfade_ms)
-        self.set_audio(merged, self._sr, undo_label=undo_label, keep_original=True)
+        parts = [(f"y[:{sl.start}]", self._y[:sl.start]),
+                 (f"y[{sl.stop}:]", self._y[sl.stop:])]
+        merged, lost = self._splice([audio for _, audio in parts], crossfade_ms)
+        code = (f"y = {self._splice_code(parts, crossfade_ms)}"
+                f"  # {_span(sl.start, sl.stop, self._sr)}")
+        self.set_audio(merged, self._sr, undo_label=undo_label,
+                       keep_original=True, code=code)
         self._shift_markers(sel[1], -(removed + lost))
         self.message.emit(
             f"Deleted {removed:.3f}s{self._crossfade_note(1, crossfade_ms)}")
@@ -478,23 +747,38 @@ class AudioSession(QObject):
         if not self.can_paste():
             return False
         clip, clip_sr = self._clipboard
+        # `clip` in the script is the clipboard as copied, at its own rate;
+        # the resampling happens here at every paste, so it does in the script
+        clip_code = "clip"
         if clip_sr != self._sr:
             clip = kudio.resample(clip, clip_sr, self._sr)
+            clip_code = f"kudio.resample(clip, {clip_sr}, sr)"
+        if np.asarray(clip).dtype != np.float32:
+            clip_code = f"np.asarray({clip_code}, dtype=np.float32)"
         clip = np.asarray(clip, dtype=np.float32)
 
         sel = self.selection()
         if sel is not None:
             start = sel[0]
             self.replace_selection(clip, undo_label="paste", crossfade=True,
-                                   crossfade_ms=crossfade_ms)
+                                   crossfade_ms=crossfade_ms,
+                                   code=f"y = {clip_code}")
         else:
             position = self.duration if at is None else max(0.0, min(at, self.duration))
             index = int(position * self._sr)
             start = position
-            merged, lost = self._splice(
-                [self._y[:index], clip, self._y[index:]], crossfade_ms)
-            self.set_audio(merged, self._sr, undo_label="paste", keep_original=True)
+            parts = [(f"y[:{index}]", self._y[:index]), (clip_code, clip),
+                     (f"y[{index}:]", self._y[index:])]
+            merged, lost = self._splice([audio for _, audio in parts],
+                                        crossfade_ms)
+            code = (f"y = {self._splice_code(parts, crossfade_ms)}"
+                    f"  # at {position:.3f} s")
+            self.set_audio(merged, self._sr, undo_label="paste",
+                           keep_original=True, code=code)
             self._shift_markers(position, len(clip) / self._sr - lost)
+        # the step was just pushed and nothing refers to it yet, so replacing
+        # it with one that knows its clipboard is safe
+        self._history[-1] = replace(self._history[-1], copied=self._copied)
         self.set_selection(start, start + len(clip) / self._sr)
         self.message.emit(f"Pasted {len(clip) / self._sr:.3f}s at {start:.3f}s"
                           f"{self._crossfade_note(2, crossfade_ms)}")
@@ -506,17 +790,23 @@ class AudioSession(QObject):
         if not self.has_audio or seconds <= 0:
             return False
         silence = np.zeros(int(round(seconds * self._sr)), dtype=np.float32)
+        silence_code = f"np.zeros({len(silence)}, dtype=np.float32)"
         sel = self.selection()
         if sel is not None:
             self.replace_selection(silence, undo_label="insert silence",
-                                   crossfade=True, crossfade_ms=crossfade_ms)
+                                   crossfade=True, crossfade_ms=crossfade_ms,
+                                   code=f"y = {silence_code}")
         else:
             position = self.duration if at is None else max(0.0, min(at, self.duration))
             index = int(position * self._sr)
-            merged, lost = self._splice(
-                [self._y[:index], silence, self._y[index:]], crossfade_ms)
+            parts = [(f"y[:{index}]", self._y[:index]), (silence_code, silence),
+                     (f"y[{index}:]", self._y[index:])]
+            merged, lost = self._splice([audio for _, audio in parts],
+                                        crossfade_ms)
+            code = (f"y = {self._splice_code(parts, crossfade_ms)}"
+                    f"  # at {position:.3f} s")
             self.set_audio(merged, self._sr, undo_label="insert silence",
-                           keep_original=True)
+                           keep_original=True, code=code)
             self._shift_markers(position, seconds - lost)
         self.message.emit(f"Inserted {seconds:.3f}s of silence"
                           f"{self._crossfade_note(2, crossfade_ms)}")
@@ -527,9 +817,14 @@ class AudioSession(QObject):
         if not self.can_copy():
             return False
         sel = self.selection()
+        sl = self.selected_slice()
         kept = np.array(self.selected_audio(), copy=True)
+        # set_audio first: it snapshots the markers for undo, and the snapshot
+        # has to be the positions from *before* the crop moved and dropped them
+        self.set_audio(kept, self._sr, undo_label="crop", keep_original=True,
+                       code=f"y = y[{sl.start}:{sl.stop}]  "
+                            f"# keep {_span(sl.start, sl.stop, self._sr)}")
         self._shift_markers(0.0, -sel[0], window=(sel[0], sel[1]))
-        self.set_audio(kept, self._sr, undo_label="crop", keep_original=True)
         self.message.emit(f"Cropped to {len(kept) / self._sr:.3f}s")
         return True
 
@@ -673,6 +968,7 @@ class AudioSession(QObject):
             raise RuntimeError("nothing to save")
         path = Path(path)
         kudio.save_wave(path, self._y, self._sr, subtype=subtype)
+        self._wrote(path)
         self.message.emit(f"Saved {path.name}")
         return path
 
@@ -683,6 +979,232 @@ class AudioSession(QObject):
         path = Path(path)
         selected = self.selected_audio()
         kudio.save_wave(path, selected, self._sr, subtype=subtype)
+        self._wrote(path)
         self.message.emit(
             f"Saved {len(selected) / self._sr:.3f}s to {path.name}")
         return path
+
+    def _wrote(self, path: Path) -> None:
+        """Remember that *path* was written, in case it is a script's source.
+
+        Save As suggests the file that was opened, and saving over it is an
+        ordinary thing to do -- after which the script's SOURCE holds the
+        edited audio. A changed modification time usually gives that away;
+        this is for the save that lands in the same tick at the same size.
+        """
+        self._written.add(os.path.normcase(str(path.resolve())))
+
+    # --------------------------------------------------------------- script
+
+    def edit_script(self, output: Optional[str] = None, *,
+                    subtype: str = "PCM_16") -> str:
+        """The edit history as a Python script that makes the same audio again.
+
+        The script reads the original the way :meth:`load_file` read it, runs
+        each step's code in order under its undo label, and writes *output* --
+        or the path given as its first argument -- with *subtype*, which
+        defaults to what :meth:`save` writes. Undo takes a step back out;
+        Revert and opening another file start the history again.
+
+        A step it cannot reproduce is written in as a comment and a ``raise``,
+        so running the script stops there rather than writing a file that is
+        not what was heard. :meth:`edit_script_warnings` says which.
+        """
+        return self._script(output, subtype)[0]
+
+    def edit_script_warnings(self) -> List[str]:
+        """Why :meth:`edit_script` would not reproduce the audio; empty when it would."""
+        return self._script(None, "PCM_16")[1]
+
+    def _script(self, output: Optional[str], subtype: str
+                ) -> Tuple[str, List[str]]:
+        if self._origin is None or not self.has_audio:
+            raise RuntimeError("nothing loaded")
+        origin = self._origin
+        name = origin.path.name if origin.path is not None \
+            else (self._name or "recording")
+        stem = Path(name).stem
+        body, problems = self._script_body(origin, tuple(self._history),
+                                           "SOURCE")
+        if origin.path is None:
+            source = f"{stem}.wav"
+            problems.insert(0, "this audio was recorded, not opened from a "
+                               "file, so SOURCE is a placeholder: point it at "
+                               "the take as it was recorded")
+        else:
+            source = str(origin.path)
+        checks = any(line.lstrip().startswith(f"if {_DIGEST_CALL}")
+                     for line in body)
+
+        lines = [
+            "# -*- coding: utf-8 -*-",
+            f"# {_comment_safe(name)}, edited in KudioStudio {__version__} "
+            f"(kudio {kudio.__version__}).",
+            "#",
+            "# Each numbered step is one entry of the undo history, oldest first,",
+            "# written as the code that made it. Run this to make the same audio",
+            "# again; the output path can be given as the first argument.",
+            "#",
+            f"# Sample positions are at {origin.rate} Hz, the rate the edits "
+            f"were made at.",
+        ]
+        if problems:
+            lines += ["#", "# WARNING: this script does not reproduce the edit "
+                           "as it stands:"]
+            lines += [f"#   - {_comment_safe(problem)}" for problem in problems]
+        lines += [
+            "",
+            *(["import hashlib"] if checks else []),
+            "import sys",
+            "",
+            "import numpy as np",
+            "",
+            "import kudio",
+            "",
+            f"SOURCE = {source!r}",
+            f"OUTPUT = sys.argv[1] if len(sys.argv) > 1 "
+            f"else {output or f'{stem}_edited.wav'!r}",
+            "",
+            *((_DIGEST_FUNCTION + ["", ""]) if checks else []),
+            *body,
+            "",
+            f"kudio.save_wave(OUTPUT, y, sr, subtype={subtype!r})",
+            'print(f"wrote {OUTPUT}: {len(y) / sr:.3f} s at {sr} Hz")',
+        ]
+        return "\n".join(lines) + "\n", problems
+
+    def _script_body(self, origin: _Origin, steps: Tuple[EditStep, ...],
+                     source: str) -> Tuple[List[str], List[str]]:
+        """Lines that read *origin* from *source* and replay *steps*, and a
+        sentence for everything they cannot reproduce.
+
+        A copy that a paste needs is taken at the point it was made, when that
+        point is on the way to this result. When it is not -- the copy was made
+        before an edit that has since been undone, or in another file -- the
+        audio it came from is rebuilt in a function of its own instead.
+        """
+        lines = self._load_lines(origin, source)
+        problems: List[str] = []
+        changed = self._changed_since_read(origin)
+        if changed is not None:
+            problems.append(changed)
+        inline: Dict[int, _Copied] = {}       # by the number of steps before it
+        for step in steps:
+            copied = step.copied
+            if (copied is not None and copied.origin == origin
+                    and len(copied.steps) < len(steps)
+                    and all(a is b for a, b in zip(copied.steps, steps))):
+                inline.setdefault(len(copied.steps), copied)
+
+        for number, step in enumerate(steps, 1):
+            copied = inline.get(number - 1)
+            if copied is not None:
+                users = [str(n) for n, s in enumerate(steps, 1)
+                         if s.copied is copied]
+                lines += ["", f"clip = y[{copied.start}:{copied.stop}].copy()"
+                              f"  # pasted in step{'s' if len(users) > 1 else ''}"
+                              f" {', '.join(users)}"]
+            needed = step.copied
+            if needed is not None and inline.get(len(needed.steps)) is not needed:
+                block, trouble = self._rebuild_clip(needed)
+                lines += [""] + block
+                problems += [f"step {number} ({step.label}): {t}" for t in trouble]
+
+            lines += ["", f"# {number}. {_comment_safe(step.label)}"]
+            if step.code is None:
+                problem = f"step {number} ({step.label}) was not recorded as code"
+                lines += ["# KudioStudio has no code for this step, so the "
+                          "script stops here",
+                          "# rather than write audio without it.",
+                          f"raise NotImplementedError({problem!r})"]
+                problems.append(problem)
+            else:
+                lines += step.code.splitlines()
+        return lines, problems
+
+    @staticmethod
+    def _load_lines(origin: _Origin, source: str) -> List[str]:
+        """Read *source* the way :meth:`load_file` read the original.
+
+        The file is checked first: every edit below was made on those bytes,
+        and run on a later file at the same path -- the edited audio itself,
+        saved over the original -- they would be applied twice, without a
+        word. With the file's own rate, the script also checks it is still
+        the rate the edits were made at: every position in it is a sample
+        index, and the same index at another rate is another moment.
+        """
+        lines: List[str] = []
+        if origin.digest is not None:
+            why = ("is not the file these edits were made on: it has changed "
+                   "since. Point the script at a copy of the original, or "
+                   "delete this check to run the edits on it anyway.")
+            # the name as SOURCE says it, so a SOURCE pointed elsewhere is
+            # the file the message names
+            message = (f'f"{{{source}}} {why}"' if source.isidentifier()
+                       else repr(f"{origin.path} {why}"))
+            lines += [f"if {_DIGEST_CALL}{source}) != {origin.digest!r}:",
+                      f"    sys.exit({message})"]
+        if origin.requested_sr is not None:
+            return lines + [f"y, sr = kudio.file_load({source}, "
+                            f"sr={origin.requested_sr}, mono={origin.mono})"]
+        rate = origin.rate
+        return lines + [
+            f"y, sr = kudio.file_load({source}, sr=None, mono={origin.mono})",
+            f"if sr != {rate}:",
+            f"    # every sample position below was counted at {rate} Hz",
+            f"    y, sr = kudio.resample(y, sr, {rate}), {rate}"]
+
+    def _changed_since_read(self, origin: _Origin) -> Optional[str]:
+        """Why *origin*'s file no longer holds what the edits were made on.
+
+        ``None`` when it still does -- or when there is no file to ask about.
+        The size and time are looked at first; the bytes are read again only
+        when those moved, or when Save As wrote to that path.
+        """
+        if origin.path is None or origin.digest is None:
+            return None
+        name = origin.path.name
+        now = _stat(origin.path)
+        if now is None:
+            return (f"{name} is gone, and the script reads the edits' "
+                    f"starting point from it")
+        overwritten = os.path.normcase(str(origin.path.resolve())) \
+            in self._written
+        if now == origin.stat and not overwritten:
+            return None
+        try:
+            if file_digest(origin.path) == origin.digest:
+                return None
+        except OSError as e:
+            return f"{name} cannot be read back — {e}"
+        if overwritten:
+            return (f"{name} was saved over and now holds the edited audio, "
+                    f"so the script would apply every edit a second time; "
+                    f"it stops instead. Point it at a copy of the original")
+        return (f"{name} has changed on disk since it was opened, so the "
+                f"script stops rather than edit another file; point it at "
+                f"a copy of the original")
+
+    def _rebuild_clip(self, copied: _Copied) -> Tuple[List[str], List[str]]:
+        """``clip = ...`` for a copy made from audio this history does not
+        pass through: rebuild that audio in a function, then copy from it."""
+        origin = copied.origin
+        if origin is None or origin.path is None:
+            return (["# The clipboard was copied from a recording, which was "
+                     "never a file,",
+                     "# so there is nothing to rebuild it from.",
+                     "raise NotImplementedError('the clipboard pasted here "
+                     "came from a recording')"],
+                    ["the clipboard came from a recording, which the script "
+                     "cannot read back"])
+        body, problems = self._script_body(origin, copied.steps,
+                                           repr(str(origin.path)))
+        lines = ["# The clipboard was copied from audio this history no "
+                 "longer passes through",
+                 "# (another file, or edits since undone), so rebuild that "
+                 "audio first.",
+                 "def copied():"]
+        lines += [f"    {line}" if line else "" for line in body]
+        lines += [f"    return y[{copied.start}:{copied.stop}].copy()",
+                  "", "", "clip = copied()"]
+        return lines, problems

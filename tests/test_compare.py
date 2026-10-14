@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 """The Compare panel: rank every enhancement method over one clip."""
+import gc
+import sys
+import time
+import types
+import weakref
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from PySide6.QtCore import Qt
@@ -527,6 +535,281 @@ def test_a_missing_kudio_enhance_is_reported_not_raised(panel, tmp_path,
     assert "pip install" in messages[-1]
 
 
+# -------------------------------------------- the learned row's model, kept
+
+#: long enough that a row charged for it cannot pass for a fast one
+SLOW_SECONDS = 0.6
+
+
+def install_fake_model(monkeypatch):
+    """A model that is slow to load, as a real one is, and instant to run.
+
+    It sits where ``from kudio_enhance.inference import Enhancer`` finds it,
+    so the panel's own loading code is what runs, with kudio-enhance
+    installed or not. Set ``first_pass`` to make its first run slow too.
+    """
+    import kudiostudio.panels.compare as module
+
+    class Enhancer:
+        loads = []
+        load_seconds = SLOW_SECONDS
+        first_pass = 0.0
+        refuse = None
+
+        def __init__(self):
+            self.cfg = SimpleNamespace(audio=SimpleNamespace(sr=16000))
+            self.passes = 0
+
+        @classmethod
+        def load(cls, run_dir):
+            cls.loads.append(str(run_dir))
+            time.sleep(cls.load_seconds)
+            if cls.refuse is not None:
+                raise cls.refuse
+            return cls()
+
+        def enhance(self, y):
+            self.passes += 1
+            if self.passes == 1:
+                time.sleep(self.first_pass)
+            return 0.5 * np.asarray(y, dtype=np.float32)
+
+    inference = types.ModuleType("kudio_enhance.inference")
+    inference.Enhancer = Enhancer
+    monkeypatch.setitem(sys.modules, "kudio_enhance.inference", inference)
+    monkeypatch.setattr(module, "kudio_enhance_available", lambda: True)
+    return Enhancer
+
+
+@pytest.fixture
+def slow_model(panel, tmp_path, monkeypatch):
+    """The panel, pointed at a run directory that loads the fake model."""
+    model = install_fake_model(monkeypatch)
+    run_dir = tmp_path / "runs" / "exp1"
+    run_dir.mkdir(parents=True)
+    panel.run_dir.edit.setText(str(run_dir))
+    return model
+
+
+def learned_row(panel):
+    rows = [r for r in panel._results if r.noise == kudio.CUSTOM_NOISE]
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_a_learned_rows_time_leaves_out_loading_the_model(panel, slow_model):
+    """The column ranks rows against each other; a load inside the row was
+    charged at seconds against milliseconds of denoising."""
+    _run_and_wait(panel)
+
+    row = learned_row(panel)
+    assert row.error is None
+    assert slow_model.loads == [panel.run_dir.path()]
+    assert row.seconds < SLOW_SECONDS / 2
+
+
+def test_a_learned_rows_time_leaves_out_its_first_pass(panel, slow_model):
+    """A network's first pass pays one-time set-up, as kudio's own methods
+    do before compare_enhancers warms them up."""
+    slow_model.load_seconds = 0.0
+    slow_model.first_pass = SLOW_SECONDS
+    _run_and_wait(panel)
+
+    row = learned_row(panel)
+    assert row.error is None
+    assert row.seconds < SLOW_SECONDS / 2
+
+
+def test_the_model_is_loaded_once_per_run_directory(panel, slow_model,
+                                                    tmp_path):
+    slow_model.load_seconds = 0.0
+    first = panel.run_dir.path()
+    _run_and_wait(panel)
+    _run_and_wait(panel)
+    assert slow_model.loads == [first]
+
+    other = tmp_path / "runs" / "exp2"
+    other.mkdir()
+    panel.run_dir.edit.setText(str(other))
+    assert panel._model.enhancer is None        # the old model is let go
+    _run_and_wait(panel)
+    assert slow_model.loads == [first, str(other)]
+    assert learned_row(panel).method == "exp2"
+
+
+def test_a_model_kept_from_another_run_is_not_used(panel, slow_model):
+    """A directory changed while a comparison is still loading leaves the old
+    run's model in the cache after the change has cleared it."""
+    slow_model.load_seconds = 0.0
+    panel._model.enhancer, panel._model.run_dir = slow_model(), "runs/old"
+    _run_and_wait(panel)
+    assert slow_model.loads == [panel.run_dir.path()]
+    assert panel._model.run_dir == panel.run_dir.path()
+
+
+def test_a_model_that_will_not_load_fails_its_own_row(panel, slow_model):
+    """Loading ahead of the comparison must not change what a failure looks
+    like: one row with its error, beside every row that worked."""
+    slow_model.load_seconds = 0.0
+    slow_model.refuse = FileNotFoundError("no model at runs/exp1/ddae.pt")
+    messages = []
+    panel.status.connect(messages.append)
+    _run_and_wait(panel)
+
+    assert "no model at" in learned_row(panel).error
+    others = [r for r in panel._results if r.noise != kudio.CUSTOM_NOISE]
+    assert len(others) == len(kudio.METHODS)
+    assert all(r.error is None for r in others)
+    assert not any("Comparison failed" in m for m in messages)
+
+
+def test_a_panel_let_go_after_a_learned_comparison_is_freed_quietly(
+        real_session, tmp_path, monkeypatch):
+    """A finished worker used to await deletion holding whatever it was
+    handed. Handed a method of its panel, it held the panel's last reference:
+    deleting the worker deleted the panel, which deleted the worker again --
+    a segfault, and the end of the test run. Now it lets go once the event
+    loop has run past the job's end."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    install_fake_model(monkeypatch).load_seconds = 0.0
+    run_dir = tmp_path / "exp1"
+    run_dir.mkdir()
+    panel = ComparePanel(real_session)
+    panel.metrics.setChecked(False)
+    panel.run_dir.edit.setText(str(run_dir))
+    _run_and_wait(panel)
+    assert learned_row(panel).error is None
+
+    gone = weakref.ref(panel)
+    del panel
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.processEvents()
+    gc.collect()
+    assert gone() is None
+
+
+def test_a_model_trained_again_in_the_same_directory_is_loaded_again(
+        panel, slow_model):
+    """The cache was keyed on the directory's name. Trained again in place,
+    the run went on being ranked with the old weights, while Apply recorded a
+    load of the new ones."""
+    slow_model.load_seconds = 0.0
+    run_dir = Path(panel.run_dir.path())
+    for name in ("config.yaml", "stats.npz", "ddae.pt"):
+        (run_dir / name).write_bytes(b"first")
+    _run_and_wait(panel)
+    _run_and_wait(panel)
+    assert slow_model.loads == [str(run_dir)], "unchanged: kept"
+
+    # kudio-enhance writes a checkpoint by replacing it
+    retrained = run_dir / "ddae.tmp"
+    retrained.write_bytes(b"second, and longer")
+    retrained.replace(run_dir / "ddae.pt")
+    _run_and_wait(panel)
+    assert slow_model.loads == [str(run_dir)] * 2
+
+
+def _held_comparison(panel, monkeypatch):
+    """Make the next comparison wait for the returned event before running."""
+    import threading
+
+    import kudiostudio.panels.compare as module
+
+    release = threading.Event()
+    real = module.compare_with_model
+
+    def held(*args, **kwargs):
+        release.wait(30)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, "compare_with_model", held)
+    return release
+
+
+def _wait(panel):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
+    QTimer.singleShot(60_000, loop.quit)
+    if panel.jobs.busy:
+        loop.exec()
+    panel.jobs.wait(60_000)
+
+
+def test_results_of_audio_edited_while_they_ran_are_dropped(panel, real_session,
+                                                            monkeypatch):
+    """They were ranked as if from the edit, and Apply recorded them as code
+    that would compute something else from it -- with no warning at export."""
+    messages = []
+    panel.status.connect(messages.append)
+    real_session.changed.connect(panel.on_session_changed)
+    release = _held_comparison(panel, monkeypatch)
+    panel._run()
+    real_session.replace_selection(kudio.gain(real_session.y, -12.0),
+                                   undo_label="gain",
+                                   code="y = kudio.gain(y, db=-12.0)")
+    release.set()
+    _wait(panel)
+
+    assert panel.table.rowCount() == 0
+    assert panel._results == []
+    assert "audio changed while the comparison ran" in messages[-1]
+    assert [step.label for step in real_session.history] == ["gain"]
+    assert real_session.edit_script_warnings() == []
+
+
+def test_rows_on_screen_are_applied_as_the_run_that_made_them(
+        panel, real_session, monkeypatch):
+    """A second run started while the first one's rows were on screen used to
+    lend them its range: a row computed from a selection was recorded as
+    whole-clip code, and the script wrote twice the audio."""
+    real_session.changed.connect(panel.on_session_changed)
+    panel.selection_only.setChecked(True)
+    real_session.set_selection(0.5, 1.5)
+    _run_and_wait(panel)
+    assert len(panel._results[0].audio) == real_session.sr
+
+    panel.selection_only.setChecked(False)
+    release = _held_comparison(panel, monkeypatch)
+    panel._run()
+    panel.table.selectRow(0)
+    panel._apply()
+    release.set()
+    _wait(panel)
+
+    assert real_session.history[-1].code is None
+    assert any("was not recorded as code" in w
+               for w in real_session.edit_script_warnings())
+
+
+#: skipped without kudio-enhance and PyTorch -- see conftest.py
+requires_enhance = pytest.mark.learned
+
+
+@requires_enhance
+def test_a_trained_model_is_ranked_and_kept_for_the_next_comparison(
+        panel, trained_run):
+    run_dir, sr = trained_run
+    assert panel.session.sr == sr
+    panel.run_dir.edit.setText(str(run_dir))
+
+    _run_and_wait(panel)
+    row = learned_row(panel)
+    assert row.error is None
+    assert row.method == run_dir.name
+    assert len(row.audio) == len(panel.session.y)
+    assert np.isfinite(row.audio).all()
+    loaded = panel._model.enhancer
+    assert loaded is not None
+    assert panel._model.run_dir == str(run_dir)
+
+    _run_and_wait(panel)
+    assert learned_row(panel).error is None
+    assert panel._model.enhancer is loaded      # not read from disk again
+
+
 # --------------------------------------------------- auditioning two at once
 
 def test_two_rows_play_back_to_back(panel):
@@ -576,7 +859,8 @@ def test_rows_are_heard_in_the_tables_order_not_the_click_order(panel):
         key(panel, 1)[0], key(panel, 3)[0]]
 
 
-def test_a_failed_row_is_not_auditioned(panel, monkeypatch):
+def _break_wiener(monkeypatch) -> None:
+    """Make the Wiener row fail, the way a method that raises leaves a row."""
     import kudio.enhance.spectral as module
 
     real = module.spectral_enhance
@@ -589,6 +873,10 @@ def test_a_failed_row_is_not_auditioned(panel, monkeypatch):
     monkeypatch.setattr(kudio, "compare_enhancers",
                         lambda *a, **k: module.compare_enhancers(*a, **k))
     monkeypatch.setattr(module, "spectral_enhance", explode)
+
+
+def test_a_failed_row_is_not_auditioned(panel, monkeypatch):
+    _break_wiener(monkeypatch)
     _run_and_wait(panel)
 
     panel.table.selectAll()
@@ -601,3 +889,55 @@ def test_a_failed_row_is_not_auditioned(panel, monkeypatch):
     gap = int(AB_GAP_SECONDS * panel.session.sr)
     expected = sum(len(r.audio) for r in usable) + gap * (len(usable) - 1)
     assert len(heard[-1]) == expected
+
+
+def test_apply_takes_the_one_usable_row_when_a_failed_one_sits_above_it(
+        panel, monkeypatch):
+    """The button is enabled for one usable row, so that is what it applies --
+    it used to take the top selected row, find it failed, and do nothing."""
+    _break_wiener(monkeypatch)
+    _run_and_wait(panel)
+    failed = next(row for row in range(panel.table.rowCount())
+                  if key(panel, row)[0] == "wiener")
+    below = failed + 1
+    select_rows(panel, failed, below)
+    assert panel.apply_button.isEnabled() is True
+
+    chosen = next(r for r in panel._results
+                  if (r.method, r.noise) == key(panel, below))
+    panel._apply()
+    assert panel.session.can_undo() is True
+    assert np.allclose(panel.session.y, chosen.audio, atol=1e-6)
+
+
+def test_a_resort_while_auditioning_replays_in_the_new_order(panel):
+    """Heard top to bottom is the promise, and a sort changes what the top is
+    without changing which rows are selected -- so the selection signal alone
+    never noticed."""
+    _run_and_wait(panel)
+    heard = []
+    panel.preview_ready.connect(lambda y, sr: heard.append(y))
+    select_rows(panel, 0, 1)
+    panel.audition_button.setChecked(True)
+    before = len(heard)
+
+    panel.table.sortItems(0, Qt.DescendingOrder)          # the two swap
+    first = panel._selected_rows()[0]
+    assert len(heard) == before + 1
+    assert np.array_equal(heard[-1][:len(first.audio)],
+                          np.asarray(first.audio, dtype=np.float32))
+
+
+def test_a_sort_that_keeps_the_order_does_not_restart_the_loop(panel):
+    _run_and_wait(panel)
+    heard = []
+    panel.preview_ready.connect(lambda y, sr: heard.append(y))
+    select_rows(panel, 0, 1)
+    panel.audition_button.setChecked(True)
+    before = len(heard)
+
+    panel.table.sortItems(0, Qt.AscendingOrder)           # already this order
+    assert len(heard) == before
+    panel.audition_button.setChecked(False)
+    panel.table.sortItems(0, Qt.DescendingOrder)          # not auditioning
+    assert len(heard) == before

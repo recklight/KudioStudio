@@ -42,8 +42,10 @@ eval = ["kudio[eval]>=3.7.1"]
 # DNSMOS in the Metrics panel. The weights are NOT bundled -- see
 # kudio.find_dnsmos_model for where to get them.
 dnsmos = ["kudio[dnsmos]>=3.7.1"]
-# learned denoising in the Enhance panel; pulls in TensorFlow, hence optional
-enhance = ["kudio-enhance>=0.1"]
+# learned models in the Enhance and Compare panels; pulls in PyTorch, hence
+# optional. 0.2 is the first kudio-enhance on PyTorch, and the first whose
+# package exports Enhancer, which the Enhance panel's call hint names
+enhance = ["kudio-enhance>=0.2"]
 all = ["kudiostudio[theme,eval,dnsmos,enhance]"]
 dev = ["kudiostudio[theme,eval]", "pytest>=7.0", "pytest-qt>=4.2"]
 

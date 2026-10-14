@@ -13,15 +13,16 @@ noise was measured. Choosing it separately is the point.
 
 `wavelet_low_pass_filter` and `trad_enhance` are kept as they were. Learned
 models come from the optional `kudio-enhance` package and are loaded from a run
-directory it produced; TensorFlow is imported only when that method is actually
-used, so the GUI stays light for everyone else.
+directory it produced; they are PyTorch networks, and PyTorch is imported only
+when that method is actually used, so the GUI stays light for everyone else.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Dict, NamedTuple, Optional, Tuple
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
@@ -71,14 +72,188 @@ def build_param_widget(param) -> QDoubleSpinBox:
     box.setToolTip(param.help)
     return box
 
-INSTALL_HINT = ('Learned models need the kudio-enhance package, which is not '
-                'on PyPI: clone github.com/recklight/KudioEnhance and '
-                'pip install -e . in it')
+INSTALL_HINT = ('Learned models need the kudio-enhance package and PyTorch. '
+                'kudio-enhance is not on PyPI: clone '
+                'github.com/recklight/KudioEnhance and pip install -e . in it, '
+                'which installs PyTorch too')
 
 
 def kudio_enhance_available() -> bool:
-    """Is `kudio-enhance` importable? Checked without importing TensorFlow."""
-    return importlib.util.find_spec("kudio_enhance") is not None
+    """Can learned models run here? Checked without importing PyTorch.
+
+    kudio-enhance imports torch only when a model is built or loaded, so the
+    package importing says nothing about the framework -- an install made
+    with ``--no-deps`` has the one without the other, and would fail at the
+    first Denoise. Both are looked up, neither is imported.
+    """
+    return all(importlib.util.find_spec(name) is not None
+               for name in ("kudio_enhance", "torch"))
+
+
+def _model_paths(run_dir) -> Tuple[Path, ...]:
+    """The files of a run that `Enhancer.load` reads: the config, the
+    normalisation statistics and the checkpoint, in name order."""
+    run = Path(run_dir)
+    return tuple(sorted({run / "config.yaml", run / "stats.npz",
+                         *run.glob("*.pt")}))
+
+
+def model_fingerprint(run_dir) -> Optional[tuple]:
+    """Name, size, time and inode of each model file; ``None`` if one is gone.
+
+    Cheap -- a stat per file -- and it moves whenever the run is trained
+    again, since kudio-enhance writes a checkpoint by replacing it.
+    """
+    found = []
+    for path in _model_paths(run_dir):
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        found.append((path.name, st.st_size, st.st_mtime_ns, st.st_ino))
+    return tuple(found)
+
+
+class ModelState(NamedTuple):
+    """What a run's model files held: their names, and one SHA-256 over all of
+    them in that order."""
+    names: Tuple[str, ...]
+    digest: str
+
+
+#: digests already taken, by run directory and fingerprint: a checkpoint is
+#: megabytes, and Denoise is pressed far more often than a model is trained
+_STATES: Dict[tuple, ModelState] = {}
+
+
+def model_state(run_dir) -> Optional[ModelState]:
+    """The run's model as it is on disk now, or ``None`` when it cannot be
+    read -- in which case the load that follows fails with the reason."""
+    fingerprint = model_fingerprint(run_dir)
+    if fingerprint is None:
+        return None
+    key = (str(Path(run_dir).absolute()), fingerprint)
+    state = _STATES.get(key)
+    if state is None:
+        digest = hashlib.sha256()
+        try:
+            for path in _model_paths(run_dir):
+                with open(path, "rb") as fh:
+                    for block in iter(lambda: fh.read(1 << 20), b""):
+                        digest.update(block)
+        except OSError:
+            return None
+        state = _STATES[key] = ModelState(
+            tuple(name for name, *_ in fingerprint), digest.hexdigest())
+    return state
+
+
+def learned_code(run_dir: str, state: Optional[ModelState] = None) -> str:
+    """What :meth:`LearnedModel.enhance` does, as lines of a script.
+
+    They leave the denoised audio in ``out``. Compare's learned row is the same
+    computation, so both panels record it from here. The run directory goes in
+    as an absolute path: a script runs from wherever it is run, not from where
+    KudioStudio was started.
+
+    With *state* -- the model files as they were when the edit ran -- the code
+    checks them first. A run directory trained again since holds a different
+    model under the same name, and the script would make different audio
+    without a word.
+    """
+    where = str(Path(run_dir).absolute())
+    lines = ["from kudio_enhance.inference import Enhancer"]
+    if state is not None:
+        lines = [
+            "import hashlib",
+            "from pathlib import Path",
+            *lines,
+            f"run_dir = Path({where!r})",
+            "model = hashlib.sha256()",
+            f"for name in {list(state.names)!r}:",
+            "    model.update((run_dir / name).read_bytes())",
+            f"if model.hexdigest() != {state.digest!r}:",
+            "    raise RuntimeError(f'{run_dir} has been trained again since "
+            "this edit; its model is not the one that made it')",
+            "enhancer = Enhancer.load(run_dir)",
+        ]
+    else:
+        lines.append(f"enhancer = Enhancer.load({where!r})")
+    return "\n".join(lines + [
+        "model_sr = enhancer.cfg.audio.sr",
+        "if sr == model_sr:",
+        "    out = enhancer.enhance(y)",
+        "else:  # in at the model's rate, back out at the clip's",
+        "    out = kudio.resample(enhancer.enhance(kudio.resample(y, sr, model_sr)),",
+        "                         model_sr, sr)",
+        "    out = out[:len(y)] if len(out) >= len(y) else np.pad(",
+        "        out, (0, len(y) - len(out)), mode='edge')",
+    ])
+
+
+class LearnedModel:
+    """A kudio-enhance run's model, loaded once and kept for the next call.
+
+    Loading means importing PyTorch and reading a checkpoint, seconds every
+    time, so both panels that run learned models keep the last one here and
+    hand their worker this object's :meth:`enhance`.
+
+    Kept for the run directory *as it is on disk*, not for its name: a run
+    trained again into the same directory is a different model, and a cache
+    keyed on the path went on denoising with the old weights while the history
+    recorded a load of the new ones.
+    """
+
+    def __init__(self) -> None:
+        self.enhancer = None
+        self.run_dir: Optional[str] = None
+        #: `model_fingerprint` of the files the kept model was read from
+        self.fingerprint: Optional[tuple] = None
+
+    def forget(self) -> None:
+        """Drop the model: a different run directory means a different one."""
+        self.enhancer, self.run_dir, self.fingerprint = None, None, None
+
+    def load(self, run_dir: str):
+        """The Enhancer for *run_dir*, read from disk unless it is the one kept.
+
+        Called on the worker thread: importing PyTorch and reading a checkpoint
+        takes seconds and must not block the UI.
+        """
+        # read once into locals: the GUI thread may forget the model meanwhile
+        enhancer, loaded_from, kept = self.enhancer, self.run_dir, self.fingerprint
+        # taken before the load, so files that change during it look changed
+        # next time rather than looking like what was loaded
+        now = model_fingerprint(run_dir)
+        if enhancer is not None and loaded_from == run_dir and kept == now:
+            return enhancer
+        from kudio_enhance.inference import Enhancer
+        enhancer = Enhancer.load(run_dir)
+        self.enhancer, self.run_dir, self.fingerprint = enhancer, run_dir, now
+        return enhancer
+
+    def enhance(self, y: np.ndarray, sr: int, run_dir: str,
+                allow_resample: bool = True) -> np.ndarray:
+        """Denoise *y*, sampled at *sr*, with the model from *run_dir*.
+
+        A clip at another rate goes in at the model's and comes back out at
+        its own, the same length, so splicing the result into the session
+        never changes its rate. :func:`learned_code` writes this out as code.
+        """
+        enhancer = self.load(run_dir)
+        model_sr = enhancer.cfg.audio.sr
+        if sr == model_sr:
+            return enhancer.enhance(y)
+
+        if not allow_resample:
+            raise ValueError(
+                f"this model was trained at {model_sr} Hz but the clip is "
+                f"{sr} Hz — enable resampling, or convert it in the Batch panel")
+
+        enhanced = enhancer.enhance(kudio.resample(y, sr, model_sr))
+        out = kudio.resample(enhanced, model_sr, sr)
+        return out[:len(y)] if len(out) >= len(y) else np.pad(
+            out, (0, len(y) - len(out)), mode="edge")
 
 
 class EnhancePanel(Panel):
@@ -97,9 +272,12 @@ class EnhancePanel(Panel):
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)
-        self._enhancer = None
-        self._enhancer_dir: Optional[str] = None
+        #: kept between runs on the same directory
+        self._model = LearnedModel()
         self._label = ""
+        #: the running job as code, and the audio it was started on
+        self._code: Optional[str] = None
+        self._ran_on: Optional[np.ndarray] = None
         #: {method: {param_name: spin box}}, built from kudio.METHODS
         self._params: dict = {}
 
@@ -275,9 +453,8 @@ class EnhancePanel(Panel):
 
     def _on_run_dir_changed(self) -> None:
         # a different run means a different model; drop the cached one
-        if self.run_dir.path() != self._enhancer_dir:
-            self._enhancer = None
-            self._enhancer_dir = None
+        if self.run_dir.path() != self._model.run_dir:
+            self._model.forget()
         self._update_call()
 
     # --------------------------------------------------------------- preview
@@ -373,40 +550,6 @@ class EnhancePanel(Panel):
         self.run_button.setEnabled(not busy)
         self.run_button.setText("Denoising…" if busy else "Denoise")
 
-    # --------------------------------------------------------------- learned
-
-    def _load_enhancer(self, run_dir: str):
-        """Load (and cache) the Enhancer for *run_dir*.
-
-        Called on the worker thread: importing TensorFlow and reading a model
-        takes seconds and must not block the UI.
-        """
-        if self._enhancer is not None and self._enhancer_dir == run_dir:
-            return self._enhancer
-        from kudio_enhance.inference import Enhancer
-        enhancer = Enhancer.load(run_dir)
-        self._enhancer, self._enhancer_dir = enhancer, run_dir
-        return enhancer
-
-    def _enhance_learned(self, y: np.ndarray, sr: int, run_dir: str,
-                         allow_resample: bool = True) -> np.ndarray:
-        enhancer = self._load_enhancer(run_dir)
-        model_sr = enhancer.cfg.audio.sr
-        if sr == model_sr:
-            return enhancer.enhance(y)
-
-        if not allow_resample:
-            raise ValueError(
-                f"this model was trained at {model_sr} Hz but the clip is "
-                f"{sr} Hz — enable resampling, or convert it in the Batch panel")
-
-        # in at the model's rate, back out at the session's, so splicing the
-        # result into the session never changes its rate
-        enhanced = enhancer.enhance(kudio.resample(y, sr, model_sr))
-        out = kudio.resample(enhanced, model_sr, sr)
-        return out[:len(y)] if len(out) >= len(y) else np.pad(
-            out, (0, len(y) - len(out)), mode="edge")
-
     # ------------------------------------------------------------------ run
 
     def _operation(self, y: np.ndarray, sr: int):
@@ -434,15 +577,37 @@ class EnhancePanel(Panel):
             run_dir = self.run_dir.path()
             if not run_dir or not Path(run_dir).is_dir():
                 raise RuntimeError("Select a kudio-enhance run directory first.")
-            return (self._enhance_learned,
+            return (self._model.enhance,
                     (y, sr, run_dir, self.auto_resample.isChecked()), {},
                     f"learned model ({Path(run_dir).name})")
         return kudio.trad_enhance, (y, sr), {}, "trad_enhance"
+
+    def _script(self, fn, args, kwargs) -> str:
+        """The step :meth:`_finished` will commit, as code.
+
+        Written from the same ``(fn, args, kwargs)`` the worker is handed, not
+        from the caption, so the history cannot describe a different call from
+        the one that ran. The last line is what `_finished` does to the result.
+        """
+        if fn == self._model.enhance:
+            call = learned_code(args[2], model_state(args[2]))
+        else:
+            # y and sr are the session's own; anything after them is a value
+            arguments = ["y", "sr"][:len(args)] + [repr(a) for a in args[2:]]
+            arguments += [f"{name}={value!r}" for name, value in kwargs.items()]
+            call = f"out = kudio.{fn.__name__}({', '.join(arguments)})"
+        return f"{call}\ny = np.asarray(out, dtype=np.float32)[:len(y)]"
 
     def _run(self) -> None:
         if not self.require_audio():
             return
         self.cancel_preview()
+        # Refused before anything below is touched: the job already running
+        # commits through the same attributes, and would otherwise be
+        # recorded under this run's label and code.
+        if self.jobs.busy:
+            self.report("A denoising job is already running.")
+            return
         y = np.asarray(self.session.y, dtype=np.float32)
         self._before = y.copy()
         try:
@@ -452,6 +617,9 @@ class EnhancePanel(Panel):
             return
 
         self._label = label
+        # taken now: the controls can move while the job runs
+        self._code = self._script(fn, args, kwargs)
+        self._ran_on = self.session.y
         self.report(f"Running {label} …")
         started = self.jobs.run(fn, *args, on_done=self._finished,
                                 on_failed=self._failed, **kwargs)
@@ -463,8 +631,12 @@ class EnhancePanel(Panel):
         # wavelet reconstruction can return one extra sample on odd lengths
         n = min(len(out), len(self._before))
         out, before = out[:n], self._before[:n]
-        self.session.set_audio(out, self.session.sr,
-                               undo_label=self._label, keep_original=True)
+        # The code repeats this run on the audio the history has reached. If
+        # that audio was edited while the job ran, this result came from
+        # something the history no longer holds, and no code says what.
+        code = self._code if self.session.y is self._ran_on else None
+        self.session.set_audio(out, self.session.sr, undo_label=self._label,
+                               keep_original=True, code=code)
         self.result.setText(
             f"SNR {kudio.snr(before, out):+.2f} dB   ·   "
             f"SI-SDR {kudio.si_sdr(before, out):+.2f} dB   ·   "

@@ -314,6 +314,23 @@ def test_crop_drops_markers_outside_the_kept_range(session):
     assert session.markers[0].start == pytest.approx(0.25, abs=1e-3)
 
 
+def test_undoing_a_crop_brings_back_every_marker_where_it_was(session):
+    """The crop moved and dropped the markers before its undo snapshot was
+    taken, so undo restored the audio around the cropped list: the outer
+    markers stayed lost, and the inner one 0.25 s early."""
+    session.add_marker(0.1, label="before")
+    session.add_marker(0.5, 0.6, label="inside")
+    session.add_marker(0.95, label="after")
+    before = session.markers
+    session.set_selection(0.25, 0.75)
+    session.crop_to_selection()
+    assert [m.label for m in session.markers] == ["inside"]
+
+    session.undo()
+    assert session.markers == before
+    assert session.duration == pytest.approx(1.0, abs=1e-3)
+
+
 def test_new_audio_clears_the_markers(session):
     session.add_marker(0.5)
     session.set_audio(np.zeros(SR, dtype=np.float32), SR, name="new")

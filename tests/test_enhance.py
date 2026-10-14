@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -64,7 +66,12 @@ def test_call_hint_tracks_the_method(session):
     assert "noise='mcra'" in panel.call.text()
 
 
-def test_learned_without_a_run_directory_reports(session):
+def test_learned_without_a_run_directory_reports(session, monkeypatch):
+    """Whatever is installed: the run directory is what this is about, and
+    without kudio-enhance the install hint used to come first."""
+    import kudiostudio.panels.enhance as module
+
+    monkeypatch.setattr(module, "kudio_enhance_available", lambda: True)
     panel = EnhancePanel(session)
     select(panel, LEARNED)
     messages = []
@@ -90,6 +97,28 @@ def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch
     # clone rather than a distribution that cannot be resolved
     assert "KudioEnhance" in messages[0]
     assert "kudiostudio[enhance]" not in messages[0]
+
+
+def test_kudio_enhance_without_pytorch_is_not_available(session, tmp_path,
+                                                        monkeypatch):
+    """The package imports without the framework; the first Denoise would not."""
+    import kudiostudio.panels.enhance as module
+
+    specs = {"kudio_enhance": object(), "torch": None}
+    monkeypatch.setattr(module, "importlib",
+                        SimpleNamespace(util=SimpleNamespace(find_spec=specs.get)))
+    assert module.kudio_enhance_available() is False
+
+    panel = EnhancePanel(session)
+    select(panel, LEARNED)
+    panel.run_dir.edit.setText(str(tmp_path))
+    messages = []
+    panel.status.connect(messages.append)
+    panel._run()
+    assert messages and "PyTorch" in messages[0]
+
+    specs["torch"] = object()
+    assert module.kudio_enhance_available() is True
 
 
 # -------------------------------------------- statistical methods (kudio 3.4)
@@ -174,54 +203,32 @@ def test_availability_note_matches_the_environment(session):
 
 def test_changing_the_run_directory_drops_the_cached_model(session):
     panel = EnhancePanel(session)
-    panel._enhancer, panel._enhancer_dir = object(), "runs/old"
+    panel._model.enhancer, panel._model.run_dir = object(), "runs/old"
 
     panel.run_dir.edit.setText("runs/new")
-    assert panel._enhancer is None
-    assert panel._enhancer_dir is None
+    assert panel._model.enhancer is None
+    assert panel._model.run_dir is None
 
 
 # --------------------------------------------------------------- integration
 
-# a module-level importorskip would skip the tests above too, which must run
-# with or without the extra installed
-requires_enhance = pytest.mark.skipif(
-    importlib.util.find_spec("kudio_enhance") is None,
-    reason="learned denoising needs the kudio-enhance extra")
+def run_and_wait(panel) -> None:
+    """Denoise runs on a worker; drive the loop until it lands."""
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
+    QTimer.singleShot(60_000, loop.quit)
+    panel._run()
+    if panel.jobs.busy:
+        loop.exec()
+    panel.jobs.wait(60_000)
 
 
-@pytest.fixture(scope="module")
-def trained_run(tmp_path_factory):
-    """A one-epoch kudio-enhance run — enough to exercise the real load path."""
-    import kudio
-    from kudio_enhance import Config, pipeline
-
-    root = tmp_path_factory.mktemp("enhance")
-    clean_dir, noise_dir = root / "clean", root / "noise"
-    clean_dir.mkdir()
-    noise_dir.mkdir()
-
-    sr = 16000          # matches the session fixture
-    rng = np.random.default_rng(5)
-    for i in range(4):
-        t = np.arange(int(0.5 * sr)) / sr
-        y = np.sin(2 * np.pi * (150 + 40 * i) * t) * np.hanning(len(t))
-        kudio.save_wave(clean_dir / f"u{i}.wav", y.astype(np.float32), sr)
-    kudio.save_wave(noise_dir / "white.wav",
-                    (0.3 * rng.normal(0, 1, sr)).astype(np.float32), sr)
-
-    cfg = Config.from_dict({
-        "audio": {"sr": sr, "n_fft": 256, "hop_length": 128},
-        "data": {"clean_dir": str(clean_dir), "noise_dir": str(noise_dir),
-                 "mixed_dir": str(root / "mixed"), "snr_db": [0],
-                 "seed": 1, "val_split": 0.25, "test_split": 0.0},
-        "model": {"name": "ddae", "context": 1, "units": [32], "dropout": 0.0},
-        "train": {"epochs": 1, "batch_size": 32, "patience": 1,
-                  "out_dir": str(root / "runs")},
-    })
-    pipeline.synthesize(cfg, "exp")
-    pipeline.train(cfg, "exp", epochs=1, verbose=0)
-    return cfg.run_dir("exp"), sr
+# skipped without kudio-enhance and PyTorch, by the marker in conftest.py --
+# not a module-level importorskip, which would skip the tests that must run
+# with or without them
+requires_enhance = pytest.mark.learned
 
 
 @requires_enhance
@@ -231,11 +238,11 @@ def test_learned_denoising_runs_against_a_real_model(session, trained_run):
     assert session.sr == sr
 
     noisy = np.asarray(session.y, dtype=np.float32)
-    out = panel._enhance_learned(noisy, sr, str(run_dir))
+    out = panel._model.enhance(noisy, sr, str(run_dir))
     assert out.shape == noisy.shape
     assert np.isfinite(out).all()
     # the model is cached for the next call on the same directory
-    assert panel._enhancer_dir == str(run_dir)
+    assert panel._model.run_dir == str(run_dir)
 
 
 @requires_enhance
@@ -244,8 +251,8 @@ def test_learned_denoising_refuses_a_rate_mismatch_when_told_to(session, trained
     panel = EnhancePanel(session)
 
     with pytest.raises(ValueError, match="trained at"):
-        panel._enhance_learned(np.zeros(1000, dtype=np.float32), sr * 2,
-                               str(run_dir), allow_resample=False)
+        panel._model.enhance(np.zeros(1000, dtype=np.float32), sr * 2,
+                             str(run_dir), allow_resample=False)
 
 
 @requires_enhance
@@ -256,8 +263,52 @@ def test_learned_denoising_resamples_across_rates(session, trained_run):
 
     other_sr = sr * 2
     y = np.asarray(session.y, dtype=np.float32)
-    out = panel._enhance_learned(y, other_sr, str(run_dir), allow_resample=True)
+    out = panel._model.enhance(y, other_sr, str(run_dir), allow_resample=True)
 
     # length is preserved in the caller's rate, so it splices back cleanly
     assert out.shape == y.shape
     assert np.isfinite(out).all()
+
+
+@requires_enhance
+def test_the_learned_call_hint_runs_as_written(session, trained_run):
+    """kudio-enhance exports `Enhancer` from its package, so the hint is not a
+    description but a statement: with `kudio_enhance` imported it runs, and it
+    gives what Denoise gives."""
+    import kudio_enhance
+
+    run_dir, sr = trained_run
+    panel = EnhancePanel(session)
+    select(panel, LEARNED)
+    panel.run_dir.edit.setText(str(run_dir))
+    y = np.asarray(session.y, dtype=np.float32)
+
+    out = eval(panel.call.text(), {"kudio_enhance": kudio_enhance, "y": y})
+    assert np.allclose(out, panel._model.enhance(y, sr, str(run_dir)),
+                       rtol=0.0, atol=1e-6)
+
+
+@requires_enhance
+def test_a_run_from_kudio_enhance_0_1_is_reported_as_needing_retraining(
+        session, trained_run, tmp_path):
+    """0.1 saved Keras weights, which 0.2 cannot read. The panel passes on
+    what to do about it, and commits nothing."""
+    run_dir, _ = trained_run
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    for name in ("config.yaml", "stats.npz"):
+        shutil.copy(run_dir / name, legacy / name)
+    (legacy / "ddae.keras").write_bytes(b"")     # where 0.1 left the weights
+
+    panel = EnhancePanel(session)
+    select(panel, LEARNED)
+    panel.run_dir.edit.setText(str(legacy))
+    before = session.y.copy()
+    messages = []
+    panel.status.connect(messages.append)
+
+    run_and_wait(panel)
+    assert "failed" in messages[-1]
+    assert "Retrain it" in messages[-1]
+    assert np.array_equal(session.y, before)
+    assert not session.has_history()

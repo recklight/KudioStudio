@@ -34,10 +34,10 @@ same editable install:
 | `pip install -e ".[eval]"` | STOI / SDR metrics |
 | `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
 | `pip install -e ".[dnsmos]"` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
-| `pip install -e ".[enhance]"` | learned denoising. [kudio-enhance](https://github.com/recklight/KudioEnhance) is not on PyPI either, so install it from a checkout of its own first; this extra then finds it |
+| `pip install -e ".[enhance]"` | learned denoising, on PyTorch. [kudio-enhance](https://github.com/recklight/KudioEnhance) 0.2 or later is not on PyPI either, so install it from a checkout of its own first — its README says how to keep PyTorch CPU-only — and this extra then finds it |
 | `pip install -e ".[all]"` | all of the above, so it wants that checkout too |
 
-The base install stays light: no TensorFlow unless you ask for it.
+The base install stays light: no PyTorch unless you ask for it.
 
 ```bash
 kudiostudio                    # empty session
@@ -51,14 +51,15 @@ kudiostudio --reset            # forget saved window geometry
 | Panel | `kudio` behind it | What you get |
 |---|---|---|
 | **Analysis** (centre) | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` | Waveform + log-power STFT, log-mel or MFCC, x-linked, live `n_fft` / `hop_length` / `n_mels` / `n_mfcc`, a **loudness curve** on its own LUFS axis, plus a live **Levels** readout with true peak and loudness range |
-| **Effects** | `kudio.effects`, `kudio.rir`, `kudio.effects.channel` | Fades, `reverse`, `remove_dc`, four Butterworth filters, `gain`, `pitch_shift`, `time_stretch`, `reverb`, **`room`** (a real impulse response, seeded and measurable), **`telephone`** / **`bit_depth`** / **`dropouts`** (the channel, scattered or in bursts), `add_noise_snr`, `trim_silence`, `vad_trim`, `split_on_silence` — with a looping **Preview** that commits nothing |
+| **Effects** | `kudio.effects`, `kudio.rir`, `kudio.apply_rir`, `kudio.rt60`, `kudio.effects.channel` | Fades, `reverse`, `remove_dc`, four Butterworth filters, `gain`, `pitch_shift`, `time_stretch`, `reverb`, **`room`** (a real impulse response, seeded and measurable), **`measured_room`** (an impulse response from a file, with its T30, EDT, C50 and DRR read off it), **`telephone`** / **`bit_depth`** / **`dropouts`** (the channel, scattered or in bursts), `add_noise_snr`, `trim_silence`, `vad_trim`, `split_on_silence` — with a looping **Preview** that commits nothing |
 | **Enhance** | `kudio.spectral_enhance` + `kudio-enhance` | Seven statistical denoisers × four noise estimators, `wavelet_low_pass_filter`, and **learned models** from a [kudio-enhance](https://github.com/recklight/KudioEnhance) run |
-| **Compare** | `kudio.compare_enhancers` | Every method × every noise estimator over the same clip, ranked, with per-row audition — and a trained model in the same table |
+| **Compare** | `kudio.compare_enhancers` | Every method × every noise estimator over the same clip, ranked, with per-row audition or **several rows back to back** — and a trained model in the same table |
 | **Record** | `kudio.record`, `kudio.StreamRecorder`, `kudio.StreamEnhancer`, `kudio.SpectrogramStream` | Fixed-length capture, **or record until you stop** with a live level meter, a **rolling waveform and spectrogram**, and optional **live denoised monitoring** |
 | **Synthesize** | `kudio.Synthesizer` | clean × noise × SNR **× room** dataset generation, optionally **down a link** (telephone / VoIP) and with **reverberant targets** beside the mixtures, seeded and reproducible, writing a manifest that records what came from what |
+| **Manifest** | `kudio.load_manifest` | That manifest read back as a sortable table — noisy, clean, noise, SNR, room, link, target — filtered by noise, SNR, room and link, with **missing files marked and counted**, a **noise × SNR coverage grid** that shows the holes, and each row's noisy, clean and target files one click from your ears |
 | **Pitch** | `kudio.f0` | pYIN fundamental frequency **with** the voiced/unvoiced decision — median, range in Hz and semitones, the contour drawn over the spectrogram, and the voiced spans as markers |
 | **Metrics** | `kudio.audio_report`, `kudio.dnsmos`, `kudio.core.evaluator`, `kudio.find_delay` | **No reference needed**: clipping, level, DC, noise floor, real bandwidth, and a predicted **DNSMOS** opinion. **With a reference**: SNR / SI-SDR / segmental SNR always, PESQ / STOI / SDR when installed |
-| **Batch** | `kudio.convert_folder`, `kudio.enhance_folder` | Folder-wide resample, bit depth, mono downmix, trim, peak **or LUFS** normalise, **and denoise** — mirroring the input's folder structure |
+| **Batch** | `kudio.convert_folder`, `kudio.enhance_folder`, `kudio.loudness`, `kudio.true_peak`, `kudio.rir` | Folder-wide resample, bit depth, mono downmix, trim, peak **or LUFS** normalise, **and denoise** — mirroring the input's folder structure — with a **loudness report** naming every file that could not reach the target and why, and a **reverberant copy** of the tree beside the dry one |
 
 Edits apply to the **selected range** when there is one, otherwise to the whole
 clip — and every edit is undoable. `Revert to original` drops the lot.
@@ -90,6 +91,63 @@ uses 200 ms for that one join and leaves the default where it was.
 Applying an *effect* to a selection is deliberately not crossfaded — it
 replaces the range with a processed version of itself, and blending the edges
 back would leave 5 ms at each end un-effected.
+
+### Your edits, as a script
+
+`File → Export edits as Python script…` writes the undo history out as a plain
+Python script. It reads the original file the way KudioStudio read it, repeats
+every edit in order — each under its undo label, each as the `kudio` call or
+the slicing that made it — and saves the result. Run on the original, it makes
+**the same samples the session holds**, not an approximation of them; the test
+suite runs an exported script in a separate interpreter and checks exactly
+that.
+
+```python
+# 2. highpass
+head, y, tail = y[:4800], y[4800:14400], y[14400:]  # 0.300–0.900 s
+y = kudio.highpass(y, sr, cutoff=120.0, order=4, zero_phase=True)
+y = np.concatenate([head, y, tail])
+
+clip = y[8000:11200].copy()  # pasted in step 5
+
+# 3. cut
+y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
+```
+
+- **Undo takes the step back out**; Revert, opening another file and a new
+  recording start the history again. An edit too old for the undo stack stays
+  in — it is still in the audio.
+- Every splice carries the crossfade it actually used, and an effect on a
+  selection is spliced back without one, as it was applied.
+- **A paste pastes what was copied**, not whatever is at those samples by the
+  time the script gets there: the `clip = …` line goes where the copy was
+  made. A clipboard copied before an edit that was later undone, or from
+  another file, is rebuilt from that file first. One copied from an earlier
+  recording has no file to be rebuilt from — every take is its own, however
+  alike — so the script stops there and the export says why.
+- **The script checks what it is run on.** It carries the SHA-256 of the file
+  the edits were made on and stops if `SOURCE` holds anything else. `Save As`
+  suggests the file you opened, and once the edited audio has been saved over
+  it, a script that read it back would apply every edit a second time; the
+  export warns about that too, as soon as it can tell. Point `SOURCE` at a
+  copy of the original, or delete the check to run the same edits on another
+  file. A learned model's files are checked the same way, so a run directory
+  trained again since the edit stops the script rather than denoise with a
+  different model.
+- An effect left on a **random** seed gets the seed Apply actually drew written
+  into its call, so the script repeats that result instead of rolling again.
+  Denoising is recorded too — a learned model as
+  `Enhancer.load(run_dir).enhance(y)` from kudio-enhance, resampling included.
+- **Nothing is skipped quietly.** An edit that cannot be written as code stops
+  the script with a `raise` at that step, the script's header lists it, and the
+  export says so in the status bar; a script that leaves out a step writes a
+  different file and nothing about it looks wrong. A recording that was never
+  a file gets a placeholder `SOURCE` and the same warning. File names and
+  undo labels go into the script's comments escaped, so a newline in a name
+  cannot end a comment and turn the rest of it into code.
+
+From code, `session.edit_script()` returns the same text and `session.history`
+the steps behind it.
 
 ### Markers
 
@@ -160,6 +218,38 @@ audio, so what you hear is exactly what Apply will commit.
 
 Anything else claiming playback — Play, Stop, an edit — ends the audition and
 releases the button.
+
+### A room someone measured
+
+`room` builds a statistical room from an RT60 and a DRR: reproducible, one knob,
+and no early reflections, which is what augmentation wants and not what a
+particular hall sounds like. **`measured_room`** takes an impulse response from
+a file instead and applies it with `kudio.apply_rir`. It is read the way the
+recorded call reads it — `kudio.file_load` at the clip's rate, in mono — and
+read again if the clip changes rate, so Preview, Apply and an exported script
+all use the same samples:
+
+```python
+y = kudio.apply_rir(y, kudio.file_load('/rooms/hall.wav', sr=sr)[0][192:])
+```
+
+The `[192:]` is **`start at the direct sound`**, on by default. A measured
+response begins with the time the sound took to reach the microphone, and left
+in, that delays the audio — a processed selection comes back late against its
+neighbours. It starts the response at its loudest sample, where `kudio.rir`
+puts the direct path.
+
+Under the picker, `kudio.rt60` reads the response **as it will be applied** —
+resampled, downmixed, trimmed — so a hall measured at 48 kHz and applied at
+8 kHz is described as what is left of it:
+
+```
+0.91 s at 16000 Hz, direct sound at 12.0 ms — applied from there
+T30 0.59 s (EDT 0.54 s)  ·  C50 +9.4 dB  ·  DRR +3.0 dB  ·  fit 1.000
+```
+
+A file that is not an impulse response still produces a T30. When the decay is
+not straight, or its EDT and T30 disagree, the reading says so and turns red.
 
 ### Is this recording usable at all?
 
@@ -337,7 +427,21 @@ difference.
 Point `Learned model` at a [kudio-enhance](https://github.com/recklight/KudioEnhance)
 run directory and it gets a row too, scored against the same reference on the
 same audio — "is the model actually better than log-MMSE" is not a question two
-separate printouts answer.
+separate printouts answer. The model is loaded, and run once over a short
+excerpt, before the clock starts, then kept for the next comparison on the same
+run, so its `ms` is the denoise — not the seconds it takes to import PyTorch
+and read the checkpoint. Kept for the run *as it is on disk*: trained again
+into the same directory, it is loaded again.
+
+Select two or more rows and **`♪ Audition A→B`** loops them back to back,
+with a third of a second of silence at each seam, so the comparison is not
+interrupted by a click and a mouse movement. They play in the **table's
+order**, top to bottom, whichever was clicked first — and re-sorting while they
+play re-orders the loop, so "the one above sounds better" is a sentence about
+the ranking. `Apply this one` wants exactly one row that did not fail, and
+records it as the code that computes it again from the audio and the range it
+was computed on — a comparison whose audio was edited while it ran is
+dropped rather than shown, since its rows describe audio that is gone.
 
 Three things the panel says out loud, because all three are easy to get wrong:
 
@@ -409,8 +513,10 @@ with training.
 
 <img src="docs/images/panel_enhance.png" width="330" alt="Enhance panel with a learned model selected">
 
-TensorFlow is imported only when that method is actually used, and the panel
-tells you how to install it rather than failing if it is missing.
+PyTorch is imported only when that method is actually used, and the panel
+tells you how to install it rather than failing if it is missing. A run
+directory from kudio-enhance 0.1 predates its move to PyTorch and cannot be
+loaded: the panel says it has to be retrained.
 
 ### Dataset synthesis
 
@@ -418,6 +524,96 @@ Point it at a folder of clean audio and a folder of noise, pick your SNRs, and
 it writes the mixture. `regular` gives one output per clean file; `inc` writes
 every clean × noise × SNR combination. Set a seed and the result is byte-for-byte
 reproducible — the same noise offsets, the same pairings.
+
+### Reading a corpus back
+
+The Synthesize panel writes `manifest.json` beside every corpus, and half of
+what is in it — the room, the link, the target — is in none of the file names.
+`File → Open manifest…` — or `kudiostudio manifest.json` on the command line —
+reads one with `kudio.load_manifest` and shows it as rows: noisy, clean, noise,
+SNR, RT60, link and target. Sort any column (SNR and
+RT60 by value, not as text), filter by noise, SNR, room and link, and select a
+row: **Open** loads its noisy file for editing, as `File → Open` would, and
+**♪ noisy / ♪ clean / ♪ target** loop one side of it without loading anything.
+
+It answers two questions worth asking before anything is trained on a corpus:
+
+- **Is every file still there?** Paths in a manifest are often relative — to
+  wherever the synthesis ran, which nothing records. They are looked for under
+  the current directory first, then the manifest's own folder and each folder
+  above it, which is where `Synthesizer(..., out_path='data/mixed')` paths
+  start — and the **whole manifest is read against one of those folders**: the
+  first that holds every file it names, or failing that the one that holds the
+  most. Never file by file: two projects built from the same clean files name
+  their mixtures alike, and a lookup per path would pair one project's
+  mixtures with the other's clean files. The summary names the folder. Rows
+  with a file that is not found there are marked and counted, and one
+  checkbox lists only those — the grid then counts where the damage is, and
+  says nothing about the corpus's coverage.
+- **Is it a manifest at all?** kudio reads a manifest without looking at the
+  values; one edited by hand can hold a list where an SNR belongs. That is
+  refused with the row and the field named, and whatever was showing stays.
+- **Is the noise × SNR grid covered?** The grid under the table counts the rows
+  shown per combination, so a room filter shows that room's coverage. A hole
+  is a red cell, and the note says which kind it is: fewer rows than
+  combinations is a `reg` corpus that needs more clean files; enough rows and
+  a hole anyway is something no single run writes — rows went missing, or the
+  manifest is two runs merged. Double-click a cell to list its rows.
+  Only SNRs that some row has get a column — the manifest records what was
+  written, not what was asked for.
+
+Reading the manifest and checking the disk run on a worker, and the table only
+builds the cells on screen, so a corpus of tens of thousands of rows does not
+freeze the window.
+
+### A tree at -23 LUFS, and the files that could not get there
+
+`kudio.convert_folder(lufs=-23)` applies a gain to every file and says nothing
+about what came of it. The job people actually have is "normalise this tree
+and tell me which files could not get there", so with a LUFS target the Batch
+panel **reads every written file back** and measures it — `kudio.loudness`,
+then `kudio.true_peak` — against a stated tolerance (±1 LU, what
+`kudio loudness --target` allows) and a true-peak ceiling (-1 dBTP, EBU R 128's).
+Every file that missed is listed, with the reason:
+
+```
+could not get there:
+  in/b/short.wav               —  too short to measure — BS.1770 needs 0.4 s, so it was not written
+  out/a/spiky.wav     -35.4 LUFS  clipped at full scale — -23 LUFS needs a peak above 0 dBFS; 12.4 LU short
+  out/b/silent.wav             —  silent — there is no level to raise
+on target, too little headroom:
+  out/c/plosive.wav   -23.0 LUFS  true peak +0.5 dBTP, over the -1.0 dBTP ceiling
+```
+
+It is measured from disk rather than from what was handed to `save_wave`,
+because the disk is where it goes wrong: a fixed-point file clips everything
+past full scale, so a quiet file levelled up comes back with its peaks
+flattened. A clipped file is listed even when its loudness lands near the
+target — it got there by clipping. A `FLOAT` tree keeps the peaks, and says
+which files only a float file can hold. With denoising on, **the levelling
+waits for it**: the conversion leaves the level alone, the denoise pass runs,
+and every file is levelled after it — a denoiser takes level out along with
+the noise, so a tree levelled first lands under the target it was asked for.
+
+### Re-room a tree and keep both
+
+Tick **Reverberant copy** and every converted file is written again in a room,
+to a second tree with the same layout — `<output>_reverberant` by default,
+beside the output and never inside it — so a dry file and its wet copy pair by
+path: input and target for dereverberation, or two conditions of one corpus.
+
+Each file gets **a room of its own**: the same RT60 and DRR, and a tail drawn
+from the run's seed and the file's path, the way `kudio.Synthesizer` draws its
+per-file rooms — one room repeated over a corpus is one acoustic condition,
+and a model trained on it learns that room. The same seed rebuilds the same
+rooms, and a random one is drawn at Run and reported. `apply_rir` keeps the
+length and the peak, so wet and dry stay sample-aligned; with a LUFS target the
+copies are levelled to it too and read back with the rest.
+
+A batch run can take a while, and nothing in it can be stopped half-way.
+**Quitting while it runs does not cut it short**: the window stays open, says
+what it is waiting for, and closes itself when the job is done — a tree is
+never left half-written.
 
 ### Objective metrics
 
@@ -469,8 +665,10 @@ kudiostudio/
 ├── __main__.py       # CLI entry point, theme, argument parsing
 ├── app.py            # main window: docks, menus, wiring
 ├── session.py        # AudioSession — audio, undo, selection, clipboard,
-│                     #   markers, splice crossfade, A/B, loudness match
-├── workers.py        # QThread helpers, so long kudio calls never block the UI
+│                     #   markers, splice crossfade, A/B, loudness match,
+│                     #   and the edit history as a script
+├── workers.py        # QThread helpers, so long kudio calls never block the UI,
+│                     #   and cycle collection kept on the GUI thread
 ├── theme.py          # shared colours
 ├── widgets/
 │   ├── views.py      # TimePlot base + waveform, spectrogram/mel/MFCC,
@@ -483,13 +681,15 @@ kudiostudio/
     ├── base.py       # Panel base class
     ├── browse.py     # file list
     ├── effects.py    ├── enhance.py   ├── compare.py
-    ├── record.py     ├── synth.py     ├── pitch.py
-    ├── metrics.py    └── batch.py
+    ├── record.py     ├── synth.py     ├── manifest.py
+    ├── pitch.py      ├── metrics.py   └── batch.py
 ```
 
 Panels never talk to each other. They read and mutate the shared
-`AudioSession`; the views repaint on its `changed` signal. Adding a panel means
-subclassing `Panel` and appending it to `PANEL_CLASSES`.
+`AudioSession`; the views repaint on its `changed` signal. A panel that wants a
+file opened asks the window with `open_requested`, so the file lands in the
+Files list like any other. Adding a panel means subclassing `Panel` and
+appending it to `PANEL_CLASSES`.
 
 The UI is built in Python — there are no `.ui` files and no `uic` step, so what
 you read is what runs.
@@ -500,17 +700,30 @@ you read is what runs.
 pytest -q
 ```
 
-352 tests covering the session's undo/selection/clipboard/marker arithmetic,
-loudness matching, the playhead's timing, the preview and playback loops, the
+535 tests covering the session's undo/selection/clipboard/marker arithmetic,
+the exported edit script landing on the session's own samples when it is run
+in a separate interpreter, a manifest from a real synthesis run finding its
+files from wherever the window was started and counting its coverage, a
+normalised tree read back with every file that missed the target named for
+the right reason, reverberant copies that are exactly their seeded rooms, a
+measured room that does not delay the audio, loudness matching, the
+playhead's timing, the preview and playback loops, the
 shared axes and colour scale, the comparison table's ranking and its refusal
-to crown a winner when the reference is not clean, the rolling views' promise
+to crown a winner when the reference is not clean, a learned row timed
+without the seconds its model took to load, the rolling views' promise
 that every column is computed once and that real audio always wins over a live
 one, where the pitch contour refuses to draw, the two plots' left and right
 gutters staying the same width so a shared time axis actually lines up, each
-panel's behaviour, and the main window's wiring. Qt runs headless (`offscreen`), so the suite works in CI. The
-learned-denoising tests train a one-epoch model for real and skip cleanly when
-the `enhance` extra is not installed; the open-ended recorder is driven through
-a fake device, since CI has no microphone.
+panel's behaviour, the main window's wiring, a panel let go of the moment its
+job ends being freed on the GUI thread, and the whole program quitting
+cleanly mid-job — those last two in an interpreter of their own, since what
+they guard against is a crash. Qt runs headless (`offscreen`), so the suite
+works in CI. The learned-denoising tests (marked `learned`) train a one-epoch
+model for real, run it on the panels' own worker threads, and skip cleanly
+when kudio-enhance or PyTorch is not installed or will not import — unless
+`KUDIOSTUDIO_REQUIRE_LEARNED=1` is set, which makes them fail instead, for a
+job that installs both precisely to run them. The open-ended recorder is
+driven through a fake device, since CI has no microphone.
 
 `tools/smoke.py` is the other half: 166 end-to-end checks in one process,
 covering what the unit suites cannot — real files, non-default sample rates,

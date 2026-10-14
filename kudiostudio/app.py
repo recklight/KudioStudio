@@ -23,10 +23,12 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio import __version__
-from kudiostudio.panels import PANEL_CLASSES, FileList
+from kudiostudio.panels import PANEL_CLASSES, FileList, ManifestPanel
 from kudiostudio.panels.browse import AUDIO_FILTER
+from kudiostudio.panels.manifest import MANIFEST_FILTER, is_manifest
 from kudiostudio.session import AudioSession
 from kudiostudio.widgets import AnalysisView, MarkerList, Player, TransportBar
+from kudiostudio.workers import WorkerHost, collect_on_gui_thread
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +38,9 @@ class KudioStudio(QMainWindow):
 
     def __init__(self, reset: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        # before any job can run: a widget collected on a worker's thread
+        # is destroyed there (see kudiostudio.workers)
+        collect_on_gui_thread()
         self.setWindowTitle(f"KudioStudio {__version__}")
         self.resize(1280, 800)
 
@@ -54,6 +59,8 @@ class KudioStudio(QMainWindow):
         self._preview: Optional[Tuple[np.ndarray, int, float]] = None
         #: repeat ordinary playback (Preview always loops, regardless)
         self._loop = False
+        #: Quit was asked for while a job ran; the window closes when they end
+        self._quitting = False
 
         self._build_central()
         self._build_docks()
@@ -105,8 +112,11 @@ class KudioStudio(QMainWindow):
             panel.monitor_stopped.connect(self.analysis.stop_monitor)
             panel.overlay_ready.connect(self.analysis.set_pitch_overlay)
             panel.overlay_cleared.connect(self.analysis.clear_pitch_overlay)
+            panel.open_requested.connect(self._open_requested)
             self.tools.addTab(panel, panel.title)
             self.panels.append(panel)
+        self.manifest_panel = next(p for p in self.panels
+                                   if isinstance(p, ManifestPanel))
 
         tools_dock = QDockWidget("Tools", self)
         tools_dock.setObjectName("toolsDock")
@@ -118,16 +128,21 @@ class KudioStudio(QMainWindow):
     def _build_actions(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self.open_action = self._action("&Open…", QKeySequence.Open, self.open_dialog)
+        self.open_manifest_action = self._action(
+            "Open &manifest…", None, self.open_manifest_dialog)
         self.save_action = self._action("Save &As…", QKeySequence.SaveAs, self.save_dialog)
         self.save_selection_action = self._action(
             "Save &selection as…", "Ctrl+Shift+E", self.save_selection_dialog)
         self.export_image_action = self._action(
             "&Export analysis image…", None, self.export_image_dialog)
+        self.export_script_action = self._action(
+            "Export edits as &Python script…", None, self.export_script_dialog)
         quit_action = self._action("&Quit", QKeySequence.Quit, self.close)
-        file_menu.addActions([self.open_action, self.save_action,
-                              self.save_selection_action])
+        file_menu.addActions([self.open_action, self.open_manifest_action,
+                              self.save_action, self.save_selection_action])
         file_menu.addSeparator()
-        file_menu.addAction(self.export_image_action)
+        file_menu.addActions([self.export_image_action,
+                              self.export_script_action])
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
@@ -253,9 +268,45 @@ class KudioStudio(QMainWindow):
             self.open_files(paths)
 
     def open_files(self, paths: Iterable) -> None:
+        """Open audio into the file list and the session -- and a corpus
+        manifest among them in the Manifest panel.
+
+        A manifest is not audio: given to `kudio.file_load` it only fails as
+        a file that is not one, which is what ``kudiostudio manifest.json``
+        used to say.
+        """
         paths: List[str] = [str(p) for p in paths]
-        self.files.add(paths)
-        self.load_file(paths[0])
+        manifests = [p for p in paths if is_manifest(p)]
+        audio = [p for p in paths if not is_manifest(p)]
+        if manifests:
+            # one panel, one manifest: the last one named is the one shown
+            self.open_manifest(manifests[-1])
+        if audio:
+            self.files.add(audio)
+            self.load_file(audio[0])
+
+    def _open_requested(self, path: str) -> None:
+        """A panel asked for a file to be opened, as File → Open would."""
+        self.open_files([path])
+
+    def open_manifest_dialog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open a corpus manifest", self._last_dir(), MANIFEST_FILTER)
+        if path:
+            self.open_manifest(path)
+
+    def open_manifest(self, path) -> None:
+        """Show *path* in the Manifest panel and bring the panel forward.
+
+        The panel reads it on a worker -- finding every file a corpus names is
+        thousands of stats -- so the table fills in a moment after this
+        returns, and the status line says when.
+        """
+        self.tools_dock.show()
+        self.tools_dock.raise_()
+        self.tools.setCurrentWidget(self.manifest_panel)
+        if self.manifest_panel.load(path):
+            self.settings.setValue("last_dir", str(Path(path).parent))
 
     def load_file(self, path: str) -> None:
         try:
@@ -321,6 +372,42 @@ class KudioStudio(QMainWindow):
             return
         self.settings.setValue("last_dir", str(Path(path).parent))
         self.show_message(f"Exported {Path(path).name}")
+
+    def export_script_dialog(self) -> None:
+        """Write the edit history as a Python script that redoes it.
+
+        A step the script cannot reproduce is not left out quietly: the script
+        stops at it, and the status line says so here, at export, rather than
+        when somebody runs it in a batch job later.
+        """
+        if not self.session.has_history():
+            self.show_message("No edits to export yet.")
+            return
+        stem = Path(self.session.name or "audio").stem
+        suggested = Path(self._last_dir()) / f"{stem}_edits.py"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export edits as Python script", str(suggested),
+            "Python (*.py)")
+        if not path:
+            return
+        path = Path(path)
+        try:
+            path.write_text(self.session.edit_script(f"{stem}_edited.wav"),
+                            encoding="utf-8")
+        except Exception as e:
+            self.show_message(f"Export failed — {type(e).__name__}: {e}")
+            return
+        self.settings.setValue("last_dir", str(path.parent))
+        steps = len(self.session.history)
+        warnings = self.session.edit_script_warnings()
+        if warnings:
+            more = (f" (and {len(warnings) - 1} more, listed at the top of the "
+                    f"script)" if len(warnings) > 1 else "")
+            self.show_message(
+                f"Exported {steps} edit(s) to {path.name}, but it will not "
+                f"reproduce them as it stands — {warnings[0]}{more}")
+            return
+        self.show_message(f"Exported {steps} edit(s) to {path.name}")
 
     def _last_dir(self) -> str:
         return str(self.settings.value("last_dir", str(Path.home())))
@@ -537,6 +624,7 @@ class KudioStudio(QMainWindow):
         self.transport.set_enabled_for(has_audio)
         self.save_action.setEnabled(has_audio)
         self.export_image_action.setEnabled(has_audio)
+        self.export_script_action.setEnabled(self.session.has_history())
         self.select_all_action.setEnabled(has_audio)
         self.clear_selection_action.setEnabled(has_audio)
         self.play_action.setEnabled(has_audio)
@@ -613,12 +701,45 @@ class KudioStudio(QMainWindow):
         if state:
             self.restoreState(state)
 
+    def _job_hosts(self) -> List[Tuple[str, WorkerHost]]:
+        """Every place a job can be running, by the name the window shows."""
+        return ([("the level meters", self.analysis.levels.jobs)]
+                + [(panel.title, panel.jobs) for panel in self.panels])
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt hook
+        """Close -- but not while a job is running.
+
+        A kudio call cannot be stopped half-way, and a window destroyed
+        around a running thread aborts the whole process: a Batch run quit
+        half-way left its output tree half-written. So Quit waits. The window
+        stays open, says what it is waiting for, and closes itself when the
+        last job ends.
+        """
+        running = [(name, host) for name, host in self._job_hosts()
+                   if host.busy]
+        if running:
+            event.ignore()
+            if not self._quitting:
+                self._quitting = True
+                for _, host in self._job_hosts():
+                    host.busy_changed.connect(self._quit_when_idle)
+            names = [name for name, _ in running]
+            waiting = (names[0] + " finishes" if len(names) == 1 else
+                       ", ".join(names[:-1]) + f" and {names[-1]} finish")
+            self.show_message(f"Quitting when {waiting} — a running job "
+                              f"cannot be stopped half-way.")
+            return
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("window/state", self.saveState())
         self.player.shutdown()
-        self.analysis.levels.jobs.wait(2000)
         for panel in self.panels:
             panel.shutdown()        # devices stay open until told otherwise
-            panel.jobs.wait(2000)
         super().closeEvent(event)
+
+    def _quit_when_idle(self, busy: bool) -> None:
+        if busy or any(host.busy for _, host in self._job_hosts()):
+            return
+        for _, host in self._job_hosts():
+            host.busy_changed.disconnect(self._quit_when_idle)
+        self._quitting = False
+        self.close()

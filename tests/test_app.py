@@ -432,6 +432,68 @@ def test_save_selection_writes_only_the_range(window, tone, tmp_path, monkeypatc
     assert len(y) == pytest.approx(0.5 * sr, abs=2)
 
 
+def test_the_edits_export_as_a_script_from_the_file_menu(window, tone, tmp_path,
+                                                         monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    # the action held while its menu is used: PySide6 6.10 deletes a menu
+    # reached through a temporary action
+    file_action = window.menuBar().actions()[0]
+    file_menu = file_action.menu()
+    assert window.export_script_action in file_menu.actions()
+
+    window.open_files([tone])
+    assert window.export_script_action.isEnabled() is False, "nothing to export"
+    window.session.set_selection(0.2, 0.4)
+    window._delete()
+    assert window.export_script_action.isEnabled() is True
+
+    target = tmp_path / "edits.py"
+    asked = []
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(
+        lambda *a, **k: asked.append(a[2]) or (str(target), "")))
+    window.export_script_action.trigger()
+
+    assert asked[0].endswith("tone_edits.py")
+    script = target.read_text(encoding="utf-8")
+    assert script == window.session.edit_script("tone_edited.wav")
+    assert "# 1. delete" in script
+    assert window.statusBar().currentMessage() == \
+        "Exported 1 edit(s) to edits.py"
+
+    window.undo_action.trigger()
+    assert window.export_script_action.isEnabled() is False
+
+
+def test_exporting_a_script_that_cannot_reproduce_the_edit_says_so(
+        window, tone, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    window.open_files([tone])
+    _edit(window)                           # an edit that brought no code
+    target = tmp_path / "edits.py"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    window.export_script_dialog()
+
+    assert target.is_file()
+    message = window.statusBar().currentMessage()
+    assert "will not reproduce" in message
+    assert "step 1 (gain)" in message
+
+
+def test_cancelling_the_script_export_writes_nothing(window, tone, tmp_path,
+                                                     monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    window.open_files([tone])
+    _edit(window)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: ("", "")))
+    window.export_script_dialog()
+    assert list(tmp_path.glob("*.py")) == []
+
+
 def test_a_live_monitor_draws_without_touching_the_session(window, tone):
     window.open_files([tone])
     before = np.array(window.session.y, copy=True)
@@ -533,3 +595,97 @@ def test_turning_it_off_says_what_that_costs(window):
     window.transport.crossfade.setValue(0.0)
     assert window.session.crossfade_ms == 0.0
     assert any("hard cut" in m for m in messages)
+
+
+def test_quitting_waits_for_a_running_job(window, qapp):
+    """A kudio call cannot be stopped half-way, and destroying the window
+    around its thread aborted the process: a Batch run quit mid-way left half
+    its output tree. The window stays until the job ends, says so, and then
+    closes itself."""
+    import time
+
+    window.show()
+    batch = next(p for p in window.panels if p.title == "Batch")
+    assert batch.jobs.run(time.sleep, 1.0)
+    window.close()
+
+    assert window.isVisible(), "the close is put off while the job runs"
+    assert window.statusBar().currentMessage().startswith(
+        "Quitting when Batch finishes")
+    deadline = time.monotonic() + 20
+    while window.isVisible() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert not window.isVisible()
+    assert not batch.jobs.busy
+
+
+def test_an_idle_window_closes_at_once(window):
+    window.show()
+    window.close()
+    assert not window.isVisible()
+
+
+def test_quitting_the_application_mid_job_exits_cleanly(tmp_path):
+    """The whole program, as ``kudiostudio`` starts it: quit while a job runs
+    for longer than the old two-second grace, and the process used to abort
+    with "QThread: Destroyed while thread is still running"."""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    from pathlib import Path
+
+    script = tmp_path / "quit.py"
+    script.write_text(textwrap.dedent(f'''
+        import sys, time
+        sys.path.insert(0, {str(Path(__file__).resolve().parent.parent)!r})
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        from kudiostudio import __main__ as entry
+
+        def quit_mid_job():
+            window = next(w for w in QApplication.topLevelWidgets()
+                          if type(w).__name__ == "KudioStudio")
+            batch = next(p for p in window.panels if p.title == "Batch")
+            batch.jobs.run(time.sleep, 3.0)
+            window.close()
+
+        QTimer.singleShot(0, quit_mid_job)
+        sys.exit(entry.main(["--no-theme", "--reset"]))
+    '''), encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", HOME=str(tmp_path),
+               XDG_CONFIG_HOME=str(tmp_path / "config"))
+    done = subprocess.run([sys.executable, str(script)], capture_output=True,
+                          text=True, timeout=120, cwd=tmp_path, env=env)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "Destroyed while thread" not in done.stderr
+
+
+def test_a_script_exported_after_saving_over_the_original_says_so(
+        window, tmp_path, monkeypatch):
+    """Save As suggests the opened file. Accepted, and the edits exported,
+    the script read the edited audio back and edited it again -- and the
+    status line said all was well."""
+    from pathlib import Path
+
+    import kudio
+    from PySide6.QtWidgets import QFileDialog
+
+    take = tmp_path / "take.wav"
+    kudio.save_wave(take, (0.3 * np.sin(np.arange(32000) / 10)
+                           ).astype(np.float32), 16000)
+    window.open_files([take])
+    window.session.set_selection(0.5, 1.0)
+    window._delete()
+
+    offered = []
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(
+        lambda *a, **k: offered.append(a[2]) or (a[2], "")))
+    window.save_dialog()
+    assert Path(offered[0]) == take, "the opened file is what Save As offers"
+
+    window.export_script_dialog()
+    message = window.statusBar().currentMessage()
+    assert "will not reproduce them as it stands" in message
+    assert "take.wav was saved over" in message

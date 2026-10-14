@@ -10,7 +10,9 @@ import sys
 def main(argv: list = None) -> int:
     parser = argparse.ArgumentParser(prog="kudiostudio",
                                      description="Desktop workbench for the kudio audio toolkit.")
-    parser.add_argument("files", nargs="*", help="audio files to open on start-up")
+    parser.add_argument("files", nargs="*",
+                        help="audio files to open on start-up; a corpus "
+                             "manifest (.json) opens in the Manifest panel")
     parser.add_argument("--reset", action="store_true",
                         help="discard saved window geometry and settings")
     parser.add_argument("--no-theme", action="store_true",
@@ -39,8 +41,8 @@ def main(argv: list = None) -> int:
 
     window = KudioStudio(reset=args.reset)
     window.show()
-    for f in args.files:
-        window.open_files([f])
+    if args.files:
+        window.open_files(args.files)
     return app.exec()
 
 

@@ -62,6 +62,12 @@ class Panel(QWidget):
     #: take the curve back down
     overlay_cleared = Signal()
 
+    #: a file the panel wants opened the way File → Open opens one: into the
+    #: file list and the session. A panel could call ``session.load_file``
+    #: itself, but then the file would be missing from the list and the
+    #: window would not remember its folder -- opening is the window's job.
+    open_requested = Signal(str)
+
     #: tab caption
     title = "Panel"
 

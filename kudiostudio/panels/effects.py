@@ -2,8 +2,9 @@
 """Waveform effects and augmentation — `kudio.effects`.
 
 Each entry is one `kudio` function. The caption under the parameters is the
-exact call that Apply will make, so a session here translates straight into a
-script.
+exact call that Apply will make, and Apply records it in the session's history,
+so a session here translates straight into a script -- File → Export edits as
+Python script writes that script out.
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import Panel
-from kudiostudio.theme import ACCENT_COLOR
+from kudiostudio.theme import ACCENT_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +67,11 @@ class EffectsPanel(Panel):
     **convolutive** -- a real impulse response, reproducible from its seed --
     and `telephone` / `bit_depth` / `dropouts` are the **channel**, which is
     neither and cannot be written as arithmetic on the signal at all.
+
+    `measured_room` is the same convolution with a room somebody recorded.
+    `room` is statistical by design and has no early reflections, so when the
+    shape of the early energy is what matters, a measured response is the
+    only honest stand-in.
     """
 
     title = "Effects"
@@ -76,7 +82,7 @@ class EffectsPanel(Panel):
     EFFECTS = ("gain", "random_gain",
                "fade_in", "fade_out", "fade", "reverse", "remove_dc",
                "highpass", "lowpass", "bandpass", "bandstop",
-               "pitch_shift", "time_stretch", "reverb", "room",
+               "pitch_shift", "time_stretch", "reverb", "room", "measured_room",
                "add_noise_snr", "telephone", "bit_depth", "dropouts",
                "trim_silence", "vad_trim", "split_on_silence")
 
@@ -86,6 +92,13 @@ class EffectsPanel(Panel):
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)
         self._noise_path: Optional[Path] = None
+        #: the measured impulse response: the file, its samples, and their
+        #: rate -- the clip's, or the file's own while no clip is open. Held
+        #: rather than read at each Apply, because Preview re-renders on every
+        #: knob turn.
+        self._ir_path: Optional[Path] = None
+        self._ir: Optional[np.ndarray] = None
+        self._ir_sr: Optional[int] = None
         #: what the last split_on_silence produced, so it can be written out
         #: instead of being counted and thrown away
         self._segments: list = []
@@ -264,6 +277,37 @@ class EffectsPanel(Panel):
                                           ("drr_db", self.room_drr),
                                           ("seed", self.room_seed)]))
 
+        # measured_room -- the same convolution, with a room someone recorded
+        self.ir_edit = QLineEdit()
+        self.ir_edit.setReadOnly(True)
+        self.ir_edit.setPlaceholderText("pick an impulse response .wav …")
+        ir_browse = QPushButton("Browse…")
+        ir_browse.clicked.connect(self._pick_ir)
+        ir_picker = QWidget()
+        ir_picker_layout = QHBoxLayout(ir_picker)
+        ir_picker_layout.setContentsMargins(0, 0, 0, 0)
+        ir_picker_layout.addWidget(self.ir_edit)
+        ir_picker_layout.addWidget(ir_browse)
+        self.ir_align = QCheckBox("start at the direct sound")
+        self.ir_align.setChecked(True)
+        self.ir_align.setToolTip(
+            "A measured response begins with the time the sound took to reach\n"
+            "the microphone. Left in, it delays the audio by that much, and a\n"
+            "processed selection comes back late against its neighbours.\n"
+            "This starts the response at its loudest sample, which is the\n"
+            "direct sound in any ordinary room -- where kudio.rir puts it.")
+        self.ir_align.toggled.connect(self._show_ir)
+        self.ir_measured = QLabel("—")
+        self.ir_measured.setWordWrap(True)
+        self.ir_measured.setToolTip(
+            "kudio.rt60 on the response as it will be applied: at this clip's\n"
+            "rate, in mono, from where it starts. Read the fit before the\n"
+            "rest -- a file that is not an impulse response still produces a\n"
+            "T30, and says so here.")
+        self.params.addWidget(self._page([("ir", ir_picker),
+                                          ("", self.ir_align),
+                                          ("measured", self.ir_measured)]))
+
         # telephone / bit_depth / dropouts -- the channel
         self.phone_codec = QComboBox()
         self.phone_codec.addItems(["mu_law", "a_law", "none"])
@@ -409,6 +453,14 @@ class EffectsPanel(Panel):
 
     def on_session_changed(self) -> None:
         self._sync_filter_ranges()
+        # The response is held at the clip's rate. A clip at another rate --
+        # or the first clip, after one picked with nothing open -- needs it
+        # read again from the file: resampling the held copy would be a second
+        # resampling, and not the read the recorded call makes.
+        if (self._ir_path is not None and self.session.has_audio
+                and self.session.sr != self._ir_sr
+                and not self.load_ir(self._ir_path)):
+            self._forget_ir()
         # the segments were cut out of audio that is no longer current; saving
         # them under the new clip's name would file them under the wrong take
         self._segments = []
@@ -433,13 +485,106 @@ class EffectsPanel(Panel):
         self.noise_edit.setText(self._noise_path.name)
         self._update_call()
 
+    def _pick_ir(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select an impulse response", "",
+            "Audio (*.wav *.flac *.mp3 *.ogg)")
+        if path:
+            self.load_ir(path)
+
+    def load_ir(self, path) -> bool:
+        """Read a measured impulse response for `measured_room`, and measure it.
+
+        It is read the way the recorded call reads it -- ``kudio.file_load``
+        at the clip's rate, in mono -- so the response Preview and Apply use
+        is, sample for sample, the one an exported script loads. With no clip
+        open it keeps the file's own rate until one arrives.
+
+        Returns ``False``, leaving any response already loaded in place, when
+        the file cannot be read or holds nothing but silence.
+        """
+        path = Path(path)
+        rate = self.session.sr if self.session.has_audio else None
+        try:
+            ir, sr = kudio.file_load(path, sr=rate)
+        except Exception as e:
+            self.report(f"Could not read {path.name} — {type(e).__name__}: {e}")
+            return False
+        if ir.size < 2 or not np.any(ir):
+            self.report(f"{path.name} is silent — there is no room in it to "
+                        f"apply.")
+            return False
+        self._ir_path, self._ir, self._ir_sr = path, ir, int(sr)
+        self.ir_edit.setText(path.name)
+        self._show_ir()
+        self._update_call()
+        return True
+
+    def _forget_ir(self) -> None:
+        self._ir_path = self._ir = self._ir_sr = None
+        self.ir_edit.clear()
+        self._show_ir()
+        self._update_call()
+
+    def _ir_onset(self) -> int:
+        """Where the applied response starts: the direct sound, or sample 0."""
+        if self._ir is None or not self.ir_align.isChecked():
+            return 0
+        return int(np.argmax(np.abs(self._ir)))
+
+    def _show_ir(self) -> None:
+        """Say what the loaded room does, measured the way it will be applied.
+
+        The response that is measured is the one convolved: resampled to this
+        clip, downmixed, trimmed to the direct sound when asked. A hall
+        measured at 48 kHz and applied at 8 kHz has lost its top octaves, and
+        the early decay of a response that still starts with its travel time
+        is partly a measurement of the silence before it.
+        """
+        if self._ir is None:
+            self.ir_measured.setText("—")
+            self.ir_measured.setStyleSheet("")
+            return
+        onset = self._ir_onset()
+        direct_ms = 1000.0 * int(np.argmax(np.abs(self._ir))) / self._ir_sr
+        head = (f"{len(self._ir) / self._ir_sr:.2f} s at {self._ir_sr} Hz, "
+                f"direct sound at {direct_ms:.1f} ms")
+        if onset:
+            head += " — applied from there"
+        try:
+            room = kudio.rt60(self._ir[onset:], self._ir_sr)
+        except Exception as e:
+            self.ir_measured.setText(f"{head}\ncannot be measured — {e}")
+            self.ir_measured.setStyleSheet(f"color: {WARN_COLOR};")
+            return
+        self.ir_measured.setText(f"{head}\n{room}")
+        # an unreliable measurement says why in its own text; the colour is so
+        # that it is not read past
+        self.ir_measured.setStyleSheet(
+            "" if room.reliable() else f"color: {WARN_COLOR};")
+
     # ----------------------------------------------------------------- apply
 
-    def _seed(self, box: QSpinBox) -> Optional[int]:
-        return None if box.value() < 0 else box.value()
+    def _seed(self, box: QSpinBox, pin: bool = False) -> Optional[int]:
+        """The box's seed. "Random" is ``None`` -- or, with *pin*, a fresh draw.
 
-    def _operation(self) -> Tuple[str, Callable[[np.ndarray, int], np.ndarray]]:
-        """Return ``(call_text, fn(y, sr) -> y)`` for the selected effect."""
+        Apply pins it. Random still means a different result every time, but
+        the call that goes into the history names the seed that was drawn, so
+        the exported script repeats that result rather than rolling again.
+        """
+        if box.value() >= 0:
+            return box.value()
+        return int(np.random.default_rng().integers(2 ** 31)) if pin else None
+
+    def _operation(self, exact: bool = False
+                   ) -> Tuple[str, Callable[[np.ndarray, int], np.ndarray]]:
+        """Return ``(call_text, fn(y, sr) -> y)`` for the selected effect.
+
+        The caption shows the call as it reads best. *exact* asks for the call
+        exactly as it will be made, runnable as it stands: a random seed
+        pinned, a noise file or an impulse response named by its full path.
+        That is the version Apply commits and records.
+        """
         name = self.effect.currentText()
 
         if name == "gain":
@@ -449,7 +594,7 @@ class EffectsPanel(Panel):
 
         if name == "random_gain":
             rng = (self.rg_lo.value(), self.rg_hi.value())
-            seed = self._seed(self.rg_seed)
+            seed = self._seed(self.rg_seed, exact)
             return (f"kudio.random_gain(y, db_range={rng}, seed={seed})",
                     lambda y, sr: kudio.random_gain(y, db_range=rng, seed=seed))
 
@@ -537,11 +682,14 @@ class EffectsPanel(Panel):
         if name == "room":
             rt60 = self.room_rt60.value()
             drr = self.room_drr.value()
-            seed = self._seed(self.room_seed)
+            seed = self._seed(self.room_seed, exact)
             return (f"kudio.apply_rir(y, kudio.rir(sr, rt60={rt60}, "
                     f"drr_db={drr}, seed={seed}))",
                     lambda y, sr: kudio.apply_rir(
                         y, kudio.rir(sr, rt60=rt60, drr_db=drr, seed=seed)))
+
+        if name == "measured_room":
+            return self._measured_room(exact)
 
         if name == "telephone":
             codec = self.phone_codec.currentText()
@@ -551,34 +699,46 @@ class EffectsPanel(Panel):
         if name == "bit_depth":
             bits = self.depth_bits.value()
             dither = self.depth_dither.isChecked()
-            seed = self._seed(self.loss_seed)
-            return (f"kudio.bit_depth(y, bits={bits}, dither={dither})",
+            seed = self._seed(self.loss_seed, exact)
+            # the seed only matters with dither, but it is passed either way,
+            # and a caption that leaves out an argument is not the call
+            return (f"kudio.bit_depth(y, bits={bits}, dither={dither}, "
+                    f"seed={seed})",
                     lambda y, sr: kudio.bit_depth(y, bits, dither=dither,
                                                   seed=seed))
 
         if name == "dropouts":
-            loss = self.loss_pct.value() / 100.0
+            # one decimal of a percentage is three of a fraction; rounding
+            # keeps 12.3 % from reaching kudio, and the caption, as
+            # 0.12300000000000001
+            loss = round(self.loss_pct.value() / 100.0, 6)
             packet = self.loss_packet.value()
             conceal = self.loss_conceal.currentText()
             # 0 is the spin box's "independent", which is `burst=None` and
             # not `burst=0` — the two mean different things and only one of
             # them is a number kudio accepts
             burst = self.loss_burst.value() or None
-            seed = self._seed(self.loss_seed)
-            return (f"kudio.dropouts(y, sr, loss={loss:g}, "
-                    f"packet_ms={packet:g}, burst={burst}, "
+            seed = self._seed(self.loss_seed, exact)
+            return (f"kudio.dropouts(y, sr, loss={loss!r}, "
+                    f"packet_ms={packet!r}, burst={burst}, "
                     f"conceal={conceal!r}, seed={seed})",
                     lambda y, sr: kudio.dropouts(
                         y, sr, loss=loss, packet_ms=packet, burst=burst,
                         conceal=conceal, seed=seed))
 
         if name == "add_noise_snr":
-            snr, seed = self.snr_db.value(), self._seed(self.noise_seed)
+            snr, seed = self.snr_db.value(), self._seed(self.noise_seed, exact)
+            fn = (lambda y, sr: kudio.add_noise_snr(
+                y, self._load_noise(sr), snr_db=snr, seed=seed))
+            if exact and self._noise_path is not None:
+                # what _load_noise does, spelled out, so the line runs anywhere
+                noise = (f"kudio.file_load({str(self._noise_path.absolute())!r}, "
+                         f"sr=sr)[0]")
+                return (f"kudio.add_noise_snr(y, {noise}, snr_db={snr}, "
+                        f"seed={seed})", fn)
             noise_name = self._noise_path.name if self._noise_path else "…"
             return (f"kudio.add_noise_snr(y, noise={noise_name!r}, "
-                    f"snr_db={snr}, seed={seed})",
-                    lambda y, sr: kudio.add_noise_snr(
-                        y, self._load_noise(sr), snr_db=snr, seed=seed))
+                    f"snr_db={snr}, seed={seed})", fn)
 
         if name == "trim_silence":
             top, frame, hop = (self.trim_top_db.value(), self.trim_frame.value(),
@@ -595,19 +755,53 @@ class EffectsPanel(Panel):
                 lambda y, sr: kudio.split_on_silence(
                     y, top_db=top, frame_length=frame, hop_length=hop))
 
+    def _measured_room(self, exact: bool
+                       ) -> Tuple[str, Callable[[np.ndarray, int], np.ndarray]]:
+        """`apply_rir` with the loaded response, and the call that loads it.
+
+        The call reads the file with ``kudio.file_load(..., sr=sr)`` -- what
+        :meth:`load_ir` did -- and starts it at the direct sound with a plain
+        slice, so it is one expression that runs as it stands. The slice is a
+        sample count at this clip's rate, which is the rate the call loads it
+        at.
+        """
+        onset = self._ir_onset()
+        ir = None if self._ir is None else self._ir[onset:]
+        held_at = self._ir_sr
+
+        def fn(y, sr):
+            if ir is None:
+                raise ValueError("no impulse response loaded")
+            if sr != held_at:
+                raise ValueError(f"the impulse response is at {held_at} Hz "
+                                 f"and the audio at {sr} Hz")
+            return kudio.apply_rir(y, ir)
+
+        if self._ir_path is None:
+            source = "…"
+        elif exact:
+            source = str(self._ir_path.absolute())
+        else:
+            source = self._ir_path.name
+        load = f"kudio.file_load({source!r}, sr=sr)[0]"
+        if onset:
+            load += f"[{onset}:]"
+        return f"kudio.apply_rir(y, {load})", fn
+
     def _load_noise(self, sr: int) -> np.ndarray:
         if self._noise_path is None:
             raise ValueError("no noise file selected")
         noise, _ = kudio.file_load(self._noise_path, sr=sr)
         return noise
 
-    def _render(self) -> Tuple[str, object]:
+    def _render(self, exact: bool = False) -> Tuple[str, object]:
         """Run the current effect over the selection. Raises on failure.
 
         The single place the effect is actually computed, so Preview and Apply
-        cannot drift apart -- what you hear is what Apply will commit.
+        cannot drift apart -- what you hear is what Apply will commit. With
+        *exact*, the call text is the one :meth:`_operation` makes runnable.
         """
-        call_text, fn = self._operation()
+        call_text, fn = self._operation(exact)
         y = np.asarray(self.session.selected_audio(), dtype=np.float32)
         return call_text, fn(y, self.session.sr)
 
@@ -615,7 +809,7 @@ class EffectsPanel(Panel):
         if not self.require_audio():
             return
         try:
-            call_text, out = self._render()
+            call_text, out = self._render(exact=True)
         except Exception as e:
             self.report(f"{self.effect.currentText()} failed — {type(e).__name__}: {e}")
             return
@@ -630,7 +824,8 @@ class EffectsPanel(Panel):
                         f"— 'Save segments…' writes them out")
             return
 
-        self.session.replace_selection(out, undo_label=self.effect.currentText())
+        self.session.replace_selection(out, undo_label=self.effect.currentText(),
+                                       code=f"y = {call_text}")
         self.report(f"Applied {call_text}")
 
     def _save_segments(self) -> None:

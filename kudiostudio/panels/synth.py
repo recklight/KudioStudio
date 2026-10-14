@@ -16,8 +16,9 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Sequence, Union
+from typing import List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -88,6 +89,31 @@ def parse_rt60(text: str) -> Optional[List[float]]:
     return values or None
 
 
+@dataclass(frozen=True)
+class SynthPlan:
+    """Everything one Synthesize needs, read off the panel on the GUI thread.
+
+    The run takes seconds to hours on a worker, and a worker that reads the
+    widgets as it goes reads them while they can still be changed. It read
+    the output folder twice -- once to write the mixtures, again to put the
+    manifest beside them -- so a folder retyped mid-run put the corpus in one
+    place and its manifest in another, and the result named the wrong one.
+    """
+    clean: str
+    noise: str
+    out: str
+    snr: Tuple[Union[int, float], ...]
+    rooms: Optional[Tuple[float, ...]] = None
+    drr_db: float = 0.0
+    channel: Optional[str] = None
+    write_targets: bool = False
+    subtype: str = "PCM_16"
+    mode: str = "regular"
+    add_clean: bool = False
+    overwrite: bool = True
+    seed: Optional[int] = None
+
+
 class SynthResult(NamedTuple):
     """What one synthesis run produced, by name.
 
@@ -108,6 +134,49 @@ class SynthResult(NamedTuple):
     clipped: Optional[dict] = None
     notices: Sequence[str] = ()
     subtype: str = "PCM_16"
+    #: the folder the run wrote to, as it was when the run started
+    out: str = ""
+
+
+def synthesize(plan: SynthPlan) -> SynthResult:
+    """Run *plan*: mix, write the manifest beside the mixtures, count them.
+
+    Module-level and given only the plan, so the worker never touches a widget
+    -- nor holds the panel, which it would through a method of it.
+    """
+    syx = kudio.Synthesizer(plan.clean, plan.noise, out_path=plan.out,
+                            snr_ratio=list(plan.snr),
+                            rt60=list(plan.rooms) if plan.rooms else None,
+                            drr_db=plan.drr_db, channel=plan.channel,
+                            write_targets=plan.write_targets,
+                            subtype=plan.subtype)
+    # kudio warns about clipping and about names that overwrite each other.
+    # Nothing in this app routes warnings anywhere, so without this they
+    # reach stderr and a GUI user never learns their corpus was clipped.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        produced = syx.syn(mode=plan.mode, is_add_clean=plan.add_clean,
+                           overwrite=plan.overwrite, seed=plan.seed)
+        notices = [str(w.message) for w in caught
+                   if issubclass(w.category, UserWarning)]
+    # the manifest carries the room, the link and the target, none of
+    # which the four-tuples can; written beside the mixture so a training
+    # run can read what it was given
+    if produced:
+        kudio.save_manifest(Path(plan.out) / "manifest.json", syx.manifest())
+
+    # What `syn` returns is what was *asked for*. Two outputs that share a
+    # name leave one file, so counting the request would report a corpus
+    # that is not there -- and the manifest written above would agree with
+    # the wrong number. Count the distinct paths that exist instead, on
+    # this thread, where walking the disk costs the UI nothing.
+    wanted = len(produced or [])
+    paths = {Path(out) for out, *_ in (produced or [])}
+    return SynthResult(produced=produced, link=syx.channel_tag,
+                       targets=len(syx.targets), wanted=wanted,
+                       on_disk=sum(1 for p in paths if p.is_file()),
+                       clipped=dict(syx.clipped), notices=notices,
+                       subtype=plan.subtype, out=plan.out)
 
 
 class SynthPanel(Panel):
@@ -309,49 +378,32 @@ class SynthPanel(Panel):
             return
 
         self.report("Synthesizing …")
-        started = self.jobs.run(self._synthesize, snr, rooms,
+        started = self.jobs.run(synthesize, self._plan(snr, rooms),
                                 on_done=self._finished, on_failed=self._failed)
         if not started:
             self.report("A synthesis job is already running.")
 
-    def _synthesize(self, snr: Sequence[Union[int, float]],
-                    rooms: Optional[List[float]]):
-        syx = kudio.Synthesizer(self.clean.path(), self.noise.path(),
-                                out_path=self.out.path(), snr_ratio=snr,
-                                rt60=rooms, drr_db=self.drr.value(),
-                                channel=self._link(),
-                                write_targets=self.targets.isChecked(),
-                                subtype=self.subtype.currentText())
-        # kudio warns about clipping and about names that overwrite each other.
-        # Nothing in this app routes warnings anywhere, so without this they
-        # reach stderr and a GUI user never learns their corpus was clipped.
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            produced = syx.syn(mode=self.mode.currentText(),
-                               is_add_clean=self.add_clean.isChecked(),
-                               overwrite=self.overwrite.isChecked(),
-                               seed=self._seed())
-            notices = [str(w.message) for w in caught
-                       if issubclass(w.category, UserWarning)]
-        # the manifest carries the room, the link and the target, none of
-        # which the four-tuples can; written beside the mixture so a training
-        # run can read what it was given
-        if produced:
-            kudio.save_manifest(Path(self.out.path()) / "manifest.json",
-                                syx.manifest())
+    def _plan(self, snr: Sequence[Union[int, float]],
+              rooms: Optional[List[float]]) -> SynthPlan:
+        """Every setting the run needs, read now, on the GUI thread."""
+        return SynthPlan(clean=self.clean.path(), noise=self.noise.path(),
+                         out=self.out.path(), snr=tuple(snr),
+                         rooms=tuple(rooms) if rooms else None,
+                         drr_db=float(self.drr.value()), channel=self._link(),
+                         write_targets=self.targets.isChecked(),
+                         subtype=self.subtype.currentText(),
+                         mode=self.mode.currentText(),
+                         add_clean=self.add_clean.isChecked(),
+                         overwrite=self.overwrite.isChecked(),
+                         seed=self._seed())
 
-        # What `syn` returns is what was *asked for*. Two outputs that share a
-        # name leave one file, so counting the request would report a corpus
-        # that is not there -- and the manifest written above would agree with
-        # the wrong number. Count the distinct paths that exist instead, on
-        # this thread, where walking the disk costs the UI nothing.
-        wanted = len(produced or [])
-        paths = {Path(out) for out, *_ in (produced or [])}
-        return SynthResult(produced=produced, link=syx.channel_tag,
-                           targets=len(syx.targets), wanted=wanted,
-                           on_disk=sum(1 for p in paths if p.is_file()),
-                           clipped=dict(syx.clipped), notices=notices,
-                           subtype=self.subtype.currentText())
+    def _synthesize(self, snr: Sequence[Union[int, float]],
+                    rooms: Optional[List[float]]) -> SynthResult:
+        """The whole run on the calling thread: what a test can wait for.
+
+        :meth:`_run` does the same on a worker, with the plan read first.
+        """
+        return synthesize(self._plan(snr, rooms))
 
     def _finished(self, result: SynthResult) -> None:
         note = "" if result.on_disk == 0 else "  ·  manifest.json beside them"
@@ -364,7 +416,7 @@ class SynthPanel(Panel):
             note += (f"  ·  {len(result.clipped)} clipped "
                      f"(worst peak {worst:.2f})")
         self.result.setText(
-            f"{result.on_disk} file(s) written to {self.out.path()}{note}")
+            f"{result.on_disk} file(s) written to {result.out}{note}")
 
         if result.clipped:
             worst = max(result.clipped.values())

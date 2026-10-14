@@ -14,7 +14,7 @@ import os
 os.environ.setdefault("QT_API", "pyside6")
 os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "RL"
 
 __all__ = ["__version__", "__author__"]

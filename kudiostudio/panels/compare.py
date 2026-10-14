@@ -21,8 +21,9 @@ shortlist, not a verdict.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PySide6.QtCore import Qt
@@ -46,7 +47,14 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import DirPicker, Panel
-from kudiostudio.panels.enhance import INSTALL_HINT, kudio_enhance_available
+from kudiostudio.panels.enhance import (
+    INSTALL_HINT,
+    LearnedModel,
+    ModelState,
+    kudio_enhance_available,
+    learned_code,
+    model_state,
+)
 from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, OK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
@@ -70,6 +78,26 @@ SWEEP_METHODS = "gain rules, one noise estimator"
 SWEEP_NOISES = "noise estimators, one gain rule"
 SWEEP_GRID = "everything — the full grid"
 SWEEPS = (SWEEP_METHODS, SWEEP_NOISES, SWEEP_GRID)
+
+
+@dataclass(frozen=True, eq=False)
+class RunContext:
+    """What one comparison ran on, kept with the results it produced.
+
+    Apply writes a row into the history as the code that computes it again,
+    and that code is only true of the audio, the range and the model the row
+    came from. Kept per run rather than in the panel's last settings: a run
+    started while another's rows are on screen used to lend those rows its
+    range, and a result that landed after the audio was edited was recorded
+    as if made from the edit.
+    """
+    #: the session's audio array itself, compared by identity
+    y: object
+    #: the samples compared, ``None`` for the whole clip
+    ran_on: Optional[Tuple[int, int]]
+    #: the learned row's run directory, and its model files as they were
+    learned_dir: Optional[str] = None
+    model: Optional[ModelState] = None
 
 
 class NumericItem(QTableWidgetItem):
@@ -98,7 +126,17 @@ class ComparePanel(Panel):
         super().__init__(session, parent)
         self._results: List = []
         self._ref_path: Optional[Path] = None
-        self._auditioning: Optional[int] = None
+        #: what the running comparison was started on, and what the rows on
+        #: screen were computed from -- what Apply needs to write a result
+        #: into the history as code
+        self._pending: Optional[RunContext] = None
+        self._shown: Optional[RunContext] = None
+        #: the learned row's model, kept for the next comparison on the same
+        #: run directory, as the Enhance panel keeps its own
+        self._model = LearnedModel()
+        #: the rows the audition loop is playing, as (method, estimator)
+        #: pairs in the order it plays them
+        self._heard: Tuple[Tuple[str, str], ...] = ()
 
         self.reference = QComboBox()
         self.reference.addItems(REFERENCES)
@@ -221,9 +259,13 @@ class ComparePanel(Panel):
         self.sweep.currentIndexChanged.connect(self._sync)
         self.method.currentIndexChanged.connect(self._update_call)
         self.noise.currentIndexChanged.connect(self._update_call)
-        self.run_dir.edit.textChanged.connect(self._update_call)
+        self.run_dir.edit.textChanged.connect(self._on_run_dir_changed)
         self.run_button.clicked.connect(self._run)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        # A re-sort moves the selected rows without changing which rows they
+        # are, so the selection signal stays quiet -- but the loop plays them
+        # in the table's order, and that order has just changed.
+        self.table.model().layoutChanged.connect(self._on_rows_moved)
         self.audition_button.toggled.connect(self._on_audition_toggled)
         self.apply_button.clicked.connect(self._apply)
         self.save_button.clicked.connect(self._save_all)
@@ -248,11 +290,20 @@ class ComparePanel(Panel):
                 label.setEnabled(fixed)
         self._update_call()
 
+    def _on_run_dir_changed(self) -> None:
+        # a different run means a different model; drop the cached one
+        if self.run_dir.path() != self._model.run_dir:
+            self._model.forget()
+        self._update_call()
+
     def _learned_entry(self):
         """``(name, callable)`` for the picked run directory, or ``None``.
 
-        The model is loaded on the worker thread inside the callable, not here:
-        importing TensorFlow takes seconds and must not block the UI.
+        The model is not loaded here: importing PyTorch and reading a
+        checkpoint takes seconds and must not block the UI.
+        :func:`compare_with_model` loads it on the worker thread, before the
+        comparison starts. The callable holds the model and nothing of the
+        panel's: it is all the worker needs.
         """
         run_dir = self.run_dir.path()
         if not run_dir or not Path(run_dir).is_dir():
@@ -260,18 +311,10 @@ class ComparePanel(Panel):
         if not kudio_enhance_available():
             raise RuntimeError(INSTALL_HINT)
 
+        model = self._model
+
         def enhance(y, sr):
-            from kudio_enhance.inference import Enhancer
-            enhancer = Enhancer.load(run_dir)
-            model_sr = enhancer.cfg.audio.sr
-            if sr == model_sr:
-                return enhancer.enhance(y)
-            # in at the model's rate, back out at the clip's, so the row is
-            # comparable with every other row sample for sample
-            out = kudio.resample(enhancer.enhance(kudio.resample(y, sr, model_sr)),
-                                 model_sr, sr)
-            return out[:len(y)] if len(out) >= len(y) else np.pad(
-                out, (0, len(y) - len(out)), mode="edge")
+            return model.enhance(y, sr, run_dir)
 
         return (Path(run_dir).name, enhance)
 
@@ -330,6 +373,7 @@ class ComparePanel(Panel):
         """New audio means the stored results describe something else."""
         self.cancel_preview()
         self._results = []
+        self._shown = None
         self.table.setRowCount(0)
         self.verdict.setText("")
         for button in (self.audition_button, self.apply_button, self.save_button):
@@ -384,21 +428,41 @@ class ComparePanel(Panel):
         # a custom entry brings its own noise estimate, so it runs once
         swept = len(arguments.get("noises") or [1])
         runs = sum(swept if isinstance(m, str) else 1 for m in entries)
+        learned_dir = self.run_dir.path() if any(
+            not isinstance(m, str) for m in entries) else None
         self.report(f"Running {runs} combination(s) …")
         started = self.jobs.run(
-            kudio.compare_enhancers, y, self.session.sr, methods,
+            compare_with_model, y, self.session.sr, methods,
+            model=self._model, learned_dir=learned_dir,
             reference=reference, metrics=self.metrics.isChecked(),
             **arguments, on_done=self._finished, on_failed=self._failed)
         if not started:
             self.report("A comparison is already running.")
+            return
+        self._pending = RunContext(
+            y=self.session.y,
+            ran_on=(sl.start, sl.stop) if sel is not None else None,
+            learned_dir=learned_dir,
+            model=model_state(learned_dir) if learned_dir else None)
 
     def _finished(self, results) -> None:
+        context, self._pending = self._pending, None
+        if context is None or self.session.y is not context.y:
+            # computed from audio the session no longer holds: ranked, it
+            # would describe something else, and applied, it would put the
+            # old audio back over the edit
+            self.report("The audio changed while the comparison ran, so its "
+                        "results describe audio that is no longer there — "
+                        "run it again.")
+            return
+        self._shown = context
         self._results = list(results)
         self._fill_table()
         self.save_button.setEnabled(any(r.error is None for r in self._results))
         self._announce_winner()
 
     def _failed(self, message: str) -> None:
+        self._pending = None
         self.report(f"Comparison failed — {message}")
 
     # --------------------------------------------------------------- results
@@ -563,10 +627,6 @@ class ComparePanel(Panel):
                 found.append(result)
         return found
 
-    def _selected(self):
-        rows = self._selected_rows()
-        return rows[0] if rows else None
-
     def _on_selection_changed(self) -> None:
         usable = [r for r in self._selected_rows() if r.error is None]
         self.audition_button.setEnabled(bool(usable))
@@ -577,6 +637,19 @@ class ComparePanel(Panel):
             "♪  Audition A→B" if len(usable) > 1 else "♪  Audition")
         if self.audition_button.isChecked():
             self._start_audition()          # follow the selection while playing
+
+    def _on_rows_moved(self) -> None:
+        """Replay the selection in its new order, when a sort gave it one.
+
+        Only then: a sort that leaves the selected rows in the same order
+        would otherwise restart the loop for nothing, from the top of the
+        first row.
+        """
+        if not self.audition_button.isChecked():
+            return
+        playing = tuple((r.method, r.noise) for r in self._audible_rows())
+        if playing != self._heard:
+            self._start_audition()
 
     # ------------------------------------------------------------- audition
 
@@ -594,8 +667,8 @@ class ComparePanel(Panel):
         the only thing being judged. A short silence marks the seam so the
         switch is audible as a switch.
         """
-        usable = [r for r in self._selected_rows()
-                  if r.error is None and r.audio.size]
+        usable = self._audible_rows()
+        self._heard = tuple((r.method, r.noise) for r in usable)
         if not usable:
             self.cancel_preview()
             return
@@ -615,6 +688,11 @@ class ComparePanel(Panel):
                         + " — nothing has been committed.")
         self.preview_ready.emit(audio, self.session.sr)
 
+    def _audible_rows(self) -> List:
+        """The selected rows that have audio to play, in the table's order."""
+        return [r for r in self._selected_rows()
+                if r.error is None and r.audio.size]
+
     def cancel_preview(self) -> None:
         if self.audition_button.isChecked():
             self.audition_button.blockSignals(True)
@@ -624,18 +702,56 @@ class ComparePanel(Panel):
     # ----------------------------------------------------------------- apply
 
     def _apply(self) -> None:
-        result = self._selected()
-        if result is None or result.error is not None:
+        # The button is enabled for exactly one usable row, so that is the row
+        # applied -- not whichever selected row is on top, which can be a
+        # failed one sitting above it.
+        usable = [r for r in self._selected_rows() if r.error is None]
+        if len(usable) != 1:
             return
+        result = usable[0]
         self.cancel_preview()
         audio = np.asarray(result.audio, dtype=np.float32)
-        if self.selection_only.isChecked() and self.session.selection() is not None:
-            self.session.replace_selection(audio, undo_label=result.label)
+        into_selection = (self.selection_only.isChecked()
+                          and self.session.selection() is not None)
+        target = None
+        if into_selection:
+            sl = self.session.selected_slice()
+            target = (sl.start, sl.stop)
+        # The code recomputes the result from the audio it replaces. Put
+        # somewhere other than where it was computed -- the selection moved
+        # after the run -- it came from audio the step's code never sees.
+        shown = self._shown
+        code = (self._script(result, shown)
+                if shown is not None and self.session.y is shown.y
+                and target == shown.ran_on else None)
+        if into_selection:
+            self.session.replace_selection(audio, undo_label=result.label,
+                                           code=code)
         else:
             self.session.set_audio(audio, self.session.sr,
-                                   undo_label=result.label, keep_original=True)
+                                   undo_label=result.label, keep_original=True,
+                                   code=code)
         self.report(f"Applied {result.label}. A/B it against the original "
                     f"with Ctrl+B.")
+
+    @staticmethod
+    def _script(result, context: RunContext) -> Optional[str]:
+        """The code that computes *result* again, the way compare_enhancers did.
+
+        A statistical row is one `spectral_enhance` call with the library's
+        defaults, since the panel passes nothing else; the learned row is the
+        same computation the Enhance panel records, from the run directory
+        the row was computed with.
+        """
+        if result.noise == kudio.CUSTOM_NOISE:
+            if (context.learned_dir is None
+                    or result.method != Path(context.learned_dir).name):
+                return None
+            return (learned_code(context.learned_dir, context.model)
+                    + "\ny = np.asarray(out, dtype=np.float32)")
+        return (f"y = np.asarray(kudio.spectral_enhance(y, sr, "
+                f"{result.method!r}, noise={result.noise!r}), "
+                f"dtype=np.float32)")
 
     def _save_all(self) -> None:
         """Write every result, so they can be compared outside this window."""
@@ -660,6 +776,34 @@ class ComparePanel(Panel):
                         f"{type(e).__name__}: {e}")
             return
         self.report(f"Wrote {written} file(s) to {folder}")
+
+
+def compare_with_model(y: np.ndarray, sr: int, methods, *,
+                       model: LearnedModel, learned_dir: Optional[str],
+                       **kwargs):
+    """`kudio.compare_enhancers`, with the learned row's model ready first.
+
+    Run on the worker thread. compare_enhancers times each row from the
+    moment it is called, so a model loaded inside its row is charged for
+    importing PyTorch and reading the checkpoint -- for a small model,
+    hundreds of times what the denoise costs -- in a column whose only use is
+    setting rows against each other. Loaded here instead, and kept in *model*
+    for the next comparison on the same run, the row's time is the denoise.
+
+    The model also runs once over a short excerpt: the first pass through a
+    network pays one-time set-up that no later pass does, which is the same
+    reason compare_enhancers warms up its own methods before timing any of
+    them.
+    """
+    if learned_dir:
+        try:
+            model.enhance(y[:sr // 2], sr, learned_dir)
+        except Exception:                                       # noqa: BLE001
+            # left for the row to raise again, so a model that will not load
+            # fails its own row, as any method does, rather than the whole
+            # comparison
+            log.debug("preparing %s failed", learned_dir, exc_info=True)
+    return kudio.compare_enhancers(y, sr, methods, **kwargs)
 
 
 def _fmt(value, spec: str) -> str:
