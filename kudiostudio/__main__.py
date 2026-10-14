@@ -17,6 +17,9 @@ def main(argv: list = None) -> int:
                         help="discard saved window geometry and settings")
     parser.add_argument("--no-theme", action="store_true",
                         help="use the native Qt style instead of the dark theme")
+    parser.add_argument("--lang", metavar="CODE",
+                        help="interface language: en or zh_TW (default: the "
+                             "saved choice, else the system's)")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 
@@ -35,6 +38,9 @@ def main(argv: list = None) -> int:
     app.setApplicationName("KudioStudio")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("Kudio")
+
+    from kudiostudio import i18n
+    i18n.install(app, args.lang)
 
     if not args.no_theme:
         _apply_dark_theme(app)

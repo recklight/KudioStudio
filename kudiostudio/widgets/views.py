@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 import kudio
+from kudiostudio.i18n import tr
 from kudiostudio.theme import (
     ACCENT_COLOR,
     CALL_COLOR,
@@ -111,7 +112,7 @@ class TimePlot(pg.PlotWidget):
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent, background=None)
-        self.setLabel("bottom", "Time", units="s")
+        self.setLabel("bottom", tr("Time"), units="s")
         # Both plots are x-linked, which makes them show the same time range --
         # and does nothing about where that range lands on screen. The left
         # axis is as wide as its tick labels need, so "Amplitude" (70 px) and
@@ -234,7 +235,7 @@ class WaveformView(TimePlot):
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
-        self.setLabel("left", "Amplitude")
+        self.setLabel("left", tr("Amplitude"))
         self.showGrid(x=True, y=True, alpha=0.2)
         self.setMouseEnabled(x=True, y=False)
         self.setYRange(-1.0, 1.0, padding=0.02)
@@ -258,7 +259,7 @@ class WaveformView(TimePlot):
 
         right = self.plotItem.getAxis("right")
         right.linkToView(self._loudness_vb)
-        right.setLabel("Loudness", units="LUFS")
+        right.setLabel(tr("Loudness"), units="LUFS")
         right.setWidth(RIGHT_AXIS_WIDTH)
 
         self._loudness = pg.PlotDataItem(
@@ -371,7 +372,7 @@ class SpectrogramView(TimePlot):
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
-        self.setLabel("left", "Frequency", units="Hz")
+        self.setLabel("left", tr("Frequency"), units="Hz")
         self.setMouseEnabled(x=True, y=True)
 
         self._image = pg.ImageItem()
@@ -453,7 +454,7 @@ class SpectrogramView(TimePlot):
             self._image.setLevels(self._levels)
         self._image.setImage(data, autoLevels=False)
         self._image.setRect(0.0, 0.0, duration, y_max)
-        self.setLabel("left", y_label, units=y_units)
+        self.setLabel("left", tr(y_label), units=y_units)
         self.setXRange(0.0, duration, padding=0.0)
         self.setYRange(0.0, y_max, padding=0.0)
         self._duration = duration

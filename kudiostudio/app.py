@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QProcess, QSettings, Qt
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QInputDialog,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QTabWidget,
     QVBoxLayout,
@@ -22,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 import kudio
-from kudiostudio import __version__
+from kudiostudio import __version__, i18n
 from kudiostudio.panels import PANEL_CLASSES, FileList, ManifestPanel
 from kudiostudio.panels.browse import AUDIO_FILTER
 from kudiostudio.panels.manifest import MANIFEST_FILTER, is_manifest
@@ -206,6 +208,8 @@ class KudioStudio(QMainWindow):
         view_menu.addAction(self.files_dock.toggleViewAction())
         view_menu.addAction(self.markers_dock.toggleViewAction())
         view_menu.addAction(self.tools_dock.toggleViewAction())
+        view_menu.addSeparator()
+        self._build_language_menu(view_menu)
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self._action("&About", None, self.about))
@@ -217,6 +221,47 @@ class KudioStudio(QMainWindow):
         toolbar.addActions([self.undo_action, self.revert_action])
         toolbar.addSeparator()
         toolbar.addActions([self.zoom_selection_action, self.zoom_full_action])
+
+    def _build_language_menu(self, parent: QMenu) -> None:
+        # each language is named in itself, and the menu in both, so it can
+        # be found by someone who cannot read the one currently showing
+        menu = parent.addMenu("Language / 語言")
+        group = QActionGroup(self)
+        self.language_actions = {}
+        for code, name in i18n.LANGUAGES.items():
+            action = QAction(name, self, checkable=True)
+            action.setChecked(code == i18n.current())
+            action.triggered.connect(
+                lambda checked=False, c=code: self.set_language(c))
+            group.addAction(action)
+            menu.addAction(action)
+            self.language_actions[code] = action
+
+    def set_language(self, code: str) -> None:
+        """Save `code` as the interface language and offer to restart.
+
+        Text already on screen was translated as it was set, so the change
+        takes a fresh start; the saved choice applies from then on.
+        """
+        code = i18n.normalize(code)
+        self.settings.setValue(i18n.SETTINGS_KEY, code)
+        if code == i18n.current():
+            return
+        answer = QMessageBox.question(
+            self, "Language / 語言",
+            "The new language applies when KudioStudio starts again. "
+            "Restart now? Edits that have not been saved will be lost.\n\n"
+            "新的語言會在 KudioStudio 重新啟動後套用。要現在重新啟動嗎？"
+            "尚未儲存的編輯將會遺失。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            self.show_message(f"Language: {i18n.LANGUAGES[code]}")
+            return
+        arguments = ["-m", "kudiostudio"]
+        if self.session.path is not None:
+            arguments.append(str(self.session.path))
+        if QProcess.startDetached(sys.executable, arguments):
+            self.close()
 
     def _action(self, text: str, shortcut, slot) -> QAction:
         action = QAction(text, self)

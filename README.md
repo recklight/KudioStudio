@@ -45,8 +45,16 @@ The base install stays light: no PyTorch unless you ask for it.
 kudiostudio                    # empty session
 kudiostudio clip.wav           # open a file on start-up
 kudiostudio --no-theme         # native Qt style
+kudiostudio --lang zh_TW       # interface in Traditional Chinese
 kudiostudio --reset            # forget saved window geometry
 ```
+
+The interface comes in **English** and **Traditional Chinese (繁體中文)**.
+`View → Language / 語言` switches between them and offers to restart, since
+the change applies from the next start; the choice is remembered. With no
+choice saved, the system's language is used when there is a translation for
+it. Combo-box values, `kudio` parameter names and the call captions stay as
+the code spells them, so what you read still matches the API.
 
 ## What each panel does
 
@@ -704,7 +712,7 @@ you read is what runs.
 pytest -q
 ```
 
-535 tests covering the session's undo/selection/clipboard/marker arithmetic,
+540 tests covering the session's undo/selection/clipboard/marker arithmetic,
 the exported edit script landing on the session's own samples when it is run
 in a separate interpreter, a manifest from a real synthesis run finding its
 files from wherever the window was started and counting its coverage, a
@@ -719,7 +727,8 @@ that every column is computed once and that real audio always wins over a live
 one, where the pitch contour refuses to draw, the two plots' left and right
 gutters staying the same width so a shared time axis actually lines up, each
 panel's behaviour, the main window's wiring, a panel let go of the moment its
-job ends being freed on the GUI thread, and the whole program quitting
+job ends being freed on the GUI thread, a window built in Traditional
+Chinese that still reads its combo boxes back in English, and the whole program quitting
 cleanly mid-job — those last two in an interpreter of their own, since what
 they guard against is a crash. Qt runs headless (`offscreen`), so the suite
 works in CI. The learned-denoising tests (marked `learned`) train a one-epoch
