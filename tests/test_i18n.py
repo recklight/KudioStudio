@@ -34,11 +34,25 @@ def test_every_translation_takes_the_same_values():
 
 def test_menu_shortcuts_survive_translation():
     """A menu shows the key after a tab. Written as a backslash and a t in the
-    translation, the menu shows those two characters instead."""
+    translation, the menu shows those two characters instead; written as a
+    backslash and a real tab, it shows the backslash."""
     for key, value in zh_TW.MESSAGES.items():
         assert "\\t" not in value, key
+        assert value.count("\\") == key.count("\\"), key
         if "\t" in key:
             assert value.split("\t")[1:] == key.split("\t")[1:], key
+
+
+def test_the_tables_parse_without_warnings():
+    """An escape Python does not know, such as a backslash before a real tab,
+    is kept as typed and only warned about -- the string still loads."""
+    import importlib
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        source = Path(zh_TW.__file__).read_text(encoding="utf-8")
+        compile(source, zh_TW.__file__, "exec")
+    importlib.reload(zh_TW)
 
 
 def test_normalize_reads_the_usual_spellings():

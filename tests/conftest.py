@@ -10,6 +10,10 @@ import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Whatever plugins this machine has installed stay out of the suite, which
+# tests the window a clone of this repository builds. test_plugins.py turns
+# discovery back on with entry points of its own.
+os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 #: Set to 1 where the learned-model tests are the point of the run -- a CI job

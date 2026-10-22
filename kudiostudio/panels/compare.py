@@ -55,7 +55,7 @@ from kudiostudio.panels.enhance import (
     learned_code,
     model_state,
 )
-from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, OK_COLOR, WARN_COLOR
+from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, INK_COLOR, OK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ class ComparePanel(Panel):
         self.audition_button.setCheckable(True)
         self.audition_button.setEnabled(False)
         self.audition_button.setStyleSheet(
-            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: #1b1d21;"
+            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: {INK_COLOR};"
             f" font-weight: bold; }}")
         self.apply_button = QPushButton("Apply this one")
         self.apply_button.setEnabled(False)

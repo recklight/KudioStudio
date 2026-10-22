@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QDockWidget,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
@@ -28,8 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 import kudio
-from kudiostudio import __version__, i18n, icons
-from kudiostudio.panels import PANEL_CLASSES, FileList, ManifestPanel
+from kudiostudio import __version__, i18n, icons, plugins
+from kudiostudio.panels import PANEL_CLASSES, FileList, ManifestPanel, Panel
 from kudiostudio.panels.browse import AUDIO_FILTER
 from kudiostudio.panels.manifest import MANIFEST_FILTER, is_manifest
 from kudiostudio.session import AudioSession
@@ -75,6 +76,11 @@ class KudioStudio(QMainWindow):
 
         self.statusBar().showMessage(
             f"KudioStudio {__version__} — kudio {kudio.__version__} ready.")
+        left_out = [p for p in self.plugins if p.error]
+        if left_out:
+            self.show_message("; ".join(
+                i18n.tr(f"Plugin {p.name} was left out — {p.error}")
+                for p in left_out))
         self._restore_settings()
         self._sync_enabled()
 
@@ -112,20 +118,24 @@ class KudioStudio(QMainWindow):
         self.tools.tabBar().hide()
         self.panels = []
         for cls in PANEL_CLASSES:
-            panel = cls(self.session, self)
-            panel.status.connect(self.show_message)
-            panel.preview_ready.connect(self._start_preview)
-            panel.preview_stopped.connect(self._stop)
-            panel.monitor_started.connect(self.analysis.start_monitor)
-            panel.monitor_chunk.connect(self.analysis.feed_monitor)
-            panel.monitor_stopped.connect(self.analysis.stop_monitor)
-            panel.overlay_ready.connect(self.analysis.set_pitch_overlay)
-            panel.overlay_cleared.connect(self.analysis.clear_pitch_overlay)
-            panel.open_requested.connect(self._open_requested)
-            self.tools.addTab(panel, panel.title)
-            self.panels.append(panel)
+            self._add_panel(cls(self.session, self))
         self.manifest_panel = next(p for p in self.panels
                                    if isinstance(p, ManifestPanel))
+        #: how many of `panels` ship with KudioStudio; the rest are plugins'
+        self.built_in_panels = len(self.panels)
+
+        #: every plugin found, including the ones that were left out
+        self.plugins = plugins.discover()
+        for plugin in self.plugins:
+            if plugin.panel is None:
+                continue
+            try:
+                panel = plugin.panel(self.session, self)
+            except Exception as e:
+                plugin.error = f"{type(e).__name__}: {e}"
+                log.warning("plugin %s left out -- %s", plugin.name, plugin.error)
+                continue
+            self._add_panel(panel)
 
         tools_dock = QDockWidget("Tools", self)
         tools_dock.setObjectName("toolsDock")
@@ -133,6 +143,19 @@ class KudioStudio(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, tools_dock)
         self.tools_dock = tools_dock
         self.resizeDocks([files_dock, tools_dock], [240, 460], Qt.Horizontal)
+
+    def _add_panel(self, panel: Panel) -> None:
+        panel.status.connect(self.show_message)
+        panel.preview_ready.connect(self._start_preview)
+        panel.preview_stopped.connect(self._stop)
+        panel.monitor_started.connect(self.analysis.start_monitor)
+        panel.monitor_chunk.connect(self.analysis.feed_monitor)
+        panel.monitor_stopped.connect(self.analysis.stop_monitor)
+        panel.overlay_ready.connect(self.analysis.set_pitch_overlay)
+        panel.overlay_cleared.connect(self.analysis.clear_pitch_overlay)
+        panel.open_requested.connect(self._open_requested)
+        self.tools.addTab(panel, panel.title)
+        self.panels.append(panel)
 
     def _with_tool_rail(self, tools: QTabWidget) -> QWidget:
         """*tools* with a column of buttons beside it, one per panel.
@@ -150,6 +173,13 @@ class KudioStudio(QMainWindow):
         column.setSpacing(2)
         self.tool_buttons = QButtonGroup(rail)
         for index, panel in enumerate(self.panels):
+            if index == self.built_in_panels:
+                # plugins' tools below a rule, so it is clear which ones
+                # come with KudioStudio
+                rule = QFrame()
+                rule.setObjectName("railRule")
+                rule.setFrameShape(QFrame.HLine)
+                column.addWidget(rule)
             button = QToolButton()
             # the tab's text, which i18n has already translated
             button.setText(tools.tabText(index))
@@ -790,12 +820,17 @@ class KudioStudio(QMainWindow):
         log.info("%s", text)
 
     def about(self) -> None:
-        QMessageBox.about(
-            self, "About KudioStudio",
+        # translated piece by piece: the plugin lines vary in number, and a
+        # template cannot end in "any number of lines"
+        text = i18n.tr(
             f"<b>KudioStudio {__version__}</b><br>"
             f"A desktop workbench for the "
             f"<a href='https://pypi.org/project/kudio/'>kudio</a> audio toolkit."
             f"<br><br>kudio {kudio.__version__} · MIT licence")
+        for plugin in self.plugins:
+            if not plugin.error:
+                text += "<br>" + i18n.tr(f"Plugin: {plugin.source}")
+        QMessageBox.about(self, "About KudioStudio", text)
 
     # -------------------------------------------------------------- settings
 

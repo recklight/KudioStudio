@@ -44,6 +44,7 @@ The base install stays light: no PyTorch unless you ask for it.
 kudiostudio                    # empty session
 kudiostudio clip.wav           # open a file on start-up
 kudiostudio --no-theme         # native Qt style
+kudiostudio --no-plugins       # leave out panels other packages add
 kudiostudio --lang zh_TW       # interface in Traditional Chinese
 kudiostudio --reset            # forget saved window geometry
 ```
@@ -683,6 +684,7 @@ kudiostudio/
 ├── theme.py          # shared colours
 ├── style.py          # the dark theme: Fusion, palette, stylesheet
 ├── icons.py          # line icons for the toolbar, transport and tool rail
+├── plugins.py        # panels other packages add, found by entry point
 ├── widgets/
 │   ├── views.py      # TimePlot base + waveform, spectrogram/mel/MFCC,
 │   │                 #   the rolling take and the f0 overlay
@@ -704,6 +706,22 @@ file opened asks the window with `open_requested`, so the file lands in the
 Files list like any other. Adding a panel means subclassing `Panel` and
 appending it to `PANEL_CLASSES`.
 
+A panel can also live in a package of its own, for tools that have no place
+in this repository. The package names its `Panel` subclass under the
+`kudiostudio.panels` entry point group, and the window puts it on the tool
+rail, below a rule under the built-in tools:
+
+```toml
+[project.entry-points."kudiostudio.panels"]
+spectra = "mypackage.studio:SpectraPanel"
+```
+
+Two class attributes are read as it loads: `icon_svg`, its rail icon as an
+SVG body on the 24-unit grid `icons.py` draws on, and `messages`, its
+translations in the form `locales/zh_TW.py` uses. A plugin that fails to
+import or to build is left off the rail and named in the status bar, and the
+window opens without it; `--no-plugins` leaves them all out.
+
 The UI is built in Python — there are no `.ui` files and no `uic` step, so what
 you read is what runs.
 
@@ -713,7 +731,7 @@ you read is what runs.
 pytest -q
 ```
 
-540 tests covering the session's undo/selection/clipboard/marker arithmetic,
+557 tests covering the session's undo/selection/clipboard/marker arithmetic,
 the exported edit script landing on the session's own samples when it is run
 in a separate interpreter, a manifest from a real synthesis run finding its
 files from wherever the window was started and counting its coverage, a
@@ -727,7 +745,8 @@ without the seconds its model took to load, the rolling views' promise
 that every column is computed once and that real audio always wins over a live
 one, where the pitch contour refuses to draw, the two plots' left and right
 gutters staying the same width so a shared time axis actually lines up, each
-panel's behaviour, the main window's wiring, a panel let go of the moment its
+panel's behaviour, the main window's wiring, another package's panel put on
+the rail or left off it with the reason named, a panel let go of the moment its
 job ends being freed on the GUI thread, a window built in Traditional
 Chinese that still reads its combo boxes back in English, and the whole program quitting
 cleanly mid-job — those last two in an interpreter of their own, since what

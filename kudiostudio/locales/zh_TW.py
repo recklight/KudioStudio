@@ -51,13 +51,13 @@ MESSAGES = {
     '&Revert to original':
         '還原為原始音訊(&R)',
     'Cu&t\tCtrl+X':
-        '剪下(&T)\	Ctrl+X',
+        '剪下(&T)\tCtrl+X',
     '&Copy\tCtrl+C':
-        '複製(&C)\	Ctrl+C',
+        '複製(&C)\tCtrl+C',
     '&Paste\tCtrl+V':
-        '貼上(&P)\	Ctrl+V',
+        '貼上(&P)\tCtrl+V',
     '&Delete\tDel':
-        '刪除(&D)\	Del',
+        '刪除(&D)\tDel',
     'Crop to selectio&n':
         '裁切至選取範圍(&N)',
     '&Insert silence…':
@@ -71,9 +71,9 @@ MESSAGES = {
     '&Playback':
         '播放(&P)',
     '&Play / Stop\tSpace':
-        '播放 / 停止(&P)\	Space',
+        '播放 / 停止(&P)\tSpace',
     'Playhead to &start\tHome':
-        '播放頭回到開頭(&S)\	Home',
+        '播放頭回到開頭(&S)\tHome',
     '&Loop':
         '循環(&L)',
     '&A/B compare original':
@@ -130,6 +130,10 @@ MESSAGES = {
         '關於 KudioStudio',
     "<b>KudioStudio {}</b><br>A desktop workbench for the <a href='https://pypi.org/project/kudio/'>kudio</a> audio toolkit.<br><br>kudio {} · MIT licence":
         "<b>KudioStudio {}</b><br><a href='https://pypi.org/project/kudio/'>kudio</a> 音訊工具組的桌面工作台。<br><br>kudio {} · MIT 授權",
+    'Plugin: {}':
+        '外掛：{}',
+    'Plugin {} was left out — {}':
+        '外掛 {} 未載入 — {}',
     '&About':
         '關於(&A)',
     'Nothing to save.':

@@ -13,9 +13,11 @@ from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -26,7 +28,7 @@ from PySide6.QtCore import QSize, Qt
 
 import kudio
 from kudiostudio import icons
-from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, MONO_CSS
+from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, INK_COLOR, MONO_CSS, PRIMARY_COLOR
 from kudiostudio.workers import WorkerHost
 
 log = logging.getLogger(__name__)
@@ -157,10 +159,16 @@ class TransportBar(QWidget):
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
-        self.play_button = QPushButton(icons.icon("play", "#ffffff"), "Play")
+        self.play_button = QPushButton(icons.icon("play", INK_COLOR), "Play")
         self.play_button.setIconSize(QSize(14, 14))
-        # the one button drawn in the theme's blue: it is what the window is for
+        # the one button drawn in the accent, with a glow: it is what the
+        # window is for
         self.play_button.setProperty("primary", True)
+        self._glow = QGraphicsDropShadowEffect(self.play_button)
+        self._glow.setColor(QColor(PRIMARY_COLOR))
+        self._glow.setBlurRadius(18)
+        self._glow.setOffset(0, 0)
+        self.play_button.setGraphicsEffect(self._glow)
         self.play_button.setToolTip("Play from the cursor, or the selection (Space)")
         self.stop_button = QPushButton(icons.icon("stop"), "Stop")
         self.stop_button.setIconSize(QSize(14, 14))
@@ -175,9 +183,20 @@ class TransportBar(QWidget):
             "A panel's Preview always loops; this is for ordinary playback.")
 
         self.time_label = QLabel(format_time(0.0))
-        self.time_label.setMinimumWidth(64)
+        # the stylesheet draws it as a readout; the font is set here so it
+        # stays fixed-pitch under --no-theme as well
+        self.time_label.setObjectName("timeReadout")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.time_label.setStyleSheet(MONO_CSS)
+        # wide enough for a clip under ten minutes, measured in the font the
+        # stylesheet gave it, so the digits never shift or clip as they run;
+        # a longer one widens it by a digit. Not wider: the transport row is
+        # what sets the window's minimum width, which has to fit 1920 pixels.
+        self.time_label.ensurePolished()
+        margins = self.time_label.contentsMargins()
+        self.time_label.setMinimumWidth(
+            self.time_label.fontMetrics().horizontalAdvance("0:00.000")
+            + margins.left() + margins.right() + 4)
 
         self.compare_button = QPushButton(self._COMPARE_OFF)
         self.compare_button.setCheckable(True)
@@ -186,7 +205,7 @@ class TransportBar(QWidget):
             "Hold the edit against the audio you started with (Ctrl+B).\n"
             "Views and playback follow; the tools keep working on the edit.")
         self.compare_button.setStyleSheet(
-            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: #1b1d21;"
+            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: {INK_COLOR};"
             f" font-weight: bold; }}")
 
         self.match_loudness = QCheckBox("Match loudness")
@@ -282,5 +301,7 @@ class TransportBar(QWidget):
 
     def set_enabled_for(self, has_audio: bool) -> None:
         self.play_button.setEnabled(has_audio)
+        # a disabled button drawn in grey still glowing reads as "on"
+        self._glow.setEnabled(has_audio)
         self.stop_button.setEnabled(has_audio)
         self.loop.setEnabled(has_audio)

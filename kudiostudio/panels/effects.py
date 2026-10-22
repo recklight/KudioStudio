@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import Panel
-from kudiostudio.theme import ACCENT_COLOR, WARN_COLOR
+from kudiostudio.theme import ACCENT_COLOR, INK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class EffectsPanel(Panel):
             "Hear the effect on the selection without applying it.\n"
             "Loops, and re-renders as you change the parameters.")
         self.preview_button.setStyleSheet(
-            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: #1b1d21;"
+            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: {INK_COLOR};"
             f" font-weight: bold; }}")
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)

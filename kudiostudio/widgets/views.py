@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -33,10 +34,12 @@ from kudiostudio.theme import (
     ACCENT_COLOR,
     AXIS_COLOR,
     CALL_COLOR,
+    EDGE_COLOR,
     LOUDNESS_COLOR,
     MARKER_COLOR,
     MONO_CSS,
     PITCH_COLOR,
+    SPECTRUM_MAP,
     WAVE_COLOR,
 )
 from kudiostudio.widgets.levels import LevelReadout
@@ -91,6 +94,29 @@ LOUDNESS_TOOLTIP = (
 )
 
 
+#: tick labels on every plot: fixed-pitch, so a column of values lines up and
+#: a label does not change width as the view scrolls
+TICK_FAMILIES = ["Cascadia Mono", "Consolas", "Menlo", "DejaVu Sans Mono"]
+
+
+def rgba(color: str, alpha: int) -> Tuple[int, int, int, int]:
+    """*color* (``"#rrggbb"``) with *alpha* (0-255), as pyqtgraph takes a brush."""
+    c = QColor(color)
+    return (c.red(), c.green(), c.blue(), alpha)
+
+
+def style_axes(plot: pg.PlotItem) -> None:
+    """Hairline axes in the theme's edge colour, values in fixed-pitch type."""
+    font = QFont()
+    font.setFamilies(TICK_FAMILIES)
+    font.setPointSize(8)
+    for name in ("left", "bottom", "right", "top"):
+        axis = plot.getAxis(name)
+        axis.setPen(pg.mkPen(EDGE_COLOR))
+        axis.setTextPen(pg.mkPen(AXIS_COLOR))
+        axis.setTickFont(font)
+
+
 class TimePlot(pg.PlotWidget):
     """A plot whose x axis is time, with a selection region and a playhead.
 
@@ -107,11 +133,11 @@ class TimePlot(pg.PlotWidget):
     #: Selection fill, as RGBA. Subclasses drawing over a bright image turn the
     #: alpha down: a wash that reads as "highlighted" on a dark waveform reads
     #: as "tinted pink" over a colour map, and hides what you are looking at.
-    REGION_FILL = (232, 163, 61, 55)
-    REGION_HOVER_FILL = (232, 163, 61, 85)
+    REGION_FILL = rgba(ACCENT_COLOR, 55)
+    REGION_HOVER_FILL = rgba(ACCENT_COLOR, 85)
     REGION_EDGE_WIDTH = 1
     #: marker ranges, fainter still than the selection for the same reason
-    MARKER_FILL = (155, 142, 196, 40)
+    MARKER_FILL = rgba(MARKER_COLOR, 40)
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent, background=None)
@@ -124,6 +150,7 @@ class TimePlot(pg.PlotWidget):
         # you switched modes. Pinning the width is what actually makes the
         # shared axis mean what this class promises.
         self.plotItem.getAxis("left").setWidth(LEFT_AXIS_WIDTH)
+        style_axes(self.plotItem)
 
         self._region = pg.LinearRegionItem(
             brush=pg.mkBrush(*self.REGION_FILL),
@@ -239,7 +266,8 @@ class WaveformView(TimePlot):
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
         self.setLabel("left", tr("Amplitude"))
-        self.showGrid(x=True, y=True, alpha=0.2)
+        # the grid takes the axis colour, already a dim one, so it can be denser
+        self.showGrid(x=True, y=True, alpha=0.6)
         self.setMouseEnabled(x=True, y=False)
         self.setYRange(-1.0, 1.0, padding=0.02)
 
@@ -368,10 +396,10 @@ class SpectrogramView(TimePlot):
     """Log-power STFT, mel or MFCC, rendered as an image."""
 
     # barely-there fill and stronger edges: the image underneath is the point
-    REGION_FILL = (232, 163, 61, 18)
-    REGION_HOVER_FILL = (232, 163, 61, 38)
+    REGION_FILL = rgba(ACCENT_COLOR, 18)
+    REGION_HOVER_FILL = rgba(ACCENT_COLOR, 38)
     REGION_EDGE_WIDTH = 2
-    MARKER_FILL = (155, 142, 196, 22)
+    MARKER_FILL = rgba(MARKER_COLOR, 22)
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
@@ -381,9 +409,10 @@ class SpectrogramView(TimePlot):
         self._image = pg.ImageItem()
         self.addItem(self._image)
         try:
-            self._image.setColorMap(pg.colormap.get("viridis"))
+            self._image.setColorMap(pg.colormap.get(SPECTRUM_MAP))
         except Exception:  # pragma: no cover - very old pyqtgraph
-            log.debug("viridis colormap unavailable; using default lookup table")
+            log.debug("%s colormap unavailable; using default lookup table",
+                      SPECTRUM_MAP)
         self._levels: Optional[Tuple[float, float]] = None
 
         # A curve in Hz drawn over the image. `connect="finite"` is the whole

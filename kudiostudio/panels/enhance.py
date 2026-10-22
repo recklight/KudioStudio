@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import DirPicker, Panel
-from kudiostudio.theme import ACCENT_COLOR
+from kudiostudio.theme import ACCENT_COLOR, INK_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -340,7 +340,7 @@ class EnhancePanel(Panel):
             "Hear the denoise without committing it. Runs on the whole clip,\n"
             "exactly as Denoise will, then loops the selected part.")
         self.preview_button.setStyleSheet(
-            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: #1b1d21;"
+            f"QPushButton:checked {{ background: {ACCENT_COLOR}; color: {INK_COLOR};"
             f" font-weight: bold; }}")
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)

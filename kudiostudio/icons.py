@@ -14,7 +14,7 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-from kudiostudio.theme import DISABLED_COLOR, HINT_COLOR, TEXT_COLOR
+from kudiostudio.theme import DISABLED_COLOR, HINT_COLOR, PRIMARY_TEXT, TEXT_COLOR
 
 #: SVG body per icon. ``fill="currentColor"`` marks the solid shapes; every
 #: other element is stroked.
@@ -115,11 +115,33 @@ def icon(name: str, color: str = TEXT_COLOR, checked: Optional[str] = None,
 
 
 def rail_icon(name: str) -> QIcon:
-    """A tool rail icon: dim at rest, full strength under the mouse or when
-    it is the current tool."""
-    return icon(name, TEXT_COLOR, checked=TEXT_COLOR, rest=HINT_COLOR)
+    """A tool rail icon: dim at rest, full strength under the mouse, and in
+    the accent when it is the current tool."""
+    return icon(name, TEXT_COLOR, checked=PRIMARY_TEXT, rest=HINT_COLOR)
 
+
+#: the icons drawn here, which a plugin may not redraw
+_BUILT_IN = frozenset(_SHAPES)
 
 NAMES = tuple(_SHAPES)
 
-__all__ = ["icon", "rail_icon", "svg", "NAMES"]
+
+def register(name: str, body: str) -> None:
+    """Add a plugin panel's icon under *name*.
+
+    *body* is SVG drawn on the same 24-unit grid as the icons above, with
+    ``currentColor`` for anything solid. A name this module already draws is
+    refused, so a plugin cannot change how a built-in tool looks.
+    """
+    global NAMES
+    if name in _BUILT_IN:
+        raise ValueError(f"icon {name!r} is a built-in one")
+    data = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+            f'{body}</svg>').encode()
+    if not QSvgRenderer(QByteArray(data)).isValid():
+        raise ValueError(f"icon {name!r} is not valid SVG")
+    _SHAPES[name] = body
+    NAMES = tuple(_SHAPES)
+
+
+__all__ = ["icon", "rail_icon", "svg", "register", "NAMES"]

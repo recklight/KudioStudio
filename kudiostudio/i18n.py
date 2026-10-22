@@ -43,8 +43,12 @@ DEFAULT = "en"
 SETTINGS_KEY = "language"
 
 _messages: Dict[str, str] = {}
+#: (characters outside the fields, pattern, translation), most specific first
+_templated: List[Tuple[int, re.Pattern, str]] = []
 _templates: List[Tuple[re.Pattern, str]] = []
 _cache: Dict[str, str] = {}
+#: language -> tables plugins have added, kept so `load` can apply them again
+_extra: Dict[str, List[Dict[str, str]]] = {}
 _language = DEFAULT
 _installed = False
 
@@ -100,27 +104,52 @@ def _compile(key: str) -> Optional[re.Pattern]:
     return re.compile("".join(parts) + r"\Z", re.S)
 
 
+def _merge(table: Dict[str, str]) -> None:
+    """Add *table* to the current language's, keeping what is there."""
+    known = {pattern.pattern for _, pattern, _ in _templated}
+    for key, value in table.items():
+        pattern = _compile(key)
+        if pattern is None:
+            _messages.setdefault(key, value)
+        elif pattern.pattern not in known:
+            static = len(re.sub(r"\{[^{}]*\}", "", key))
+            _templated.append((static, pattern, value))
+            known.add(pattern.pattern)
+    # the most specific template first: "{} failed — {}: {}" before "{} — {}"
+    _templated.sort(key=lambda t: -t[0])
+    _templates[:] = [(p, v) for _, p, v in _templated]
+    _cache.clear()
+
+
 def load(language: str) -> None:
     """Make `language` the one `tr` translates into. No Qt involved."""
     global _language
     _language = normalize(language)
     _messages.clear()
+    _templated.clear()
     _templates.clear()
     _cache.clear()
     if _language == DEFAULT:
         return
     module = importlib.import_module(f"kudiostudio.locales.{_language}")
-    templated = []
-    for key, value in module.MESSAGES.items():
-        pattern = _compile(key)
-        if pattern is None:
-            _messages[key] = value
-        else:
-            static = len(re.sub(r"\{[^{}]*\}", "", key))
-            templated.append((static, pattern, value))
-    # the most specific template first: "{} failed — {}: {}" before "{} — {}"
-    templated.sort(key=lambda t: -t[0])
-    _templates.extend((p, v) for _, p, v in templated)
+    _merge(module.MESSAGES)
+    for table in _extra.get(_language, ()):
+        _merge(table)
+
+
+def add_messages(language: str, table: Dict[str, str]) -> None:
+    """More translations into *language*, from a plugin panel.
+
+    They count from now on, and again whenever the language is loaded. The
+    table that ships with KudioStudio wins where both translate a string, so
+    a plugin cannot change how the rest of the window reads.
+    """
+    code = normalize(language)
+    if code == DEFAULT:
+        return
+    _extra.setdefault(code, []).append(dict(table))
+    if code == _language:
+        _merge(table)
 
 
 def _lookup(text: str) -> Optional[str]:

@@ -17,6 +17,8 @@ def main(argv: list = None) -> int:
                         help="discard saved window geometry and settings")
     parser.add_argument("--no-theme", action="store_true",
                         help="use the native Qt style instead of the dark theme")
+    parser.add_argument("--no-plugins", action="store_true",
+                        help="leave out the panels other packages add")
     parser.add_argument("--lang", metavar="CODE",
                         help="interface language: en or zh_TW (default: the "
                              "saved choice, else the system's)")
@@ -28,6 +30,13 @@ def main(argv: list = None) -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    if args.no_plugins:
+        # an environment variable rather than an argument to the window, so
+        # that the restart a language change asks for keeps it
+        import os
+        from kudiostudio import plugins
+        os.environ[plugins.DISABLE_ENV] = "1"
 
     from PySide6.QtWidgets import QApplication
 

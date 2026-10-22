@@ -23,6 +23,9 @@ import tempfile
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# the checks are about what a clone of this repository does, not about
+# the plugins this machine happens to have installed
+os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
 # the CLI prints middle dots and arrows; a cp950 console cannot show them
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

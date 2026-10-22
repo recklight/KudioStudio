@@ -20,6 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 IMAGES = ROOT / "docs" / "images"
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# the README shows the window a clone of this repository builds, not the
+# plugins this machine happens to have installed
+os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
 if sys.platform == "win32":
     os.environ.setdefault("QT_QPA_FONTDIR", "C:/Windows/Fonts")
 sys.path.insert(0, str(ROOT))

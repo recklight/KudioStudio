@@ -74,7 +74,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import Panel
-from kudiostudio.theme import ACCENT_COLOR, OK_COLOR, WARN_COLOR
+from kudiostudio.theme import ACCENT_COLOR, INK_COLOR, OK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -705,7 +705,7 @@ class ManifestPanel(Panel):
             button.setCheckable(True)
             button.setStyleSheet(
                 f"QPushButton:checked {{ background: {ACCENT_COLOR}; "
-                f"color: #1b1d21; font-weight: bold; }}")
+                f"color: {INK_COLOR}; font-weight: bold; }}")
             # The side rides on the button, and one method serves all three.
             # A lambda or a partial over ``self`` here is held by the button,
             # which the panel holds: a cycle no collector can see, which kept
@@ -941,7 +941,7 @@ class ManifestPanel(Panel):
                 item.setTextAlignment(Qt.AlignCenter)
                 if count == 0 and not missing_only:
                     item.setBackground(gap)
-                    item.setForeground(QColor("#1b1d21"))
+                    item.setForeground(QColor(INK_COLOR))
                 table.setItem(r, c, item)
         self._fit_coverage()
         self._coverage = cov
