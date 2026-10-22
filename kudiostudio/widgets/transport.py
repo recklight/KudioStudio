@@ -22,10 +22,11 @@ from PySide6.QtWidgets import (
     QSlider,
     QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 
 import kudio
-from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR
+from kudiostudio import icons
+from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, MONO_CSS
 from kudiostudio.workers import WorkerHost
 
 log = logging.getLogger(__name__)
@@ -156,9 +157,13 @@ class TransportBar(QWidget):
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
-        self.play_button = QPushButton("▶  Play")
+        self.play_button = QPushButton(icons.icon("play", "#ffffff"), "Play")
+        self.play_button.setIconSize(QSize(14, 14))
+        # the one button drawn in the theme's blue: it is what the window is for
+        self.play_button.setProperty("primary", True)
         self.play_button.setToolTip("Play from the cursor, or the selection (Space)")
-        self.stop_button = QPushButton("■  Stop")
+        self.stop_button = QPushButton(icons.icon("stop"), "Stop")
+        self.stop_button.setIconSize(QSize(14, 14))
         self.stop_button.setToolTip("Stop playback (Space)")
         self.selection_only = QCheckBox("Selection only")
         self.selection_only.setChecked(True)
@@ -172,7 +177,7 @@ class TransportBar(QWidget):
         self.time_label = QLabel(format_time(0.0))
         self.time_label.setMinimumWidth(64)
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("font-family: monospace;")
+        self.time_label.setStyleSheet(MONO_CSS)
 
         self.compare_button = QPushButton(self._COMPARE_OFF)
         self.compare_button.setCheckable(True)

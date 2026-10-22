@@ -32,6 +32,15 @@ def test_every_translation_takes_the_same_values():
         assert all(s in formatted for s in sample), (key, "drops a value")
 
 
+def test_menu_shortcuts_survive_translation():
+    """A menu shows the key after a tab. Written as a backslash and a t in the
+    translation, the menu shows those two characters instead."""
+    for key, value in zh_TW.MESSAGES.items():
+        assert "\\t" not in value, key
+        if "\t" in key:
+            assert value.split("\t")[1:] == key.split("\t")[1:], key
+
+
 def test_normalize_reads_the_usual_spellings():
     for code in ("zh_TW", "zh-TW", "zh_tw", "zh-Hant-TW", "zh_HK"):
         assert i18n.normalize(code) == "zh_TW"

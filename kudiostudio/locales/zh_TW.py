@@ -51,13 +51,13 @@ MESSAGES = {
     '&Revert to original':
         '還原為原始音訊(&R)',
     'Cu&t\tCtrl+X':
-        '剪下(&T)\\tCtrl+X',
+        '剪下(&T)\	Ctrl+X',
     '&Copy\tCtrl+C':
-        '複製(&C)\\tCtrl+C',
+        '複製(&C)\	Ctrl+C',
     '&Paste\tCtrl+V':
-        '貼上(&P)\\tCtrl+V',
+        '貼上(&P)\	Ctrl+V',
     '&Delete\tDel':
-        '刪除(&D)\\tDel',
+        '刪除(&D)\	Del',
     'Crop to selectio&n':
         '裁切至選取範圍(&N)',
     '&Insert silence…':
@@ -71,9 +71,9 @@ MESSAGES = {
     '&Playback':
         '播放(&P)',
     '&Play / Stop\tSpace':
-        '播放 / 停止(&P)\\tSpace',
+        '播放 / 停止(&P)\	Space',
     'Playhead to &start\tHome':
-        '播放頭回到開頭(&S)\\tHome',
+        '播放頭回到開頭(&S)\	Home',
     '&Loop':
         '循環(&L)',
     '&A/B compare original':
@@ -1090,12 +1090,12 @@ MESSAGES = {
         'A / B  ·  編輯版本',
     'A / B  ·  original':
         'A / B  ·  原始音訊',
-    '▶  Play':
-        '▶  播放',
+    'Play':
+        '播放',
     'Play from the cursor, or the selection (Space)':
         '從游標或選取範圍開始播放（Space）',
-    '■  Stop':
-        '■  停止',
+    'Stop':
+        '停止',
     'Stop playback (Space)':
         '停止播放（Space）',
     'Selection only':

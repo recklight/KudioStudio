@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import Panel
-from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, OK_COLOR, WARN_COLOR
+from kudiostudio.theme import ACCENT_COLOR, HINT_COLOR, MONO_CSS, OK_COLOR, WARN_COLOR
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class RecordPanel(Panel):
     """Record a fixed-length clip, or an open-ended take with a live meter."""
 
     title = "Record"
+    icon = "record"
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)
@@ -112,6 +113,12 @@ class RecordPanel(Panel):
         self.mode = QComboBox()
         self.mode.addItems(MODES)
         self.device = QComboBox()
+        # Windows names a microphone the way its driver does, sixty characters
+        # and more, and a combo box sized to that held the whole Tools dock
+        # 600 px wide. The full name is still in the open list.
+        self.device.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.device.setMinimumContentsLength(20)
         self.device_space = QLabel()
         self.device_space.setStyleSheet(f"color: {HINT_COLOR};")
         self.rate = QComboBox()
@@ -134,7 +141,7 @@ class RecordPanel(Panel):
         self.meter.setStyleSheet(
             f"QProgressBar::chunk {{ background: {ACCENT_COLOR}; }}")
         self.elapsed = QLabel("0.00 s")
-        self.elapsed.setStyleSheet("font-family: monospace;")
+        self.elapsed.setStyleSheet(MONO_CSS)
 
         self.monitor_method = QComboBox()
         self.monitor_method.addItem("off — show what the microphone sends", None)

@@ -30,7 +30,6 @@ python -m kudiostudio
 
 | Extra | 加入的功能 |
 |---|---|
-| `pip install -e ".[theme]"` | 深色主題（QDarkStyle） |
 | `pip install -e ".[eval]"` | STOI / SDR 指標 |
 | `pip install "kudio[pesq]"` | PESQ（ITU-T P.862）。它自成一個 extra，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上則需要 MSVC Build Tools——所以刻意不放進 `[eval]` 與 `[all]`，否則那兩者會裝不起來 |
 | `pip install -e ".[dnsmos]"` | DNSMOS 主觀分數預測（onnxruntime；權重未隨附） |
@@ -547,14 +546,16 @@ PESQ 有兩種不同的尺度。kudio 預設回報 MOS-LQO；語音增強的論�
 
 ```
 kudiostudio/
-├── __main__.py       # 命令列進入點、主題、參數解析
-├── app.py            # 主視窗：dock、選單、元件串接
+├── __main__.py       # 命令列進入點、參數解析
+├── app.py            # 主視窗：dock、工具側欄、選單、元件串接
 ├── session.py        # AudioSession — 音訊、復原、選取、剪貼簿、
 │                     #   標記、接合交叉淡化、A/B、響度對齊，
 │                     #   以及以腳本形式呈現的編輯歷程
 ├── workers.py        # QThread 輔助工具，讓耗時的 kudio 呼叫不會卡住 UI，
 │                     #   並讓循環參照的回收留在 GUI 執行緒上
 ├── theme.py          # 共用色彩
+├── style.py          # 深色主題：Fusion、調色盤、樣式表
+├── icons.py          # 工具列、播放控制列與工具側欄的線條圖示
 ├── widgets/
 │   ├── views.py      # TimePlot 基底類別 + 波形、頻譜圖/mel/MFCC、
 │   │                 #   錄音中的滾動畫面與 f0 疊圖

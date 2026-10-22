@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
 
 import kudio
 from kudiostudio.panels.base import DirPicker, Panel
-from kudiostudio.theme import CALL_COLOR
+from kudiostudio.theme import CALL_COLOR, MONO_CSS
 
 log = logging.getLogger(__name__)
 
@@ -449,6 +449,7 @@ class BatchPanel(Panel):
     """Convert every audio file in a folder."""
 
     title = "Batch"
+    icon = "batch"
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)
@@ -572,7 +573,7 @@ class BatchPanel(Panel):
         self.misses = QPlainTextEdit()
         self.misses.setReadOnly(True)
         self.misses.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.misses.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+        self.misses.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
         self.misses.setMaximumHeight(180)
         self.misses.setVisible(False)
 

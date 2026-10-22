@@ -32,7 +32,6 @@ same editable install:
 
 | Extra | Adds |
 |---|---|
-| `pip install -e ".[theme]"` | dark theme (QDarkStyle) |
 | `pip install -e ".[eval]"` | STOI / SDR metrics |
 | `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
 | `pip install -e ".[dnsmos]"` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
@@ -674,14 +673,16 @@ wanted them; the menus show the keys anyway.
 
 ```
 kudiostudio/
-├── __main__.py       # CLI entry point, theme, argument parsing
-├── app.py            # main window: docks, menus, wiring
+├── __main__.py       # CLI entry point, argument parsing
+├── app.py            # main window: docks, tool rail, menus, wiring
 ├── session.py        # AudioSession — audio, undo, selection, clipboard,
 │                     #   markers, splice crossfade, A/B, loudness match,
 │                     #   and the edit history as a script
 ├── workers.py        # QThread helpers, so long kudio calls never block the UI,
 │                     #   and cycle collection kept on the GUI thread
 ├── theme.py          # shared colours
+├── style.py          # the dark theme: Fusion, palette, stylesheet
+├── icons.py          # line icons for the toolbar, transport and tool rail
 ├── widgets/
 │   ├── views.py      # TimePlot base + waveform, spectrogram/mel/MFCC,
 │   │                 #   the rolling take and the f0 overlay

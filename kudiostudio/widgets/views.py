@@ -31,9 +31,11 @@ import kudio
 from kudiostudio.i18n import tr
 from kudiostudio.theme import (
     ACCENT_COLOR,
+    AXIS_COLOR,
     CALL_COLOR,
     LOUDNESS_COLOR,
     MARKER_COLOR,
+    MONO_CSS,
     PITCH_COLOR,
     WAVE_COLOR,
 )
@@ -41,7 +43,8 @@ from kudiostudio.widgets.levels import LevelReadout
 
 log = logging.getLogger(__name__)
 
-pg.setConfigOptions(antialias=False, imageAxisOrder="col-major")
+pg.setConfigOptions(antialias=False, imageAxisOrder="col-major",
+                    foreground=AXIS_COLOR)
 
 #: More points than this and we let pyqtgraph peak-decimate rather than
 #: pushing every sample into the scene graph.
@@ -552,7 +555,7 @@ class AnalysisView(QWidget):
         self.call_hint = QLabel()
         self.call_hint.setWordWrap(True)
         self.call_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.call_hint.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+        self.call_hint.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
 
         box = QGroupBox("Analysis")
         box_layout = QVBoxLayout(box)
@@ -603,7 +606,7 @@ class AnalysisView(QWidget):
             spin.valueChanged.connect(self._emit_typed_selection)
 
         self.sel_info = QLabel("no selection")
-        self.sel_info.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+        self.sel_info.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
 
         self.zoom_button = QPushButton("Zoom")
         self.zoom_button.setToolTip("Fit the selection to the width (Ctrl+E)")

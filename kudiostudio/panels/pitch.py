@@ -61,6 +61,7 @@ class PitchPanel(Panel):
     """Track f0 over the clip (or the selection) and draw it."""
 
     title = "Pitch"
+    icon = "pitch"
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)

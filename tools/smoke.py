@@ -354,7 +354,9 @@ def channel_checks(tmp: Path) -> None:
         [sys.executable, "-m", "kudio.cli", "channel", str(src),
          str(tmp / "nothing.wav")], env=env,
         capture_output=True, text=True, encoding="utf-8", errors="replace")
-    check("asking for nothing exits 1", out.returncode == 1)
+    # an argument that is wrong, not a finding about the audio: 2 by the
+    # CLI's own convention, since kudio 3.8
+    check("asking for nothing exits 2", out.returncode == 2)
 
     print("\n  the whole link in one call")
     for name in kudio.CHANNEL_PRESETS:

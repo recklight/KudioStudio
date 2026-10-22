@@ -610,6 +610,7 @@ class ManifestPanel(Panel):
     """Read a corpus manifest, check it against the disk, and listen to it."""
 
     title = "Manifest"
+    icon = "manifest"
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)

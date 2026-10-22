@@ -75,6 +75,7 @@ class EffectsPanel(Panel):
     """
 
     title = "Effects"
+    icon = "effects"
 
     #: The order here is the order of the parameter pages in ``self.params``;
     #: the two are indexed together, so a new effect needs its page inserted at

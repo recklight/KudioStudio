@@ -188,6 +188,7 @@ class SynthPanel(Panel):
     """
 
     title = "Synthesize"
+    icon = "synthesize"
 
     MODES = ("regular", "inc")
 

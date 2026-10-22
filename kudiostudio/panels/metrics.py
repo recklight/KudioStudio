@@ -49,6 +49,7 @@ class MetricsPanel(Panel):
     """Score the current audio against a clean reference."""
 
     title = "Metrics"
+    icon = "metrics"
 
     REFERENCES = ("Original (before edits)", "File…")
 

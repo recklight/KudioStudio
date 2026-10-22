@@ -9,22 +9,26 @@ from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from PySide6.QtCore import QProcess, QSettings, Qt
+from PySide6.QtCore import QProcess, QSettings, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QDockWidget,
     QFileDialog,
+    QHBoxLayout,
     QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QSizePolicy,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 import kudio
-from kudiostudio import __version__, i18n
+from kudiostudio import __version__, i18n, icons
 from kudiostudio.panels import PANEL_CLASSES, FileList, ManifestPanel
 from kudiostudio.panels.browse import AUDIO_FILTER
 from kudiostudio.panels.manifest import MANIFEST_FILTER, is_manifest
@@ -103,6 +107,9 @@ class KudioStudio(QMainWindow):
         self.markers_dock = markers_dock
 
         self.tools = QTabWidget()
+        # Nine titles do not fit across a dock: as tabs they scrolled behind
+        # an arrow. The tab bar stays hidden and the rail next to it chooses.
+        self.tools.tabBar().hide()
         self.panels = []
         for cls in PANEL_CLASSES:
             panel = cls(self.session, self)
@@ -122,10 +129,53 @@ class KudioStudio(QMainWindow):
 
         tools_dock = QDockWidget("Tools", self)
         tools_dock.setObjectName("toolsDock")
-        tools_dock.setWidget(self.tools)
+        tools_dock.setWidget(self._with_tool_rail(self.tools))
         self.addDockWidget(Qt.RightDockWidgetArea, tools_dock)
         self.tools_dock = tools_dock
-        self.resizeDocks([files_dock, tools_dock], [240, 380], Qt.Horizontal)
+        self.resizeDocks([files_dock, tools_dock], [240, 460], Qt.Horizontal)
+
+    def _with_tool_rail(self, tools: QTabWidget) -> QWidget:
+        """*tools* with a column of buttons beside it, one per panel.
+
+        The rail only drives ``tools.setCurrentIndex``, and follows
+        ``currentChanged`` back, so code that switches panels through the tab
+        widget -- opening a manifest does -- moves the rail with it.
+        """
+        rail = QWidget()
+        rail.setObjectName("toolRail")
+        # a plain QWidget paints no stylesheet background without this
+        rail.setAttribute(Qt.WA_StyledBackground)
+        column = QVBoxLayout(rail)
+        column.setContentsMargins(4, 4, 4, 4)
+        column.setSpacing(2)
+        self.tool_buttons = QButtonGroup(rail)
+        for index, panel in enumerate(self.panels):
+            button = QToolButton()
+            # the tab's text, which i18n has already translated
+            button.setText(tools.tabText(index))
+            if panel.icon in icons.NAMES:
+                button.setIcon(icons.rail_icon(panel.icon))
+                button.setIconSize(QSize(22, 22))
+            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            # a tool button keeps to its own width by default, which gave
+            # every highlight a different one
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            button.setCheckable(True)
+            self.tool_buttons.addButton(button, index)
+            column.addWidget(button)
+        column.addStretch(1)
+        self.tool_buttons.idClicked.connect(tools.setCurrentIndex)
+        tools.currentChanged.connect(
+            lambda index: self.tool_buttons.button(index).setChecked(True))
+        self.tool_buttons.button(tools.currentIndex()).setChecked(True)
+
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(rail)
+        row.addWidget(tools, stretch=1)
+        return holder
 
     def _build_actions(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -214,8 +264,19 @@ class KudioStudio(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self._action("&About", None, self.about))
 
+        for action, name in ((self.open_action, "open"),
+                             (self.save_action, "save"),
+                             (self.undo_action, "undo"),
+                             (self.revert_action, "revert"),
+                             (self.zoom_selection_action, "zoom-in"),
+                             (self.zoom_full_action, "zoom-full")):
+            action.setIcon(icons.icon(name))
+
         toolbar = self.addToolBar("Main")
         toolbar.setObjectName("mainToolBar")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(18, 18))
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         toolbar.addActions([self.open_action, self.save_action])
         toolbar.addSeparator()
         toolbar.addActions([self.undo_action, self.revert_action])

@@ -121,6 +121,7 @@ class ComparePanel(Panel):
     """Score every `kudio` enhancement method against the same clip."""
 
     title = "Compare"
+    icon = "compare"
 
     def __init__(self, session, parent: Optional[QWidget] = None):
         super().__init__(session, parent)

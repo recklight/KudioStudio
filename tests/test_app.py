@@ -20,6 +20,21 @@ def test_window_has_every_panel(window):
     assert titles == [cls.title for cls in PANEL_CLASSES]
 
 
+def test_the_tool_rail_and_the_panels_follow_each_other(window):
+    """The rail chooses the panel, and a panel chosen in code -- opening a
+    manifest does that -- moves the rail with it."""
+    rail = window.tool_buttons
+    assert [b.text() for b in rail.buttons()] == [
+        window.tools.tabText(i) for i in range(window.tools.count())]
+
+    rail.button(2).click()
+    assert window.tools.currentIndex() == 2
+
+    window.tools.setCurrentWidget(window.manifest_panel)
+    index = window.tools.indexOf(window.manifest_panel)
+    assert rail.checkedButton() is rail.button(index)
+
+
 def test_actions_disabled_until_audio_is_loaded(window):
     assert window.save_action.isEnabled() is False
     assert window.undo_action.isEnabled() is False

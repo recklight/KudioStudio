@@ -260,6 +260,7 @@ class EnhancePanel(Panel):
     """Denoise the current clip and score the result against the input."""
 
     title = "Enhance"
+    icon = "enhance"
 
     #: statistical methods come from kudio, in the order kudio lists them
     STATISTICAL = tuple(kudio.METHODS)

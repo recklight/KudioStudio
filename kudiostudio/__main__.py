@@ -53,12 +53,8 @@ def main(argv: list = None) -> int:
 
 
 def _apply_dark_theme(app) -> None:
-    try:
-        import qdarkstyle
-    except ImportError:
-        logging.getLogger(__name__).debug("QDarkStyle not installed; using native style")
-        return
-    app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyside6"))
+    from kudiostudio import style
+    style.apply(app)
 
 
 if __name__ == "__main__":

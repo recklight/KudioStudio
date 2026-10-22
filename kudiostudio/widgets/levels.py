@@ -16,7 +16,7 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 import kudio
-from kudiostudio.theme import CALL_COLOR, HINT_COLOR, OK_COLOR, WARN_COLOR
+from kudiostudio.theme import CALL_COLOR, HINT_COLOR, MONO_CSS, OK_COLOR, WARN_COLOR
 from kudiostudio.workers import WorkerHost
 
 log = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class LevelReadout(QGroupBox):
         self._readouts = (self.peak, self.true_peak, self.loudness,
                           self.range, self.bandwidth)
         for label in self._readouts:
-            label.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+            label.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
 
         self.problems = QLabel("")
         self.problems.setWordWrap(True)
@@ -138,7 +138,7 @@ class LevelReadout(QGroupBox):
         self._report = None
         for label in self._readouts:
             label.setText("—")
-            label.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+            label.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
         self.problems.setVisible(False)
         self.curve_ready.emit(None)
 
@@ -164,7 +164,7 @@ class LevelReadout(QGroupBox):
                           else f"{report.peak_dbfs:+.1f} dBFS")
         self.peak.setStyleSheet(
             f"color: {WARN_COLOR if clipped else OK_COLOR}; "
-            f"font-family: monospace; font-weight: bold;")
+            f"{MONO_CSS} font-weight: bold;")
 
         over = measured.true_peak_db >= TRUE_PEAK_WARN_DBTP
         self.true_peak.setText("silence"
@@ -172,7 +172,7 @@ class LevelReadout(QGroupBox):
                                else f"{measured.true_peak_db:+.1f} dBTP")
         self.true_peak.setStyleSheet(
             f"color: {WARN_COLOR if over else CALL_COLOR}; "
-            f"font-family: monospace;")
+            f"{MONO_CSS}")
 
         self.loudness.setText("n/a" if not np.isfinite(report.lufs)
                               else f"{report.lufs:.1f} LUFS")
@@ -181,7 +181,7 @@ class LevelReadout(QGroupBox):
         self.bandwidth.setText(f"{report.bandwidth_hz / 1000:.1f} kHz")
         self.bandwidth.setStyleSheet(
             f"color: {WARN_COLOR if report.band_limited else CALL_COLOR}; "
-            f"font-family: monospace;")
+            f"{MONO_CSS}")
 
         # A true-peak overshoot is a real finding that `audio_report` cannot
         # make: nothing in the samples is wrong, and the file still clips the

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from kudiostudio.session import AudioSession
-from kudiostudio.theme import CALL_COLOR, HINT_COLOR
+from kudiostudio.theme import CALL_COLOR, HINT_COLOR, MONO_CSS
 from kudiostudio.workers import WorkerHost
 
 log = logging.getLogger(__name__)
@@ -71,6 +71,10 @@ class Panel(QWidget):
     #: tab caption
     title = "Panel"
 
+    #: its button on the tool rail, a name from `kudiostudio.icons`,
+    #: or empty for a text-only button
+    icon = ""
+
     def __init__(self, session: AudioSession, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.session = session
@@ -112,7 +116,7 @@ class Panel(QWidget):
         label = QLabel(text)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        label.setStyleSheet(f"color: {CALL_COLOR}; font-family: monospace;")
+        label.setStyleSheet(f"color: {CALL_COLOR}; {MONO_CSS}")
         return label
 
     @staticmethod
