@@ -40,13 +40,16 @@ def main(argv: list = None) -> int:
 
     from PySide6.QtWidgets import QApplication
 
-    from kudiostudio import __version__
+    from kudiostudio import __version__, icons
     from kudiostudio.app import KudioStudio
 
+    set_windows_app_id()
     app = QApplication(sys.argv[:1])
     app.setApplicationName("KudioStudio")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("Kudio")
+    # every window and dialog, the About box included, takes it from here
+    app.setWindowIcon(icons.app_icon())
 
     from kudiostudio import i18n
     i18n.install(app, args.lang)
@@ -59,6 +62,30 @@ def main(argv: list = None) -> int:
     if args.files:
         window.open_files(args.files)
     return app.exec()
+
+
+#: Windows' name for this application, in its Company.Product form. No
+#: version in it: the taskbar groups windows by this string, and one that
+#: changed with each release would split them apart.
+APP_ID = "Kudio.KudioStudio"
+
+
+def set_windows_app_id() -> bool:
+    """Tell Windows this process is KudioStudio, not python.exe.
+
+    Without it the taskbar files the window under the interpreter that runs
+    it and shows that program's icon, whatever icon the window sets. Has to
+    happen before the first window is shown. Returns False elsewhere, and if
+    the call fails, which costs nothing but the icon.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        result = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except (AttributeError, OSError):
+        return False
+    return result == 0  # S_OK
 
 
 def _apply_dark_theme(app) -> None:

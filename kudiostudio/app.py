@@ -49,6 +49,9 @@ class KudioStudio(QMainWindow):
         # is destroyed there (see kudiostudio.workers)
         collect_on_gui_thread()
         self.setWindowTitle(f"KudioStudio {__version__}")
+        # also set on the application by __main__; this one is for a window
+        # built some other way, as the tests and the screenshot script do
+        self.setWindowIcon(icons.app_icon())
         self.resize(1280, 800)
 
         self.settings = QSettings()

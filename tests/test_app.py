@@ -2,6 +2,10 @@
 """The main window assembles, loads a file and wires selection both ways."""
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -33,6 +37,36 @@ def test_the_tool_rail_and_the_panels_follow_each_other(window):
     window.tools.setCurrentWidget(window.manifest_panel)
     index = window.tools.indexOf(window.manifest_panel)
     assert rail.checkedButton() is rail.button(index)
+
+
+def test_the_window_carries_the_application_icon(window):
+    assert not window.windowIcon().isNull()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a Windows call")
+def test_windows_files_the_process_under_kudiostudio_not_python():
+    """In a process of its own: the ID, once set, is the process's for good."""
+    script = (
+        "import ctypes, sys\n"
+        "from kudiostudio.__main__ import APP_ID, set_windows_app_id\n"
+        "assert set_windows_app_id()\n"
+        "found = ctypes.c_wchar_p()\n"
+        "shell32 = ctypes.windll.shell32\n"
+        "assert shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(found)) == 0\n"
+        "print(found.value)\n"
+        "ctypes.windll.ole32.CoTaskMemFree(found)\n")
+    root = str(Path(__file__).resolve().parent.parent)
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True,
+                          text=True, timeout=60, cwd=root)
+    assert done.returncode == 0, done.stderr[-2000:]
+    from kudiostudio.__main__ import APP_ID
+    assert done.stdout.strip() == APP_ID == "Kudio.KudioStudio"
+
+
+def test_elsewhere_the_app_id_is_a_no_op(monkeypatch):
+    from kudiostudio import __main__ as entry
+    monkeypatch.setattr(entry.sys, "platform", "linux")
+    assert entry.set_windows_app_id() is False
 
 
 def test_actions_disabled_until_audio_is_loaded(window):

@@ -409,7 +409,8 @@ def test_two_close_axes_are_called_a_tie(panel):
 
     lopsided = rows({("a", "x"): 0.0, ("a", "y"): 10.0,
                      ("b", "x"): 0.1, ("b", "y"): 10.1})
-    assert "noise estimator moved this clip more" in         ComparePanel._axis_spread(lopsided)
+    assert "noise estimator moved this clip more" in \
+        ComparePanel._axis_spread(lopsided)
 
 
 def test_a_custom_row_is_left_out_of_the_axis_comparison(panel):
@@ -425,7 +426,8 @@ def test_a_custom_row_is_left_out_of_the_axis_comparison(panel):
         method="model", noise=kudio.CUSTOM_NOISE,
         audio=np.zeros(0, dtype=np.float32), seconds=0.0, lufs=0.0,
         noise_floor_db=0.0, si_sdr_db=999.0)]
-    assert ComparePanel._axis_spread(with_custom) ==         ComparePanel._axis_spread(scored)
+    assert ComparePanel._axis_spread(with_custom) == \
+        ComparePanel._axis_spread(scored)
 
 
 def test_a_single_axis_sweep_makes_no_claim_about_which_matters(panel,
@@ -463,7 +465,7 @@ def test_a_run_directory_adds_one_row(panel, tmp_path, monkeypatch):
 
     run_dir = tmp_path / "runs" / "exp1"
     run_dir.mkdir(parents=True)
-    monkeypatch.setattr(module, "kudio_enhance_available", lambda: True)
+    monkeypatch.setattr(module, "kudioenhance_available", lambda: True)
     monkeypatch.setattr(
         module.ComparePanel, "_learned_entry",
         lambda self: ("exp1", lambda y, sr: kudio.gain(y, -3.0)))
@@ -519,13 +521,13 @@ def test_a_learned_row_can_win(panel, real_session, monkeypatch):
     assert "oracle" in panel.verdict.text()
 
 
-def test_a_missing_kudio_enhance_is_reported_not_raised(panel, tmp_path,
+def test_a_missing_kudioenhance_is_reported_not_raised(panel, tmp_path,
                                                         monkeypatch):
     import kudiostudio.panels.compare as module
 
     run_dir = tmp_path / "runs"
     run_dir.mkdir()
-    monkeypatch.setattr(module, "kudio_enhance_available", lambda: False)
+    monkeypatch.setattr(module, "kudioenhance_available", lambda: False)
     panel.run_dir.edit.setText(str(run_dir))
 
     assert "pip install" in panel.call.text()
@@ -544,8 +546,8 @@ SLOW_SECONDS = 0.6
 def install_fake_model(monkeypatch):
     """A model that is slow to load, as a real one is, and instant to run.
 
-    It sits where ``from kudio_enhance.inference import Enhancer`` finds it,
-    so the panel's own loading code is what runs, with kudio-enhance
+    It sits where ``from kudioenhance.inference import Enhancer`` finds it,
+    so the panel's own loading code is what runs, with kudioenhance
     installed or not. Set ``first_pass`` to make its first run slow too.
     """
     import kudiostudio.panels.compare as module
@@ -574,10 +576,10 @@ def install_fake_model(monkeypatch):
                 time.sleep(self.first_pass)
             return 0.5 * np.asarray(y, dtype=np.float32)
 
-    inference = types.ModuleType("kudio_enhance.inference")
+    inference = types.ModuleType("kudioenhance.inference")
     inference.Enhancer = Enhancer
-    monkeypatch.setitem(sys.modules, "kudio_enhance.inference", inference)
-    monkeypatch.setattr(module, "kudio_enhance_available", lambda: True)
+    monkeypatch.setitem(sys.modules, "kudioenhance.inference", inference)
+    monkeypatch.setattr(module, "kudioenhance_available", lambda: True)
     return Enhancer
 
 
@@ -702,7 +704,7 @@ def test_a_model_trained_again_in_the_same_directory_is_loaded_again(
     _run_and_wait(panel)
     assert slow_model.loads == [str(run_dir)], "unchanged: kept"
 
-    # kudio-enhance writes a checkpoint by replacing it
+    # kudioenhance writes a checkpoint by replacing it
     retrained = run_dir / "ddae.tmp"
     retrained.write_bytes(b"second, and longer")
     retrained.replace(run_dir / "ddae.pt")
@@ -784,7 +786,7 @@ def test_rows_on_screen_are_applied_as_the_run_that_made_them(
                for w in real_session.edit_script_warnings())
 
 
-#: skipped without kudio-enhance and PyTorch -- see conftest.py
+#: skipped without kudioenhance and PyTorch -- see conftest.py
 requires_enhance = pytest.mark.learned
 
 

@@ -51,7 +51,7 @@ from kudiostudio.panels.enhance import (
     INSTALL_HINT,
     LearnedModel,
     ModelState,
-    kudio_enhance_available,
+    kudioenhance_available,
     learned_code,
     model_state,
 )
@@ -174,8 +174,8 @@ class ComparePanel(Panel):
         # Its own picker rather than reaching into the Enhance panel: panels
         # talk to the session, never to each other.
         self.run_dir = DirPicker(
-            "optional: a kudio-enhance run directory",
-            caption="Select a kudio-enhance run directory")
+            "optional: a kudioenhance run directory",
+            caption="Select a kudioenhance run directory")
         self.run_dir.setToolTip(
             "Rank a trained model in the same table as the statistical "
             "methods. 'Is the model actually better than log-MMSE' is not a "
@@ -309,7 +309,7 @@ class ComparePanel(Panel):
         run_dir = self.run_dir.path()
         if not run_dir or not Path(run_dir).is_dir():
             return None
-        if not kudio_enhance_available():
+        if not kudioenhance_available():
             raise RuntimeError(INSTALL_HINT)
 
         model = self._model
@@ -340,7 +340,7 @@ class ComparePanel(Panel):
     def _update_call(self) -> None:
         try:
             arguments = self._sweep_arguments()
-        except RuntimeError as e:               # kudio-enhance not installed
+        except RuntimeError as e:               # kudioenhance not installed
             self.call.setText(str(e))
             return
         parts = []

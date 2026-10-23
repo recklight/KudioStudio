@@ -13,7 +13,7 @@ license-files = ["LICENSE.txt"]
 authors = [{ name = "RL" }]
 keywords = ["audio", "gui", "pyside6", "spectrogram", "speech-enhancement", "dsp"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
@@ -30,22 +30,33 @@ classifiers = [
 dependencies = [
     # 3.7.1 is the first kudio whose eval_metrics takes pesq_scale, and the
     # Metrics panel passes it
-    "kudio[audio,viz]>=3.7.1",
-    "PySide6>=6.6",
+    "kudio[viz]>=3.7.1",
+    # playback and fixed-length recording
+    "sounddevice>=0.4.5",
+    # the open-ended take, kudio.StreamRecorder. PyPI has PyAudio wheels for
+    # Windows only; anywhere else pip compiles it against PortAudio's headers,
+    # and a plain install should never need a compiler, so there it is the
+    # [audio] extra instead
+    "PyAudio>=0.2.13; sys_platform == 'win32'",
+    # QtCore, QtGui, QtWidgets, QtSvg and QtOpenGL are all this needs. The
+    # PySide6 package adds WebEngine and the rest, about 430 MB more
+    "PySide6-Essentials>=6.6",
     "pyqtgraph>=0.13",
     "numpy>=1.22",
 ]
 
 [project.optional-dependencies]
+# recording until stopped, on Linux and macOS: needs PortAudio's headers
+# (portaudio19-dev, or brew install portaudio) and a C compiler
+audio = ["PyAudio>=0.2.13"]
 eval = ["kudio[eval]>=3.7.1"]
 # DNSMOS in the Metrics panel. The weights are NOT bundled -- see
 # kudio.find_dnsmos_model for where to get them.
 dnsmos = ["kudio[dnsmos]>=3.7.1"]
 # learned models in the Enhance and Compare panels; pulls in PyTorch, hence
-# optional. 0.2 is the first kudio-enhance on PyTorch, and the first whose
-# package exports Enhancer, which the Enhance panel's call hint names
-enhance = ["kudio-enhance>=0.2"]
-all = ["kudiostudio[eval,dnsmos,enhance]"]
+# optional
+enhance = ["kudioenhance>=1.0"]
+all = ["kudiostudio[audio,eval,dnsmos,enhance]"]
 dev = ["kudiostudio[eval]", "pytest>=7.0", "pytest-qt>=4.2"]
 
 [project.scripts]
@@ -61,6 +72,10 @@ version = { attr = "kudiostudio.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["kudiostudio*"]
+
+# the window icon, read at run time
+[tool.setuptools.package-data]
+kudiostudio = ["assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

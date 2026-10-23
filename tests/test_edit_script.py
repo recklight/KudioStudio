@@ -23,7 +23,7 @@ from kudiostudio.session import UNDO_DEPTH, AudioSession
 
 SR = 16000
 
-#: skipped without kudio-enhance and PyTorch -- see conftest.py
+#: skipped without kudioenhance and PyTorch -- see conftest.py
 requires_enhance = pytest.mark.learned
 
 
@@ -717,7 +717,7 @@ def test_a_model_trained_again_is_used_and_recorded_as_what_it_is(
     against the first model now stops, rather than denoise with the second."""
     import shutil
 
-    from kudio_enhance.checkpoint import load_checkpoint, save_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint, save_checkpoint
 
     trained, _ = trained_run
     run_dir = tmp_path / "exp"

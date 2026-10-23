@@ -1,10 +1,13 @@
 # KudioStudio
 
-[English](README.md) | **繁體中文**
+![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/assets/banner.webp)
 
+[English](https://github.com/recklight/KudioStudio/blob/master/README.md) | **繁體中文**
+
+[![PyPI](https://img.shields.io/pypi/v/kudiostudio.svg)](https://pypi.org/project/kudiostudio/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://doc.qt.io/qtforpython/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
 **[`kudio`](https://pypi.org/project/kudio/) 音訊工具組的桌面工作台。**
@@ -13,30 +16,35 @@
 每個控制項都對應到一個有文件說明的 `kudio` 函式，每個面板下方的說明文字會
 顯示它即將執行的確切呼叫，所以你在這裡試出來的任何做法，都能直接轉成程式碼。
 
-![KudioStudio](docs/images/main.png)
+![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/main.png)
 
 ## 安裝
 
-本專案不在 PyPI 上。請 clone 下來，從原始碼目錄安裝：
+```bash
+pip install kudiostudio
+kudiostudio
+```
+
+需要 **Python 3.9+**。在 Linux 上，播放與錄音另外需要 PortAudio 的函式庫（`sudo apt install libportaudio2`），大多數桌面環境已經有了。所有較重的元件都是選用的 extra：
+
+| Extra | 加入的功能 |
+|---|---|
+| `pip install "kudiostudio[eval]"` | STOI / SDR 指標 |
+| `pip install "kudio[pesq]"` | PESQ（ITU-T P.862）。它自成一個 extra，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上則需要 MSVC Build Tools——所以刻意不放進 `[eval]` 與 `[all]`，否則那兩者會裝不起來 |
+| `pip install "kudiostudio[dnsmos]"` | DNSMOS 主觀分數預測（onnxruntime；權重未隨附） |
+| `pip install "kudiostudio[enhance]"` | 學習式降噪，基於 PyTorch，透過 [kudioenhance](https://pypi.org/project/kudioenhance/)。在沒有 NVIDIA GPU 的 Linux 上，請先裝 CPU 版 PyTorch，做法見 kudioenhance 的 README |
+| `pip install "kudiostudio[audio]"` | 在 Linux 與 macOS 上「錄到按停止」的錄音。它需要 PyAudio，而 PyPI 只有 Windows 的預先編譯版，其他系統要由 pip 現場編譯：請先裝 PortAudio 的標頭檔（`sudo apt install portaudio19-dev`，或 `brew install portaudio`）。Windows 的基本安裝就已經包含 |
+| `pip install "kudiostudio[all]"` | 以上全部，PESQ 除外 |
+
+基本安裝保持輕量：除非你要求，否則不會安裝 PyTorch；Qt 也只裝必要的模組，不含網頁引擎。
+
+要修改 KudioStudio 本身，請從原始碼安裝：
 
 ```bash
 git clone https://github.com/recklight/KudioStudio.git
 cd KudioStudio
 pip install -e ".[dev]"
-python -m kudiostudio
 ```
-
-需要 **Python 3.9+**。所有較重的元件都是選用的 extra，加在同一個可編輯安裝上：
-
-| Extra | 加入的功能 |
-|---|---|
-| `pip install -e ".[eval]"` | STOI / SDR 指標 |
-| `pip install "kudio[pesq]"` | PESQ（ITU-T P.862）。它自成一個 extra，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上則需要 MSVC Build Tools——所以刻意不放進 `[eval]` 與 `[all]`，否則那兩者會裝不起來 |
-| `pip install -e ".[dnsmos]"` | DNSMOS 主觀分數預測（onnxruntime；權重未隨附） |
-| `pip install -e ".[enhance]"` | 學習式降噪，基於 PyTorch。[kudio-enhance](https://github.com/recklight/KudioEnhance) 0.2 以上版本同樣不在 PyPI 上，所以請先從它自己的原始碼目錄安裝——它的 README 說明了如何只裝 CPU 版 PyTorch——之後這個 extra 就會找到它 |
-| `pip install -e ".[all]"` | 以上全部，因此同樣需要先裝好那份原始碼 |
-
-基本安裝保持輕量：除非你要求，否則不會安裝 PyTorch。
 
 ```bash
 kudiostudio                    # 空白工作階段
@@ -58,7 +66,7 @@ kudiostudio --reset            # 忘記儲存的視窗位置與大小
 |---|---|---|
 | **Analysis**（中央） | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` | 波形 + 對數功率 STFT、對數 mel 或 MFCC，時間軸連動，可即時調整 `n_fft` / `hop_length` / `n_mels` / `n_mfcc`，一條畫在獨立 LUFS 軸上的**響度曲線**，以及含 true peak 與響度範圍的即時 **Levels** 讀數 |
 | **Effects** | `kudio.effects`, `kudio.rir`, `kudio.apply_rir`, `kudio.rt60`, `kudio.effects.channel` | 淡入淡出、`reverse`、`remove_dc`、四種 Butterworth 濾波器、`gain`、`pitch_shift`、`time_stretch`、`reverb`、**`room`**（真正的脈衝響應，可指定 seed、可量測）、**`measured_room`**（來自檔案的脈衝響應，並讀出其 T30、EDT、C50 與 DRR）、**`telephone`** / **`bit_depth`** / **`dropouts`**（傳輸通道，分散或成串的掉包）、`add_noise_snr`、`trim_silence`、`vad_trim`、`split_on_silence`——並有不會提交任何變更的循環 **Preview** |
-| **Enhance** | `kudio.spectral_enhance` + `kudio-enhance` | 七種統計式降噪器 × 四種雜訊估計器、`wavelet_low_pass_filter`，以及來自 [kudio-enhance](https://github.com/recklight/KudioEnhance) 訓練結果的**學習式模型** |
+| **Enhance** | `kudio.spectral_enhance` + `kudioenhance` | 七種統計式降噪器 × 四種雜訊估計器、`wavelet_low_pass_filter`，以及來自 [kudioenhance](https://pypi.org/project/kudioenhance/) 訓練結果的**學習式模型** |
 | **Compare** | `kudio.compare_enhancers` | 在同一段音訊上跑每種方法 × 每種雜訊估計器並排名，可逐列試聽，或**把多列接連播放**——訓練好的模型也在同一張表裡 |
 | **Record** | `kudio.record`, `kudio.StreamRecorder`, `kudio.StreamEnhancer`, `kudio.SpectrogramStream` | 固定長度錄音，**或錄到你按停止為止**，附即時音量表、**滾動波形與頻譜圖**，以及選用的**即時降噪監聽** |
 | **Synthesize** | `kudio.Synthesizer` | 乾淨語音 × 雜訊 × SNR **× 房間** 的資料集生成，可選擇**經過傳輸鏈路**（電話 / VoIP），並可在混合音旁輸出**含殘響的目標音**；以 seed 保證可重現，並寫出記錄每個檔案來源的 manifest |
@@ -125,7 +133,7 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
   或刪掉這個檢查，以便在另一個檔案上執行相同的編輯。學習式模型的檔案也以相同方式檢查，
   所以若執行目錄在編輯之後又重新訓練過，腳本會停下，而不是用一個不同的模型去降噪。
 - 使用**隨機** seed 的效果，會把 Apply 當時實際抽到的 seed 寫進呼叫中，讓腳本重現那次結果，
-  而不是重新擲骰。降噪也會被記錄——學習式模型會寫成 kudio-enhance 的
+  而不是重新擲骰。降噪也會被記錄——學習式模型會寫成 kudioenhance 的
   `Enhancer.load(run_dir).enhance(y)`，包含重新取樣。
 - **不會默默略過任何東西。** 無法寫成程式碼的編輯會在該步驟以 `raise` 讓腳本停止，
   腳本開頭會列出它，匯出時也會在狀態列說明；少了一步的腳本會寫出不同的檔案，卻看不出任何異狀。
@@ -139,7 +147,7 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
 選取範圍只有一個、沒有名稱，而且一做新的選取就消失了。標記則是會保留下來的具名時間點與範圍：
 點一下跳過去，雙擊範圍即可選取它，而 **`Find speech`** 會用 `kudio.vad` 填滿清單。
 
-<img src="docs/images/dock_markers.png" width="260" alt="標記面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/dock_markers.png" width="260" alt="標記面板">
 
 標記是*時間*上的位置，所以改變長度的編輯會移動它們——刪掉兩秒，後面的一切都會往左移。
 復原會把它們放回原位，因為標記清單是跟著復原堆疊一起存放的，而不是重新計算出來的。
@@ -148,8 +156,8 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
 會直接把標記讀回來。`Export…` 則會改寫成 **Audacity 標籤軌**，那只是三欄純文字，
 音訊界大部分的工具都已經能讀。
 
-<img src="docs/images/panel_effects.png" width="330" alt="Effects 面板">
-<img src="docs/images/panel_synthesize.png" width="330" alt="Synthesize 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_effects.png" width="330" alt="Effects 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_synthesize.png" width="330" alt="Synthesize 面板">
 
 ### 與原始音訊做 A/B 比較
 
@@ -173,8 +181,8 @@ A/B — the original, +17.6 LU against the edit; turn on Match loudness to compa
 兩者之間的座標軸刻意**不會**重新縮放：一個同時把音量減半的降噪器，看起來就該只有一半高，
 而不是被拉伸回去填滿整張圖。縮放狀態在切換時會保留，也是同樣的理由。
 
-<img src="docs/images/ab_original.png" width="420" alt="A/B：原始的含噪音訊">
-<img src="docs/images/ab_edited.png" width="420" alt="A/B：經過 trad_enhance 之後">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_original.png" width="420" alt="A/B：原始的含噪音訊">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_edited.png" width="420" alt="A/B：經過 trad_enhance 之後">
 
 *同一段音訊、同樣的座標軸、同一個瞬間——`trad_enhance` 讓背景雜訊變稀薄，並保留了 chirp。*
 
@@ -267,16 +275,16 @@ DNS-Challenge 的權重，kudio 與本程式都沒有隨附；面板會告訴你
 對數功率 STFT、對數 mel 與 MFCC，使用的是訓練腳本也會用的同一組 `kudio` 呼叫——
 控制項下方的說明文字就是確切的呼叫：
 
-<img src="docs/images/analysis_stft.png" width="270" alt="STFT 視圖">
-<img src="docs/images/analysis_mel.png" width="270" alt="Mel 視圖">
-<img src="docs/images/analysis_mfcc.png" width="270" alt="MFCC 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_stft.png" width="270" alt="STFT 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mel.png" width="270" alt="Mel 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mfcc.png" width="270" alt="MFCC 視圖">
 
 同一組圖也負責呈現兩樣*不是*這段音訊本身的東西：錄音進行中的滾動畫面，
 以及畫在頻譜圖上的 f0 輪廓。兩者都在下面說明。
 
 ### 音量跑到哪裡去了？
 
-<img src="docs/images/analysis_loudness.png" width="600" alt="畫在波形上的短期響度">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_loudness.png" width="600" alt="畫在波形上的短期響度">
 
 Levels 區塊對整段音訊給出一個整合 LUFS 數值——那是你做正規化的依據，但對於找出
 某人離麥克風遠了一點的那一刻毫無幫助。**Loudness over time** 會在波形上、以獨立的 LUFS 軸
@@ -326,8 +334,8 @@ SI-SDR             +14.210 dB          ...instead of -7.890 dB
 頻譜圖會顯示諧波堆疊，但它不會告訴你*哪一條*線是基頻，而且一旦那條線很弱就幫不上忙了——
 電話頻帶、高通濾波、低沉的聲音落在最前面幾個頻帶之下。
 
-<img src="docs/images/panel_pitch.png" width="270" alt="Pitch 面板">
-<img src="docs/images/analysis_pitch.png" width="480" alt="畫在頻譜圖上的 f0 輪廓">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_pitch.png" width="270" alt="Pitch 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_pitch.png" width="480" alt="畫在頻譜圖上的 f0 輪廓">
 
 **Pitch** 面板執行 `kudio.f0`（pYIN），回報中位數、以 Hz *及*半音表示的 5–95% 範圍——
 半音才是人實際感知音高的單位——以及音訊中有多少比例是有聲的。輪廓畫在 STFT 視圖上，
@@ -349,7 +357,7 @@ SI-SDR             +14.210 dB          ...instead of -7.890 dB
 **Compare** 面板會在完全相同的音訊、以完全相同的分幀跑過全部七種方法，逐一量測，
 並讓你試聽任何一列而不必提交。
 
-<img src="docs/images/panel_compare.png" width="420" alt="Compare 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_compare.png" width="420" alt="Compare 面板">
 
 這七種方法是同樣三個決策的不同組合——估計雜訊、估計先驗 SNR、把它轉成增益——
 所以固定雜訊估計器就能單獨比較增益規則。**估計器與增益規則一樣是重要的槓桿**：
@@ -360,7 +368,7 @@ SI-SDR             +14.210 dB          ...instead of -7.890 dB
 增益規則、在固定增益規則下比較估計器，或跑完整的 7 × 4 網格。接著它會回報兩者之中哪一個對
 *這段音訊*影響較大，或在差距只有 0.1 dB 時說兩者相當，而不是硬選出一個贏家。
 
-把 `Learned model` 指向一個 [kudio-enhance](https://github.com/recklight/KudioEnhance)
+把 `Learned model` 指向一個 [kudioenhance](https://pypi.org/project/kudioenhance/)
 執行目錄，它也會得到一列，在同樣的音訊上以同樣的參考訊號評分——「模型真的比 log-MMSE 好嗎」
 不是兩份分開的輸出能回答的問題。模型會在開始計時之前載入，並先在一小段音訊上跑一次，
 之後保留給同一個執行目錄的下一次比較使用，所以它的 `ms` 是降噪本身——而不是匯入 PyTorch
@@ -396,7 +404,7 @@ Enhance 面板的控制項是**由 `kudio.METHODS` 產生的**——範圍、預
 
 ### 看著錄音進來
 
-<img src="docs/images/analysis_live.png" width="600" alt="錄音進行中的滾動頻譜圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_live.png" width="600" alt="錄音進行中的滾動頻譜圖">
 
 波形監看從一開始就有；頻譜圖則沒有，因為每秒重算好幾次 STFT、只為了畫出一個早已捲走的視窗，
 代價比它呈現的資訊還高。`kudio.SpectrogramStream` 正確地解決了這個問題：一個由欄位組成的
@@ -418,14 +426,14 @@ Record 面板每個 tick 從錄音器取出一次資料並把新音訊交出去�
 
 ### 學習式降噪
 
-Enhance 面板開箱即可執行傳統 DSP。從 [kudio-enhance](https://github.com/recklight/KudioEnhance)
-自己的原始碼目錄安裝它之後，面板也能載入它訓練出的模型：把 `run_dir` 指向一個執行目錄，
+Enhance 面板開箱即可執行傳統 DSP。用 `pip install "kudiostudio[enhance]"` 裝好
+[kudioenhance](https://pypi.org/project/kudioenhance/) 之後，面板也能載入它訓練出的模型：把 `run_dir` 指向一個執行目錄，
 它就會取得模型、正規化統計量，以及訓練時使用的 STFT 參數——所以推論不可能在不知不覺中與訓練不一致。
 
-<img src="docs/images/panel_enhance.png" width="330" alt="選取了學習式模型的 Enhance 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_enhance.png" width="330" alt="選取了學習式模型的 Enhance 面板">
 
 只有在真正使用該方法時才會匯入 PyTorch，若沒有安裝，面板會告訴你如何安裝，而不是直接失敗。
-kudio-enhance 0.1 的執行目錄早於它改用 PyTorch，無法載入：面板會告訴你必須重新訓練。
+用它 0.1 版訓練的執行目錄早於改用 PyTorch，無法載入：面板會告訴你必須重新訓練。
 
 ### 資料集合成
 
@@ -435,7 +443,7 @@ kudio-enhance 0.1 的執行目錄早於它改用 PyTorch，無法載入：面板
 
 ### 把語料庫讀回來
 
-<img src="docs/images/panel_manifest.png" width="420" alt="Manifest 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_manifest.png" width="420" alt="Manifest 面板">
 
 Synthesize 面板會在每個語料庫旁寫出 `manifest.json`，而其中一半的內容——房間、鏈路、目標音——
 不在任何檔名裡。`File → Open manifest…`——或在命令列執行 `kudiostudio manifest.json`——
@@ -558,6 +566,7 @@ kudiostudio/
 ├── style.py          # 深色主題：Fusion、調色盤、樣式表
 ├── icons.py          # 工具列、播放控制列與工具側欄的線條圖示
 ├── plugins.py        # 其他套件透過 entry point 加入的面板
+├── assets/logo.png   # 視窗與工作列圖示，與 kudio 共用同一個標誌
 ├── widgets/
 │   ├── views.py      # TimePlot 基底類別 + 波形、頻譜圖/mel/MFCC、
 │   │                 #   錄音中的滾動畫面與 f0 疊圖
@@ -597,7 +606,7 @@ UI 是用 Python 建構的——沒有 `.ui` 檔，也沒有 `uic` 步驟，所�
 pytest -q
 ```
 
-557 個測試，涵蓋：工作階段的復原/選取/剪貼簿/標記運算；匯出的編輯腳本在另一個直譯器中執行時，
+562 個測試，涵蓋：工作階段的復原/選取/剪貼簿/標記運算；匯出的編輯腳本在另一個直譯器中執行時，
 能得到與工作階段完全相同的樣本；一份來自真實合成執行的 manifest，不論視窗從哪裡啟動都能找到它的檔案
 並計算覆蓋情況；正規化後讀回的目錄樹，每個沒達標的檔案都以正確的原因列出；殘響副本完全等於以 seed
 產生的房間；不會延遲音訊的量測房間；響度對齊；播放頭的時序；預覽與播放的循環；共用的座標軸與色階；
@@ -608,7 +617,7 @@ pytest -q
 GUI 執行緒上被回收；以繁體中文建構、但下拉選單讀回的仍是英文值的視窗；以及整個程式在工作進行中也能乾淨地結束——最後這兩項在獨立的直譯器中執行，
 因為它們要防範的正是崩潰。Qt 以無頭模式（`offscreen`）執行，所以測試套件可以在 CI 中運作。
 學習式降噪的測試（標記為 `learned`）會真的訓練一個 epoch 的模型，在面板自己的工作執行緒上執行它，
-並在 kudio-enhance 或 PyTorch 未安裝或無法匯入時乾淨地略過——除非設定了 `KUDIOSTUDIO_REQUIRE_LEARNED=1`，
+並在 kudioenhance 或 PyTorch 未安裝或無法匯入時乾淨地略過——除非設定了 `KUDIOSTUDIO_REQUIRE_LEARNED=1`，
 此時會改為失敗，供那些專門安裝了兩者來跑這些測試的 CI 工作使用。無限長度的錄音器則透過假的裝置驅動，
 因為 CI 沒有麥克風。
 
@@ -622,8 +631,8 @@ README 的截圖是程式產生的，不是手動擷取的——修改視窗之�
 ## 相關專案
 
 - **[kudio](https://pypi.org/project/kudio/)** — 底層的音訊工具組：I/O、特徵、效果、合成、增強、指標。
-- **[kudio-enhance](https://github.com/recklight/KudioEnhance)** — 訓練本程式所載入的降噪模型。
+- **[kudioenhance](https://pypi.org/project/kudioenhance/)** — 訓練本程式所載入的降噪模型。
 
 ## 授權
 
-MIT — 請見 [LICENSE.txt](LICENSE.txt)。
+MIT — 請見 [LICENSE.txt](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)。

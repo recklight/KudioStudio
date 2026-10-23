@@ -1,10 +1,13 @@
 # KudioStudio
 
-**English** | [繁體中文](README.zh-TW.md)
+![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/assets/banner.webp)
 
+**English** | [繁體中文](https://github.com/recklight/KudioStudio/blob/master/README.zh-TW.md)
+
+[![PyPI](https://img.shields.io/pypi/v/kudiostudio.svg)](https://pypi.org/project/kudiostudio/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://doc.qt.io/qtforpython/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
 **A desktop workbench for the [`kudio`](https://pypi.org/project/kudio/) audio toolkit.**
@@ -14,31 +17,38 @@ without writing a script first. Every control maps to one documented `kudio`
 function, and the caption under each panel shows the exact call it will make,
 so anything you work out here translates straight into code.
 
-![KudioStudio](docs/images/main.png)
+![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/main.png)
 
 ## Install
 
-Not on PyPI. Clone it and install from the checkout:
+```bash
+pip install kudiostudio
+kudiostudio
+```
+
+Requires **Python 3.9+**. On Linux, playback and recording also need
+PortAudio's library (`sudo apt install libportaudio2`), which most desktop
+installs already have. Everything heavy is an opt-in extra:
+
+| Extra | Adds |
+|---|---|
+| `pip install "kudiostudio[eval]"` | STOI / SDR metrics |
+| `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
+| `pip install "kudiostudio[dnsmos]"` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
+| `pip install "kudiostudio[enhance]"` | learned denoising, on PyTorch, through [kudioenhance](https://pypi.org/project/kudioenhance/). Without an NVIDIA GPU on Linux, install the CPU-only PyTorch first; kudioenhance's README says how |
+| `pip install "kudiostudio[audio]"` | recording until stopped, on Linux and macOS. It needs PyAudio, which PyPI only has prebuilt for Windows, so elsewhere pip compiles it: install PortAudio's headers first (`sudo apt install portaudio19-dev`, or `brew install portaudio`). On Windows the plain install already includes it |
+| `pip install "kudiostudio[all]"` | all of the above except PESQ |
+
+The base install stays light: no PyTorch unless you ask for it, and Qt's
+essential modules only, not its web engine.
+
+To work on KudioStudio itself, install it from a checkout:
 
 ```bash
 git clone https://github.com/recklight/KudioStudio.git
 cd KudioStudio
 pip install -e ".[dev]"
-python -m kudiostudio
 ```
-
-Requires **Python 3.9+**. Everything heavy is an opt-in extra, added to that
-same editable install:
-
-| Extra | Adds |
-|---|---|
-| `pip install -e ".[eval]"` | STOI / SDR metrics |
-| `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). Its own extra because it builds from source — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately left out of `[eval]` and `[all]`, which would otherwise stop installing |
-| `pip install -e ".[dnsmos]"` | DNSMOS opinion scores (onnxruntime; weights not bundled) |
-| `pip install -e ".[enhance]"` | learned denoising, on PyTorch. [kudio-enhance](https://github.com/recklight/KudioEnhance) 0.2 or later is not on PyPI either, so install it from a checkout of its own first — its README says how to keep PyTorch CPU-only — and this extra then finds it |
-| `pip install -e ".[all]"` | all of the above, so it wants that checkout too |
-
-The base install stays light: no PyTorch unless you ask for it.
 
 ```bash
 kudiostudio                    # empty session
@@ -62,7 +72,7 @@ the code spells them, so what you read still matches the API.
 |---|---|---|
 | **Analysis** (centre) | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` | Waveform + log-power STFT, log-mel or MFCC, x-linked, live `n_fft` / `hop_length` / `n_mels` / `n_mfcc`, a **loudness curve** on its own LUFS axis, plus a live **Levels** readout with true peak and loudness range |
 | **Effects** | `kudio.effects`, `kudio.rir`, `kudio.apply_rir`, `kudio.rt60`, `kudio.effects.channel` | Fades, `reverse`, `remove_dc`, four Butterworth filters, `gain`, `pitch_shift`, `time_stretch`, `reverb`, **`room`** (a real impulse response, seeded and measurable), **`measured_room`** (an impulse response from a file, with its T30, EDT, C50 and DRR read off it), **`telephone`** / **`bit_depth`** / **`dropouts`** (the channel, scattered or in bursts), `add_noise_snr`, `trim_silence`, `vad_trim`, `split_on_silence` — with a looping **Preview** that commits nothing |
-| **Enhance** | `kudio.spectral_enhance` + `kudio-enhance` | Seven statistical denoisers × four noise estimators, `wavelet_low_pass_filter`, and **learned models** from a [kudio-enhance](https://github.com/recklight/KudioEnhance) run |
+| **Enhance** | `kudio.spectral_enhance` + `kudioenhance` | Seven statistical denoisers × four noise estimators, `wavelet_low_pass_filter`, and **learned models** from a [kudioenhance](https://pypi.org/project/kudioenhance/) run |
 | **Compare** | `kudio.compare_enhancers` | Every method × every noise estimator over the same clip, ranked, with per-row audition or **several rows back to back** — and a trained model in the same table |
 | **Record** | `kudio.record`, `kudio.StreamRecorder`, `kudio.StreamEnhancer`, `kudio.SpectrogramStream` | Fixed-length capture, **or record until you stop** with a live level meter, a **rolling waveform and spectrogram**, and optional **live denoised monitoring** |
 | **Synthesize** | `kudio.Synthesizer` | clean × noise × SNR **× room** dataset generation, optionally **down a link** (telephone / VoIP) and with **reverberant targets** beside the mixtures, seeded and reproducible, writing a manifest that records what came from what |
@@ -147,7 +157,7 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
 - An effect left on a **random** seed gets the seed Apply actually drew written
   into its call, so the script repeats that result instead of rolling again.
   Denoising is recorded too — a learned model as
-  `Enhancer.load(run_dir).enhance(y)` from kudio-enhance, resampling included.
+  `Enhancer.load(run_dir).enhance(y)` from kudioenhance, resampling included.
 - **Nothing is skipped quietly.** An edit that cannot be written as code stops
   the script with a `raise` at that step, the script's header lists it, and the
   export says so in the status bar; a script that leaves out a step writes a
@@ -165,7 +175,7 @@ A selection is single, unnamed and gone the moment you make another one.
 Markers are named points and ranges that stay: click to jump, double-click a
 range to select it, and **`Find speech`** fills the list from `kudio.vad`.
 
-<img src="docs/images/dock_markers.png" width="260" alt="The markers dock">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/dock_markers.png" width="260" alt="The markers dock">
 
 They are positions in *time*, so an edit that changes the length moves them —
 delete two seconds and everything after it shifts left. Undo puts them back
@@ -177,8 +187,8 @@ audio, and opening that file again picks them straight back up. `Export…` writ
 an **Audacity label track** instead, which is three columns of plain text that
 most of the audio world already reads.
 
-<img src="docs/images/panel_effects.png" width="330" alt="Effects panel">
-<img src="docs/images/panel_synthesize.png" width="330" alt="Synthesize panel">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_effects.png" width="330" alt="Effects panel">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_synthesize.png" width="330" alt="Synthesize panel">
 
 ### A/B against the audio you started with
 
@@ -205,8 +215,8 @@ The axes deliberately do **not** rescale between the two: a denoiser that also
 halved the level should look half as tall, not be stretched back to fill the
 plot. Zoom survives the swap for the same reason.
 
-<img src="docs/images/ab_original.png" width="420" alt="A/B: the original noisy clip">
-<img src="docs/images/ab_edited.png" width="420" alt="A/B: after trad_enhance">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_original.png" width="420" alt="A/B: the original noisy clip">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_edited.png" width="420" alt="A/B: after trad_enhance">
 
 *Same clip, same axes, same instant — `trad_enhance` has thinned the noise bed
 and left the chirp.*
@@ -316,9 +326,9 @@ every detected span into a marker you can click through.
 Log-power STFT, log-mel and MFCC, from the same `kudio` calls a training
 script would use — the caption under the controls is the exact call:
 
-<img src="docs/images/analysis_stft.png" width="270" alt="STFT view">
-<img src="docs/images/analysis_mel.png" width="270" alt="Mel view">
-<img src="docs/images/analysis_mfcc.png" width="270" alt="MFCC view">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_stft.png" width="270" alt="STFT view">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mel.png" width="270" alt="Mel view">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mfcc.png" width="270" alt="MFCC view">
 
 The same pair of plots also carries the two things that are *not* the clip: the
 rolling picture of a take as it arrives, and an f0 contour over the
@@ -326,7 +336,7 @@ spectrogram. Both are below.
 
 ### Where did the level go?
 
-<img src="docs/images/analysis_loudness.png" width="600" alt="short-term loudness over the waveform">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_loudness.png" width="600" alt="short-term loudness over the waveform">
 
 The Levels box gives one integrated LUFS figure for the whole clip — the
 number you normalise against, and no help at all in finding the moment
@@ -391,8 +401,8 @@ A spectrogram shows the harmonic stack. It does not say *which* line is the
 fundamental, and it stops helping the moment that line is weak — a phone band,
 a high-pass, a low voice under the first few bins.
 
-<img src="docs/images/panel_pitch.png" width="270" alt="Pitch panel">
-<img src="docs/images/analysis_pitch.png" width="480" alt="f0 contour over the spectrogram">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_pitch.png" width="270" alt="Pitch panel">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_pitch.png" width="480" alt="f0 contour over the spectrogram">
 
 The **Pitch** panel runs `kudio.f0` (pYIN) and reports the median, the 5–95%
 range in Hz *and* in semitones — the unit pitch is actually heard in — and how
@@ -419,7 +429,7 @@ with whichever one you happened to try last. The **Compare** panel runs all
 seven over identical audio with identical framing, measures each, and lets you
 audition any row without committing to it.
 
-<img src="docs/images/panel_compare.png" width="420" alt="The Compare panel">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_compare.png" width="420" alt="The Compare panel">
 
 The seven methods are the same three decisions in different combinations —
 estimate the noise, estimate the a priori SNR, turn it into a gain — so holding
@@ -434,7 +444,7 @@ gain rule, or the full 7 × 4 grid. It then reports which of the two moved *this
 clip* more, or says they were comparable rather than crowning one on a 0.1 dB
 difference.
 
-Point `Learned model` at a [kudio-enhance](https://github.com/recklight/KudioEnhance)
+Point `Learned model` at a [kudioenhance](https://pypi.org/project/kudioenhance/)
 run directory and it gets a row too, scored against the same reference on the
 same audio — "is the model actually better than log-MMSE" is not a question two
 separate printouts answer. The model is loaded, and run once over a short
@@ -485,7 +495,7 @@ there appears here without anyone editing the GUI.
 
 ### Watching a take arrive
 
-<img src="docs/images/analysis_live.png" width="600" alt="the rolling spectrogram during a take">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_live.png" width="600" alt="the rolling spectrogram during a take">
 
 The waveform monitor was in from the start; the spectrogram was not, because
 recomputing an STFT several times a second to draw a window that has already
@@ -515,18 +525,19 @@ the take is still committed raw.
 ### Learned denoising
 
 The Enhance panel runs classic DSP out of the box. Install
-[kudio-enhance](https://github.com/recklight/KudioEnhance) from a checkout of
-its own and the panel also loads the models it trains: point `run_dir` at
+[kudioenhance](https://pypi.org/project/kudioenhance/) with
+`pip install "kudiostudio[enhance]"` and the panel also loads the models it
+trains: point `run_dir` at
 a run directory and it picks up the model, its normalisation statistics and the
 STFT geometry they were trained with — so inference cannot silently disagree
 with training.
 
-<img src="docs/images/panel_enhance.png" width="330" alt="Enhance panel with a learned model selected">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_enhance.png" width="330" alt="Enhance panel with a learned model selected">
 
 PyTorch is imported only when that method is actually used, and the panel
 tells you how to install it rather than failing if it is missing. A run
-directory from kudio-enhance 0.1 predates its move to PyTorch and cannot be
-loaded: the panel says it has to be retrained.
+directory trained with its version 0.1 predates the move to PyTorch and cannot
+be loaded: the panel says it has to be retrained.
 
 ### Dataset synthesis
 
@@ -537,7 +548,7 @@ reproducible — the same noise offsets, the same pairings.
 
 ### Reading a corpus back
 
-<img src="docs/images/panel_manifest.png" width="420" alt="The Manifest panel">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_manifest.png" width="420" alt="The Manifest panel">
 
 The Synthesize panel writes `manifest.json` beside every corpus, and half of
 what is in it — the room, the link, the target — is in none of the file names.
@@ -685,6 +696,7 @@ kudiostudio/
 ├── style.py          # the dark theme: Fusion, palette, stylesheet
 ├── icons.py          # line icons for the toolbar, transport and tool rail
 ├── plugins.py        # panels other packages add, found by entry point
+├── assets/logo.png   # the window and taskbar icon, the same mark as kudio's
 ├── widgets/
 │   ├── views.py      # TimePlot base + waveform, spectrogram/mel/MFCC,
 │   │                 #   the rolling take and the f0 overlay
@@ -731,7 +743,7 @@ you read is what runs.
 pytest -q
 ```
 
-557 tests covering the session's undo/selection/clipboard/marker arithmetic,
+562 tests covering the session's undo/selection/clipboard/marker arithmetic,
 the exported edit script landing on the session's own samples when it is run
 in a separate interpreter, a manifest from a real synthesis run finding its
 files from wherever the window was started and counting its coverage, a
@@ -753,7 +765,7 @@ cleanly mid-job — those last two in an interpreter of their own, since what
 they guard against is a crash. Qt runs headless (`offscreen`), so the suite
 works in CI. The learned-denoising tests (marked `learned`) train a one-epoch
 model for real, run it on the panels' own worker threads, and skip cleanly
-when kudio-enhance or PyTorch is not installed or will not import — unless
+when kudioenhance or PyTorch is not installed or will not import — unless
 `KUDIOSTUDIO_REQUIRE_LEARNED=1` is set, which makes them fail instead, for a
 job that installs both precisely to run them. The open-ended recorder is
 driven through a fake device, since CI has no microphone.
@@ -770,9 +782,9 @@ The README's screenshots are generated, not hand-captured — rerun
 
 - **[kudio](https://pypi.org/project/kudio/)** — the audio toolkit underneath: I/O,
   features, effects, synthesis, enhancement, metrics.
-- **[kudio-enhance](https://github.com/recklight/KudioEnhance)** — train the
+- **[kudioenhance](https://pypi.org/project/kudioenhance/)** — train the
   denoising models this app loads.
 
 ## Licence
 
-MIT — see [LICENSE.txt](LICENSE.txt).
+MIT — see [LICENSE.txt](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt).

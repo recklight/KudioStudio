@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Line icons for the toolbar, the transport and the tool rail.
+"""Line icons for the toolbar, the transport and the tool rail, and the
+application's own icon.
 
-Drawn on a 24-unit grid with a 2-unit round stroke, the way most current line
-icon sets are, and kept here as SVG text rather than as files: there are few
-of them, and a colour is substituted at run time, so one drawing serves the
-normal, the selected and the disabled state.
+The line icons are drawn on a 24-unit grid with a 2-unit round stroke, the
+way most current line icon sets are, and kept here as SVG text rather than as
+files: there are few of them, and a colour is substituted at run time, so one
+drawing serves the normal, the selected and the disabled state. The
+application icon is a picture, not a line drawing, and ships as a file.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, Optional
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
@@ -120,6 +123,31 @@ def rail_icon(name: str) -> QIcon:
     return icon(name, TEXT_COLOR, checked=PRIMARY_TEXT, rest=HINT_COLOR)
 
 
+#: the application's own mark, shared with kudio's documentation: 256 px
+#: with a transparent ground outside the circle
+LOGO = Path(__file__).resolve().parent / "assets" / "logo.png"
+
+
+def app_icon() -> QIcon:
+    """The window and taskbar icon, empty if the file is missing.
+
+    Each size is scaled down from the one above it rather than straight from
+    256 px, which at 16 px would drop most of the K's outline between samples.
+    """
+    result = QIcon()
+    pixmap = QPixmap(str(LOGO))
+    if pixmap.isNull():
+        return result
+    result.addPixmap(pixmap)
+    for size in (128, 64, 48, 32, 24, 16):
+        while pixmap.width() >= 2 * size:
+            pixmap = pixmap.scaled(pixmap.width() // 2, pixmap.height() // 2,
+                                   Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        result.addPixmap(pixmap.scaled(size, size, Qt.KeepAspectRatio,
+                                       Qt.SmoothTransformation))
+    return result
+
+
 #: the icons drawn here, which a plugin may not redraw
 _BUILT_IN = frozenset(_SHAPES)
 
@@ -144,4 +172,4 @@ def register(name: str, body: str) -> None:
     NAMES = tuple(_SHAPES)
 
 
-__all__ = ["icon", "rail_icon", "svg", "register", "NAMES"]
+__all__ = ["icon", "rail_icon", "svg", "register", "app_icon", "LOGO", "NAMES"]

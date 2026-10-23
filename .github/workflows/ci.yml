@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, master]
+    tags: ["v*"]
   pull_request:
 
 env:
@@ -12,6 +13,14 @@ env:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # PowerShell would judge a multi-line step by its last command only
+        shell: bash
+    env:
+      # the Windows runner's console is cp1252; anything outside it in a
+      # message would raise UnicodeEncodeError instead of printing
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -28,16 +37,18 @@ jobs:
           - os: windows-latest
             python-version: "3.12"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - name: System libraries (Qt's EGL/xkb, PortAudio for PyAudio)
+      - name: System libraries (Qt's EGL/xkb, PortAudio for sounddevice)
+        # no portaudio19-dev: PyAudio is only installed by default on Windows,
+        # so the Linux jobs run the suite the way a plain Linux install has it
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
-            libfontconfig1 libdbus-1-3 libxcb-cursor0 libportaudio2 portaudio19-dev
+            libfontconfig1 libdbus-1-3 libxcb-cursor0 libportaudio2
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -51,28 +62,101 @@ jobs:
 
   learned-models:
     # The Enhance and Compare panels' learned-model path, against a real
-    # one-epoch kudio-enhance run. Neither package is on PyPI, so it comes
-    # from GitHub, on a CPU-only PyTorch.
+    # one-epoch kudioenhance run, from PyPI as a user would get it, on a
+    # CPU-only PyTorch.
     runs-on: ubuntu-latest
     env:
       # a learned test that skips here fails instead: a job whose every
       # learned test skipped would otherwise pass and prove nothing
       KUDIOSTUDIO_REQUIRE_LEARNED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
-            libfontconfig1 libdbus-1-3 libxcb-cursor0 libportaudio2 portaudio19-dev
-      - name: Install with kudio-enhance
+            libfontconfig1 libdbus-1-3 libxcb-cursor0 libportaudio2
+      - name: Install with kudioenhance
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install "kudio-enhance @ git+https://github.com/recklight/KudioEnhance"
           pip install -e ".[dev,enhance]"
       - name: Run every learned-model test (they must run, not skip)
         run: pytest -q -m learned -rs
+
+  publish:
+    # build sdist+wheel and upload to PyPI when a v* tag is pushed
+    needs: [test, learned-models]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write        # trusted publishing (no API token in secrets)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Tag matches kudiostudio/__init__.py
+        # A mislabeled tag -- v1.1 cut from a tree that still says 1.0 -- is
+        # caught here rather than on PyPI, which never lets a version number
+        # be used twice. The version is read out of the file: nothing is
+        # installed yet, so importing the package would fail for the wrong
+        # reason.
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          version=$(sed -n 's/^__version__ = "\([^"]*\)".*$/\1/p' kudiostudio/__init__.py)
+          if [ -z "$version" ]; then
+            echo "found no __version__ = \"...\" line in kudiostudio/__init__.py to check the tag against." >&2
+            exit 1
+          fi
+          if [ "$tag" != "$version" ]; then
+            echo "tag v$tag does not match kudiostudio/__init__.py, which says $version." >&2
+            echo "Move the tag onto a commit whose __init__.py says $tag, or bump it and tag again." >&2
+            exit 1
+          fi
+          echo "releasing $version"
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+      - name: Check the built metadata, and that the icon is in the wheel
+        run: |
+          twine check --strict dist/*
+          python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'kudiostudio/assets/logo.png' in names, names"
+      - name: System libraries for importing Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libfontconfig1 libdbus-1-3 libxcb-cursor0 libportaudio2
+      - name: Import every module out of the built wheel
+        # twine check imports nothing, so a module that fails on import goes
+        # straight to PyPI without this. The walk runs outside the checkout,
+        # so `import kudiostudio` can only find the wheel just installed.
+        run: |
+          pip install dist/*.whl
+          kudiostudio --help > /dev/null
+          mkdir -p "$RUNNER_TEMP/import-walk"
+          cd "$RUNNER_TEMP/import-walk"
+          python - <<'PY'
+          import importlib
+          import pkgutil
+
+          import kudiostudio
+
+          broken = []
+          for found in pkgutil.walk_packages(kudiostudio.__path__, "kudiostudio."):
+              try:
+                  importlib.import_module(found.name)
+              except Exception as exc:
+                  broken.append("{}: {}: {}".format(found.name, type(exc).__name__, exc))
+          if broken:
+              raise SystemExit("these modules do not import from the wheel:\n  "
+                               + "\n  ".join(broken))
+          print("every module under kudiostudio imports from the wheel")
+          PY
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

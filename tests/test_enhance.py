@@ -59,7 +59,7 @@ def test_call_hint_tracks_the_method(session):
 
     select(panel, LEARNED)
     panel.run_dir.edit.setText("runs/exp1")
-    assert "kudio_enhance.Enhancer.load('runs/exp1')" in panel.call.text()
+    assert "kudioenhance.Enhancer.load('runs/exp1')" in panel.call.text()
 
     select(panel, "omlsa")
     assert "kudio.spectral_enhance(y, sr, 'omlsa'" in panel.call.text()
@@ -68,23 +68,23 @@ def test_call_hint_tracks_the_method(session):
 
 def test_learned_without_a_run_directory_reports(session, monkeypatch):
     """Whatever is installed: the run directory is what this is about, and
-    without kudio-enhance the install hint used to come first."""
+    without kudioenhance the install hint used to come first."""
     import kudiostudio.panels.enhance as module
 
-    monkeypatch.setattr(module, "kudio_enhance_available", lambda: True)
+    monkeypatch.setattr(module, "kudioenhance_available", lambda: True)
     panel = EnhancePanel(session)
     select(panel, LEARNED)
     messages = []
     panel.status.connect(messages.append)
 
     panel._run()
-    assert messages == ["Select a kudio-enhance run directory first."]
+    assert messages == ["Select a kudioenhance run directory first."]
 
 
 def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch):
     import kudiostudio.panels.enhance as module
 
-    monkeypatch.setattr(module, "kudio_enhance_available", lambda: False)
+    monkeypatch.setattr(module, "kudioenhance_available", lambda: False)
     panel = EnhancePanel(session)
     select(panel, LEARNED)
     panel.run_dir.edit.setText("runs/exp1")
@@ -92,22 +92,20 @@ def test_learned_without_the_package_shows_the_install_hint(session, monkeypatch
     panel.status.connect(messages.append)
 
     panel._run()
-    assert messages and "pip install" in messages[0]
-    # kudio-enhance is not on PyPI, so the hint has to name the repository to
-    # clone rather than a distribution that cannot be resolved
-    assert "KudioEnhance" in messages[0]
-    assert "kudiostudio[enhance]" not in messages[0]
+    # the extra, which brings kudioenhance and PyTorch at versions that work
+    # with this release, rather than either package on its own
+    assert messages and 'pip install "kudiostudio[enhance]"' in messages[0]
 
 
-def test_kudio_enhance_without_pytorch_is_not_available(session, tmp_path,
+def test_kudioenhance_without_pytorch_is_not_available(session, tmp_path,
                                                         monkeypatch):
     """The package imports without the framework; the first Denoise would not."""
     import kudiostudio.panels.enhance as module
 
-    specs = {"kudio_enhance": object(), "torch": None}
+    specs = {"kudioenhance": object(), "torch": None}
     monkeypatch.setattr(module, "importlib",
                         SimpleNamespace(util=SimpleNamespace(find_spec=specs.get)))
-    assert module.kudio_enhance_available() is False
+    assert module.kudioenhance_available() is False
 
     panel = EnhancePanel(session)
     select(panel, LEARNED)
@@ -118,7 +116,7 @@ def test_kudio_enhance_without_pytorch_is_not_available(session, tmp_path,
     assert messages and "PyTorch" in messages[0]
 
     specs["torch"] = object()
-    assert module.kudio_enhance_available() is True
+    assert module.kudioenhance_available() is True
 
 
 # -------------------------------------------- statistical methods (kudio 3.4)
@@ -191,11 +189,11 @@ def test_the_separator_row_does_not_crash_the_panel(session):
 
 
 def test_availability_note_matches_the_environment(session):
-    from kudiostudio.panels.enhance import kudio_enhance_available
+    from kudiostudio.panels.enhance import kudioenhance_available
 
     panel = EnhancePanel(session)
     text = panel.availability.text()
-    if kudio_enhance_available():
+    if kudioenhance_available():
         assert "is installed" in text
     else:
         assert "pip install" in text
@@ -225,7 +223,7 @@ def run_and_wait(panel) -> None:
     panel.jobs.wait(60_000)
 
 
-# skipped without kudio-enhance and PyTorch, by the marker in conftest.py --
+# skipped without kudioenhance and PyTorch, by the marker in conftest.py --
 # not a module-level importorskip, which would skip the tests that must run
 # with or without them
 requires_enhance = pytest.mark.learned
@@ -272,10 +270,10 @@ def test_learned_denoising_resamples_across_rates(session, trained_run):
 
 @requires_enhance
 def test_the_learned_call_hint_runs_as_written(session, trained_run):
-    """kudio-enhance exports `Enhancer` from its package, so the hint is not a
-    description but a statement: with `kudio_enhance` imported it runs, and it
+    """kudioenhance exports `Enhancer` from its package, so the hint is not a
+    description but a statement: with `kudioenhance` imported it runs, and it
     gives what Denoise gives."""
-    import kudio_enhance
+    import kudioenhance
 
     run_dir, sr = trained_run
     panel = EnhancePanel(session)
@@ -283,13 +281,13 @@ def test_the_learned_call_hint_runs_as_written(session, trained_run):
     panel.run_dir.edit.setText(str(run_dir))
     y = np.asarray(session.y, dtype=np.float32)
 
-    out = eval(panel.call.text(), {"kudio_enhance": kudio_enhance, "y": y})
+    out = eval(panel.call.text(), {"kudioenhance": kudioenhance, "y": y})
     assert np.allclose(out, panel._model.enhance(y, sr, str(run_dir)),
                        rtol=0.0, atol=1e-6)
 
 
 @requires_enhance
-def test_a_run_from_kudio_enhance_0_1_is_reported_as_needing_retraining(
+def test_a_run_from_kudioenhance_0_1_is_reported_as_needing_retraining(
         session, trained_run, tmp_path):
     """0.1 saved Keras weights, which 0.2 cannot read. The panel passes on
     what to do about it, and commits nothing."""

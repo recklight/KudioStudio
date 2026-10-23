@@ -334,8 +334,8 @@ MESSAGES = {
         '瀏覽…',
     "Which axis to vary. Enhancement is two choices — a gain rule and a noise estimator — and the estimator is usually the wider of the two, so 'gain rules only' is the narrower experiment.":
         '要變動哪一個軸。增強包含兩個選擇 — 增益規則與雜訊估計器 — 而估計器的影響通常較大，所以「只比增益規則」是較窄的實驗。',
-    'optional: a kudio-enhance run directory':
-        '選用：kudio-enhance 的執行目錄',
+    'optional: a kudioenhance run directory':
+        '選用：kudioenhance 的執行目錄',
     "Rank a trained model in the same table as the statistical methods. 'Is the model actually better than log-MMSE' is not a question two separate printouts answer.":
         '把訓練好的模型與統計式方法排在同一張表裡。「模型真的比 log-MMSE 好嗎」不是兩份分開的輸出能回答的問題。',
     'PESQ / STOI (slow; STOI needs kudio[eval], PESQ needs kudio[pesq])':
@@ -384,8 +384,8 @@ MESSAGES = {
         '將所有結果儲存到',
     'Wrote {} file(s) to {}':
         '已將 {} 個檔案寫入 {}',
-    'Select a kudio-enhance run directory':
-        '選擇 kudio-enhance 執行目錄',
+    'Select a kudioenhance run directory':
+        '選擇 kudioenhance 執行目錄',
     'Every method sees identical audio and identical framing, so the differences are the methods. Click a row to hear it — a low noise floor is easiest to reach by deleting the speech too.\n\nThese are for noisy audio. Above roughly 10 dB SNR they all measure worse than doing nothing, because the distortion they add costs more than the noise they remove. They also need to hear the noise on its own: a clip with no pauses gives the noise estimator almost nothing to work from.':
         '每種方法看到的音訊與分幀完全相同，所以差異都來自方法本身。點一列即可試聽 — 要達到很低的底噪，最簡單的方式就是連語音一起刪掉。\n\n這些方法適用於含噪音訊。大約超過 10 dB SNR 時，它們的量測結果都比不處理還差，因為帶來的失真代價高於去除的雜訊。它們也需要聽到單獨的雜訊：沒有停頓的音訊幾乎無法讓雜訊估計器發揮。',
     'Comparing…':
@@ -518,18 +518,18 @@ MESSAGES = {
         '減去平均值（逐聲道）。在長時間錄音中漂移的偏移屬於極低頻 — 那種情況請用 highpass。',
     "Measured against this recording's own noise floor, so it survives a room trim_silence cannot handle.":
         '以這段錄音自己的底噪為基準量測，所以 trim_silence 處理不了的房間它也能應付。',
-    'Learned models need the kudio-enhance package and PyTorch. kudio-enhance is not on PyPI: clone github.com/recklight/KudioEnhance and pip install -e . in it, which installs PyTorch too':
-        '學習式模型需要 kudio-enhance 套件與 PyTorch。kudio-enhance 不在 PyPI 上：請 clone github.com/recklight/KudioEnhance 並在其中執行 pip install -e .，這也會安裝 PyTorch',
+    'Learned models need the kudioenhance package and PyTorch: pip install "kudiostudio[enhance]" installs both':
+        '學習式模型需要 kudioenhance 套件與 PyTorch：執行 pip install "kudiostudio[enhance]" 就會兩個一起安裝',
     'Enhance':
         '增強',
     'trad_enhance (fixed spectral subtraction)':
         'trad_enhance（固定頻譜減法）',
-    'learned model (kudio-enhance)':
-        '學習式模型（kudio-enhance）',
+    'learned model (kudioenhance)':
+        '學習式模型（kudioenhance）',
     'Analysis frame. Longer frames resolve the noise better and smear transients more.':
         '分析幀。較長的幀能更準確地解析雜訊，但會讓瞬態更模糊。',
-    'run directory from kudio-enhance, e.g. runs/exp1':
-        'kudio-enhance 的執行目錄，例如 runs/exp1',
+    'run directory from kudioenhance, e.g. runs/exp1':
+        'kudioenhance 的執行目錄，例如 runs/exp1',
     "resample to the model's rate if they differ":
         '若取樣率不同，重新取樣到模型的取樣率',
     'The clip is resampled to the rate the model was trained at, then the result is resampled back, so the session keeps its own rate.':
@@ -560,8 +560,8 @@ MESSAGES = {
         '此模型以 {} Hz 訓練，但音訊為 {} Hz — 請啟用重新取樣，或在 Batch 面板轉換',
     'Denoising always processes the whole clip — noise estimation needs the full signal. Preview does the same, then loops whatever is selected, and commits nothing.':
         '降噪一律處理整段音訊 — 雜訊估計需要完整的訊號。預覽也一樣，之後循環播放選取的部分，且不提交任何變更。',
-    "kudio-enhance is installed — point 'run_dir' at a directory it produced (it holds the model, its normalisation statistics and the STFT geometry they were trained with).":
-        '已安裝 kudio-enhance — 把「run_dir」指向它產生的目錄（裡面有模型、正規化統計量，以及訓練時使用的 STFT 參數）。',
+    "kudioenhance is installed — point 'run_dir' at a directory it produced (it holds the model, its normalisation statistics and the STFT geometry they were trained with).":
+        '已安裝 kudioenhance — 把「run_dir」指向它產生的目錄（裡面有模型、正規化統計量，以及訓練時使用的 STFT 參數）。',
     'Denoising…':
         '降噪中…',
     'learned model ({})':
@@ -570,8 +570,8 @@ MESSAGES = {
         '已有降噪工作在執行中。',
     'noise estimate':
         '雜訊估計',
-    'Select a kudio-enhance run directory first.':
-        '請先選擇 kudio-enhance 執行目錄。',
+    'Select a kudioenhance run directory first.':
+        '請先選擇 kudioenhance 執行目錄。',
     'Manifest (*.json);;All files (*)':
         'Manifest (*.json);;所有檔案 (*)',
     'Manifest':

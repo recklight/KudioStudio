@@ -17,29 +17,29 @@ os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 #: Set to 1 where the learned-model tests are the point of the run -- a CI job
-#: that installs kudio-enhance and PyTorch for them. There a missing package
+#: that installs kudioenhance and PyTorch for them. There a missing package
 #: or a PyTorch that will not import fails those tests instead of skipping
 #: them, since a job whose every learned test skipped would otherwise pass.
 REQUIRE_LEARNED = os.environ.get("KUDIOSTUDIO_REQUIRE_LEARNED") == "1"
 
 
 def learned_available() -> bool:
-    """kudio-enhance and PyTorch are both there -- looked up, not imported."""
+    """kudioenhance and PyTorch are both there -- looked up, not imported."""
     import importlib.util
     return all(importlib.util.find_spec(name) is not None
-               for name in ("kudio_enhance", "torch"))
+               for name in ("kudioenhance", "torch"))
 
 
 def pytest_configure(config):
     config.addinivalue_line(
-        "markers", "learned: needs kudio-enhance and PyTorch; skipped without "
+        "markers", "learned: needs kudioenhance and PyTorch; skipped without "
                    "them unless KUDIOSTUDIO_REQUIRE_LEARNED=1")
 
 
 def pytest_collection_modifyitems(config, items):
     if REQUIRE_LEARNED or learned_available():
         return
-    skip = pytest.mark.skip(reason="learned denoising needs kudio-enhance "
+    skip = pytest.mark.skip(reason="learned denoising needs kudioenhance "
                                    "and PyTorch")
     for item in items:
         if "learned" in item.keywords:
@@ -112,13 +112,13 @@ def real_session(qapp, recording):
 
 @pytest.fixture(scope="session")
 def trained_run(tmp_path_factory):
-    """A one-epoch kudio-enhance run — enough to exercise the real load path.
+    """A one-epoch kudioenhance run — enough to exercise the real load path.
 
     Shared by every module that needs a model, and trained once: it is the
     slowest thing the suite does. Only requested by tests marked ``learned``,
-    which skip when kudio-enhance or PyTorch is not installed, and it skips as
+    which skip when kudioenhance or PyTorch is not installed, and it skips as
     well when PyTorch is installed but will not import — a CUDA library gone
-    missing, say. kudio-enhance imports without the framework, so it is the
+    missing, say. kudioenhance imports without the framework, so it is the
     training below that would find out, as an error rather than a skip. With
     KUDIOSTUDIO_REQUIRE_LEARNED=1 it fails instead.
     """
@@ -131,7 +131,7 @@ def trained_run(tmp_path_factory):
         pytest.skip(reason)
 
     import kudio
-    from kudio_enhance import Config, pipeline
+    from kudioenhance import Config, pipeline
 
     root = tmp_path_factory.mktemp("enhance")
     clean_dir, noise_dir = root / "clean", root / "noise"

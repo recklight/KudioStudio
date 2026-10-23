@@ -12,7 +12,7 @@ two — the same gain rule can vary by several dB of SI-SDR depending on how the
 noise was measured. Choosing it separately is the point.
 
 `wavelet_low_pass_filter` and `trad_enhance` are kept as they were. Learned
-models come from the optional `kudio-enhance` package and are loaded from a run
+models come from the optional `kudioenhance` package and are loaded from a run
 directory it produced; they are PyTorch networks, and PyTorch is imported only
 when that method is actually used, so the GUI stays light for everyone else.
 """
@@ -72,22 +72,20 @@ def build_param_widget(param) -> QDoubleSpinBox:
     box.setToolTip(param.help)
     return box
 
-INSTALL_HINT = ('Learned models need the kudio-enhance package and PyTorch. '
-                'kudio-enhance is not on PyPI: clone '
-                'github.com/recklight/KudioEnhance and pip install -e . in it, '
-                'which installs PyTorch too')
+INSTALL_HINT = ('Learned models need the kudioenhance package and PyTorch: '
+                'pip install "kudiostudio[enhance]" installs both')
 
 
-def kudio_enhance_available() -> bool:
+def kudioenhance_available() -> bool:
     """Can learned models run here? Checked without importing PyTorch.
 
-    kudio-enhance imports torch only when a model is built or loaded, so the
+    kudioenhance imports torch only when a model is built or loaded, so the
     package importing says nothing about the framework -- an install made
     with ``--no-deps`` has the one without the other, and would fail at the
     first Denoise. Both are looked up, neither is imported.
     """
     return all(importlib.util.find_spec(name) is not None
-               for name in ("kudio_enhance", "torch"))
+               for name in ("kudioenhance", "torch"))
 
 
 def _model_paths(run_dir) -> Tuple[Path, ...]:
@@ -102,7 +100,7 @@ def model_fingerprint(run_dir) -> Optional[tuple]:
     """Name, size, time and inode of each model file; ``None`` if one is gone.
 
     Cheap -- a stat per file -- and it moves whenever the run is trained
-    again, since kudio-enhance writes a checkpoint by replacing it.
+    again, since kudioenhance writes a checkpoint by replacing it.
     """
     found = []
     for path in _model_paths(run_dir):
@@ -162,7 +160,7 @@ def learned_code(run_dir: str, state: Optional[ModelState] = None) -> str:
     without a word.
     """
     where = str(Path(run_dir).absolute())
-    lines = ["from kudio_enhance.inference import Enhancer"]
+    lines = ["from kudioenhance.inference import Enhancer"]
     if state is not None:
         lines = [
             "import hashlib",
@@ -192,7 +190,7 @@ def learned_code(run_dir: str, state: Optional[ModelState] = None) -> str:
 
 
 class LearnedModel:
-    """A kudio-enhance run's model, loaded once and kept for the next call.
+    """A kudioenhance run's model, loaded once and kept for the next call.
 
     Loading means importing PyTorch and reading a checkpoint, seconds every
     time, so both panels that run learned models keep the last one here and
@@ -227,7 +225,7 @@ class LearnedModel:
         now = model_fingerprint(run_dir)
         if enhancer is not None and loaded_from == run_dir and kept == now:
             return enhancer
-        from kudio_enhance.inference import Enhancer
+        from kudioenhance.inference import Enhancer
         enhancer = Enhancer.load(run_dir)
         self.enhancer, self.run_dir, self.fingerprint = enhancer, run_dir, now
         return enhancer
@@ -268,7 +266,7 @@ class EnhancePanel(Panel):
     LEGACY_METHODS = (
         ("trad_enhance (fixed spectral subtraction)", TRAD),
         ("wavelet_low_pass_filter", WAVELET),
-        ("learned model (kudio-enhance)", LEARNED),
+        ("learned model (kudioenhance)", LEARNED),
     )
 
     def __init__(self, session, parent: Optional[QWidget] = None):
@@ -326,8 +324,8 @@ class EnhancePanel(Panel):
         self.thres.setValue(0.8)
         self.wavelet = QComboBox()
         self.wavelet.addItems(WAVELETS)
-        self.run_dir = DirPicker("run directory from kudio-enhance, e.g. runs/exp1",
-                                 caption="Select a kudio-enhance run directory")
+        self.run_dir = DirPicker("run directory from kudioenhance, e.g. runs/exp1",
+                                 caption="Select a kudioenhance run directory")
         self.auto_resample = QCheckBox("resample to the model's rate if they differ")
         self.auto_resample.setChecked(True)
         self.auto_resample.setToolTip(
@@ -444,9 +442,9 @@ class EnhancePanel(Panel):
                 for name, box in self._params[self._method()].items()}
 
     def _refresh_availability(self) -> None:
-        if kudio_enhance_available():
+        if kudioenhance_available():
             self.availability.setText(
-                "kudio-enhance is installed — point 'run_dir' at a directory "
+                "kudioenhance is installed — point 'run_dir' at a directory "
                 "it produced (it holds the model, its normalisation statistics "
                 "and the STFT geometry they were trained with).")
         else:
@@ -543,7 +541,7 @@ class EnhancePanel(Panel):
                 f"wavelet={self.wavelet.currentText()!r})")
         elif method == LEARNED:
             self.call.setText(
-                f"kudio_enhance.Enhancer.load({self.run_dir.path()!r}).enhance(y)")
+                f"kudioenhance.Enhancer.load({self.run_dir.path()!r}).enhance(y)")
         else:
             self.call.setText("kudio.trad_enhance(y, sr)")
 
@@ -573,11 +571,11 @@ class EnhancePanel(Panel):
                      "wavelet": self.wavelet.currentText()},
                     "wavelet_low_pass_filter")
         if method == LEARNED:
-            if not kudio_enhance_available():
+            if not kudioenhance_available():
                 raise RuntimeError(INSTALL_HINT)
             run_dir = self.run_dir.path()
             if not run_dir or not Path(run_dir).is_dir():
-                raise RuntimeError("Select a kudio-enhance run directory first.")
+                raise RuntimeError("Select a kudioenhance run directory first.")
             return (self._model.enhance,
                     (y, sr, run_dir, self.auto_resample.isChecked()), {},
                     f"learned model ({Path(run_dir).name})")
