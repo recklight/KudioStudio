@@ -743,7 +743,7 @@ you read is what runs.
 pytest -q
 ```
 
-562 tests covering the session's undo/selection/clipboard/marker arithmetic,
+563 tests covering the session's undo/selection/clipboard/marker arithmetic,
 the exported edit script landing on the session's own samples when it is run
 in a separate interpreter, a manifest from a real synthesis run finding its
 files from wherever the window was started and counting its coverage, a

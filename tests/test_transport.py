@@ -86,3 +86,38 @@ def test_a_backend_error_is_reported_and_stops_the_clock(qapp, monkeypatch):
     assert failures == ["no output device"]
     assert player.playing is False
     player.shutdown()
+
+
+def test_no_output_device_and_no_pyaudio_is_reported_not_raised(qapp, monkeypatch):
+    """A Linux box with sounddevice but no device to play on, and no PyAudio:
+    kudio.play_audio falls back from sounddevice to PyAudio and raises, where
+    a missing device on its own comes back as a message."""
+    import kudio
+    import kudio.core.stream as stream
+    from kudio.exceptions import DependencyError
+    from kudiostudio.widgets import Player, transport
+
+    class NoDevice:
+        @staticmethod
+        def play(*args, **kwargs):
+            raise RuntimeError("Error querying device -1")
+
+        @staticmethod
+        def stop():
+            pass
+
+    def no_pyaudio():
+        raise DependencyError("PyAudio", extra="audio")
+
+    monkeypatch.setattr(transport, "_sounddevice", lambda: NoDevice)
+    monkeypatch.setitem(__import__("sys").modules, "sounddevice", NoDevice)
+    monkeypatch.setattr(stream, "_pyaudio", no_pyaudio)
+    player = Player()
+    failures = []
+    player.failed.connect(failures.append)
+
+    player.play(np.zeros(16000, dtype=np.float32), 16000)
+    assert len(failures) == 1 and "PyAudio" in failures[0]
+    assert player.playing is False
+    assert kudio.play_audio is stream.play_audio      # the real fallback ran
+    player.shutdown()

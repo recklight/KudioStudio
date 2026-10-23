@@ -108,8 +108,15 @@ class Player(QObject):
         self.position_changed.emit(self._start)
 
         if _sounddevice() is not None:
-            # non-blocking backend: call straight through, keep stop() usable
-            err = kudio.play_audio(out, rate=sr)
+            # non-blocking backend: call straight through, keep stop() usable.
+            # When sounddevice has no device to play on, kudio falls back to
+            # PyAudio, and where PyAudio is not installed -- Linux and macOS
+            # without the [audio] extra -- that raises instead of returning a
+            # message
+            try:
+                err = kudio.play_audio(out, rate=sr)
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                err = f"{type(e).__name__}: {e}"
             if err:
                 self._fail(err)
             return
