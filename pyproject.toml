@@ -56,7 +56,10 @@ dnsmos = ["kudio[dnsmos]>=3.7.1"]
 # learned models in the Enhance and Compare panels; pulls in PyTorch, hence
 # optional
 enhance = ["kudioenhance>=1.0"]
-all = ["kudiostudio[audio,eval,dnsmos,enhance]"]
+# the browser-built window, python -m kudiostudio.web; on Windows it draws
+# with the WebView2 runtime that ships with the system
+web = ["pywebview>=5"]
+all = ["kudiostudio[audio,eval,dnsmos,enhance,web]"]
 dev = ["kudiostudio[eval]", "pytest>=7.0", "pytest-qt>=4.2"]
 
 [project.scripts]
@@ -73,9 +76,10 @@ version = { attr = "kudiostudio.__version__" }
 [tool.setuptools.packages.find]
 include = ["kudiostudio*"]
 
-# the window icon, read at run time
+# the window icons, read at run time, and the browser window's page
 [tool.setuptools.package-data]
-kudiostudio = ["assets/*.png"]
+kudiostudio = ["assets/*.png", "assets/*.ico", "web/static/*.html", "web/static/css/*.css",
+               "web/static/js/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -48,7 +48,7 @@ def test_windows_files_the_process_under_kudiostudio_not_python():
     """In a process of its own: the ID, once set, is the process's for good."""
     script = (
         "import ctypes, sys\n"
-        "from kudiostudio.__main__ import APP_ID, set_windows_app_id\n"
+        "from kudiostudio.desktop import APP_ID, set_windows_app_id\n"
         "assert set_windows_app_id()\n"
         "found = ctypes.c_wchar_p()\n"
         "shell32 = ctypes.windll.shell32\n"
@@ -59,12 +59,12 @@ def test_windows_files_the_process_under_kudiostudio_not_python():
     done = subprocess.run([sys.executable, "-c", script], capture_output=True,
                           text=True, timeout=60, cwd=root)
     assert done.returncode == 0, done.stderr[-2000:]
-    from kudiostudio.__main__ import APP_ID
+    from kudiostudio.desktop import APP_ID
     assert done.stdout.strip() == APP_ID == "Kudio.KudioStudio"
 
 
 def test_elsewhere_the_app_id_is_a_no_op(monkeypatch):
-    from kudiostudio import __main__ as entry
+    from kudiostudio import desktop as entry
     monkeypatch.setattr(entry.sys, "platform", "linux")
     assert entry.set_windows_app_id() is False
 

@@ -9,48 +9,18 @@ be answered. They are answered here, continuously, for whatever is loaded.
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple, Optional
+from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 import kudio
+from kudiostudio.measure import TRUE_PEAK_WARN_DBTP, Measurement, measure
 from kudiostudio.theme import CALL_COLOR, HINT_COLOR, MONO_CSS, OK_COLOR, WARN_COLOR
 from kudiostudio.workers import WorkerHost
 
 log = logging.getLogger(__name__)
-
-#: Above this, a converter or a lossy encoder is likely to clip on the
-#: waveform between the samples even though no sample is at full scale. -1 dBTP
-#: is the usual delivery ceiling; the warning fires at the ceiling itself.
-TRUE_PEAK_WARN_DBTP = -1.0
-
-
-class Measurement(NamedTuple):
-    """One pass over the audio, answering everything the readout shows.
-
-    All four come from the same worker job because they walk the same signal:
-    running them separately would filter it four times and, worse, let the
-    panel show numbers measured from four different moments of an edit.
-    """
-
-    report: object                       # kudio.AudioReport
-    true_peak_db: float
-    curve: Optional[object]              # kudio.LoudnessCurve, or None
-    range_lu: float
-
-
-def measure(y, sr) -> Measurement:
-    """Everything the Levels box reports, off the GUI thread."""
-    report = kudio.audio_report(y, sr)
-    peak = kudio.true_peak(y, sr)
-    try:
-        curve = kudio.loudness_over_time(y, sr)
-    except Exception as e:               # clip shorter than the 3 s window
-        log.debug("no loudness curve: %s", e)
-        return Measurement(report, peak, None, float("nan"))
-    return Measurement(report, peak, curve, curve.range_lu)
 
 
 class LevelReadout(QGroupBox):

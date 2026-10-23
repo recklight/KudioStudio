@@ -30,6 +30,7 @@ import importlib
 import logging
 import re
 import string
+import threading
 from typing import Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ _templates: List[Tuple[re.Pattern, str]] = []
 _cache: Dict[str, str] = {}
 #: language -> tables plugins have added, kept so `load` can apply them again
 _extra: Dict[str, List[Dict[str, str]]] = {}
+_switch_lock = threading.Lock()
 _language = DEFAULT
 _installed = False
 
@@ -187,6 +189,60 @@ def tr(text):
         _cache.clear()
     _cache[text] = out
     return out
+
+
+# ------------------------------------------------- one language, by name
+
+
+def table(language: str) -> Dict[str, str]:
+    """Every translation into *language*, keyed by the English: the table
+    that ships with KudioStudio and what plugins added, the shipped one
+    winning where both have a string. Empty for English.
+
+    For the browser window, which looks strings up itself; reading it changes
+    nothing about the language `tr` translates into.
+    """
+    code = normalize(language)
+    if code == DEFAULT:
+        return {}
+    merged: Dict[str, str] = {}
+    for extra in _extra.get(code, ()):
+        merged.update(extra)
+    module = importlib.import_module(f"kudiostudio.locales.{code}")
+    merged.update(module.MESSAGES)
+    return merged
+
+
+def translate(text: str, language: str) -> str:
+    """*text* in *language*, by the same rules as `tr`, whichever language
+    `tr` is set to."""
+    code = normalize(language)
+    if code == DEFAULT or not isinstance(text, str) or not text:
+        return text
+    if code == _language:
+        return tr(text)
+    # the tables are module state: swap them in and back under a lock. The
+    # browser window keeps `tr` on its own language, so it never gets here
+    with _switch_lock:
+        saved = (_language, dict(_messages), list(_templated),
+                 list(_templates), dict(_cache))
+        try:
+            load(code)
+            return tr(text)
+        finally:
+            _restore(saved)
+
+
+def _restore(saved) -> None:
+    global _language
+    language, messages, templated, templates, cache = saved
+    _language = language
+    _messages.clear()
+    _messages.update(messages)
+    _templated[:] = templated
+    _templates[:] = templates
+    _cache.clear()
+    _cache.update(cache)
 
 
 # --------------------------------------------------------------- Qt glue

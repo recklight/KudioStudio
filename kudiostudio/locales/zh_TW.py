@@ -1176,4 +1176,47 @@ MESSAGES = {
         '起點',
     'end':
         '終點',
+    # the browser window, python -m kudiostudio.web
+    'Inspect':
+        '檢視',
+    'Waveform':
+        '波形',
+    'Select all':
+        '全選',
+    'Cancel':
+        '取消',
+    'Ready.':
+        '就緒。',
+    'n/a':
+        '不適用',
+    'silence':
+        '靜音',
+    'Open a recording to begin':
+        '先開啟一段錄音',
+    'Drop audio files here, or open them from disk.':
+        '把音訊檔拖進來，或從磁碟開啟。',
+    'Open audio…':
+        '開啟音訊…',
+    'Opened files appear here.':
+        '開過的檔案會列在這裡。',
+    'No markers. A sidecar file next to the audio is read when it opens.':
+        '沒有標記。開檔時會一併讀取音訊旁的標記檔。',
+    'Open audio files (Ctrl+O)':
+        '開啟音訊檔（Ctrl+O）',
+    'Undo (Ctrl+Z)':
+        '復原（Ctrl+Z）',
+    'Zoom to selection (Ctrl+E)':
+        '縮放至選取範圍（Ctrl+E）',
+    'Zoom out to whole clip (Ctrl+F)':
+        '縮小至整段音訊（Ctrl+F）',
+    'Hold the edit against the audio you started with (Ctrl+B)':
+        '把編輯結果和原本的音訊對照（Ctrl+B）',
+    'Remove from the list':
+        '從清單移除',
+    'Path of an audio file on this computer':
+        '這台電腦上音訊檔的路徑',
+    'Dropping files needs the KudioStudio window; use Open here.':
+        '拖放檔案要在 KudioStudio 視窗裡才行，這裡請用「開啟」。',
+    'This tool has not been moved to the new window yet. It still works in the Qt window: python -m kudiostudio':
+        '這個工具還沒搬進新視窗，在 Qt 視窗裡照常能用：python -m kudiostudio',
 }

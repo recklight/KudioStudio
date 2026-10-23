@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="%%LANG%%">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="kudio-token" content="%%TOKEN%%">
+  <title>KudioStudio</title>
+  <link rel="icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+<div class="app" id="app" data-state="empty">
+
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="/assets/logo.png" alt="">
+      <span class="brand-name">Kudio<b>Studio</b></span>
+    </div>
+    <div class="file-chip" id="file-chip" hidden>
+      <span class="file-name" id="file-name"></span>
+      <span class="file-meta mono" id="file-meta"></span>
+    </div>
+    <nav class="top-actions">
+      <button class="btn ghost" id="open" data-t-title="Open audio files (Ctrl+O)">
+        <i data-icon="open"></i><span data-t>Open</span>
+      </button>
+      <span class="divider"></span>
+      <button class="btn ghost icon-only" id="undo" data-t-title="Undo (Ctrl+Z)" disabled>
+        <i data-icon="undo"></i>
+      </button>
+      <button class="btn ghost icon-only" id="revert" data-t-title="Revert to original" disabled>
+        <i data-icon="revert"></i>
+      </button>
+      <span class="divider"></span>
+      <button class="btn ghost icon-only" id="zoom-selection" data-t-title="Zoom to selection (Ctrl+E)" disabled>
+        <i data-icon="zoom-in"></i>
+      </button>
+      <button class="btn ghost icon-only" id="zoom-full" data-t-title="Zoom out to whole clip (Ctrl+F)" disabled>
+        <i data-icon="zoom-full"></i>
+      </button>
+    </nav>
+    <div class="top-right">
+      <label class="select-wrap compact">
+        <select id="language" data-t-title="Language / 語言"></select>
+      </label>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <section class="side-section">
+      <div class="section-head">
+        <h2 data-t>Files</h2>
+        <button class="btn ghost icon-only small" id="add-files" data-t-title="Add files…">
+          <i data-icon="open"></i>
+        </button>
+      </div>
+      <ul class="file-list" id="file-list"></ul>
+      <p class="hint" id="files-empty" data-t>Opened files appear here.</p>
+    </section>
+    <section class="side-section grow">
+      <div class="section-head">
+        <h2 data-t>Markers</h2>
+        <span class="count mono" id="marker-count"></span>
+      </div>
+      <ul class="marker-list" id="marker-list"></ul>
+      <p class="hint" id="markers-empty" data-t>No markers. A sidecar file next to the audio is read when it opens.</p>
+    </section>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="overview card" id="overview-card">
+      <canvas id="overview"></canvas>
+    </div>
+    <section class="plot card" id="wave-card">
+      <header class="plot-head">
+        <span class="plot-title" data-t>Waveform</span>
+        <span class="readout mono" id="wave-readout"></span>
+      </header>
+      <div class="plot-body"><canvas id="wave"></canvas></div>
+    </section>
+    <section class="plot card grow2" id="spec-card">
+      <header class="plot-head">
+        <div class="segmented" id="view-mode" role="tablist">
+          <button data-mode="stft" data-t>STFT</button>
+          <button data-mode="mel" data-t>Mel</button>
+          <button data-mode="mfcc" data-t>MFCC</button>
+        </div>
+        <code class="call mono" id="call-hint"></code>
+        <span class="readout mono" id="spec-readout"></span>
+      </header>
+      <div class="plot-body"><canvas id="spec"></canvas></div>
+    </section>
+
+    <div class="empty" id="empty">
+      <div class="drop-zone" id="drop-zone">
+        <img class="empty-mark" src="/assets/logo.png" alt="">
+        <h1 data-t>Open a recording to begin</h1>
+        <p data-t>Drop audio files here, or open them from disk.</p>
+        <button class="btn primary large" id="empty-open">
+          <i data-icon="open"></i><span data-t>Open audio…</span>
+        </button>
+        <p class="hint mono">WAV · FLAC · OGG · MP3</p>
+      </div>
+    </div>
+  </main>
+
+  <aside class="tools">
+    <nav class="rail" id="rail"></nav>
+    <div class="panel" id="panel">
+      <section class="panel-section" data-panel="inspect">
+        <h3 data-t>Analysis</h3>
+        <div class="field-grid">
+          <label data-t>n_fft</label>
+          <input class="num mono" type="number" id="n_fft" min="64" max="8192" step="64">
+          <label data-t>hop_length</label>
+          <input class="num mono" type="number" id="hop_length" min="16" max="4096" step="16">
+          <label data-t>n_mels</label>
+          <input class="num mono" type="number" id="n_mels" min="8" max="256">
+          <label data-t>n_mfcc</label>
+          <input class="num mono" type="number" id="n_mfcc" min="4" max="128">
+        </div>
+      </section>
+      <section class="panel-section" data-panel="inspect">
+        <h3 data-t>Selection</h3>
+        <div class="field-grid">
+          <label data-t>start</label>
+          <input class="num mono" type="number" id="sel-start" min="0" step="0.001">
+          <label data-t>end</label>
+          <input class="num mono" type="number" id="sel-end" min="0" step="0.001">
+        </div>
+        <p class="readout-line mono" id="sel-length"></p>
+        <div class="button-row">
+          <button class="btn subtle" id="select-all" data-t>Select all</button>
+          <button class="btn subtle" id="clear-selection" data-t>Clear</button>
+        </div>
+      </section>
+      <section class="panel-section" data-panel="inspect">
+        <h3 data-t>Levels</h3>
+        <dl class="levels" id="levels">
+          <dt data-t>peak</dt><dd class="mono" id="lv-peak">—</dd>
+          <dt data-t>true peak</dt><dd class="mono" id="lv-true-peak">—</dd>
+          <dt data-t>loudness</dt><dd class="mono" id="lv-loudness">—</dd>
+          <dt data-t>range</dt><dd class="mono" id="lv-range">—</dd>
+          <dt data-t>bandwidth</dt><dd class="mono" id="lv-bandwidth">—</dd>
+        </dl>
+        <ul class="problems" id="lv-problems"></ul>
+      </section>
+      <section class="panel-section placeholder" data-panel="later" hidden>
+        <h3 id="later-title"></h3>
+        <p class="hint" data-t>This tool has not been moved to the new window yet. It still works in the Qt window: python -m kudiostudio</p>
+      </section>
+    </div>
+  </aside>
+
+  <footer class="transport">
+    <div class="transport-left">
+      <button class="play" id="play" data-t-title="Play from the cursor, or the selection (Space)" disabled>
+        <i data-icon="play" class="when-stopped"></i>
+        <i data-icon="stop" class="when-playing"></i>
+      </button>
+      <div class="clock">
+        <span class="time mono" id="time">0:00.000</span>
+        <span class="total mono" id="total">/ 0:00.000</span>
+      </div>
+    </div>
+    <div class="transport-mid">
+      <label class="toggle"><input type="checkbox" id="selection-only" checked><span class="switch"></span><span data-t>Selection only</span></label>
+      <label class="toggle"><input type="checkbox" id="loop"><span class="switch"></span><span data-t>Loop</span></label>
+      <button class="btn subtle ab" id="compare" data-t-title="Hold the edit against the audio you started with (Ctrl+B)" disabled>A / B</button>
+    </div>
+    <div class="transport-right">
+      <label class="gain">
+        <span data-t>Gain</span>
+        <input type="range" id="gain" min="-24" max="12" step="1" value="0">
+        <span class="mono gain-value" id="gain-value">0 dB</span>
+      </label>
+    </div>
+  </footer>
+
+  <div class="statusbar">
+    <span class="status-dot" id="status-dot"></span>
+    <span class="status-text" id="status"></span>
+    <span class="status-right mono" id="status-right"></span>
+  </div>
+</div>
+</body>
+</html>

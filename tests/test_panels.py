@@ -82,6 +82,25 @@ def test_analysis_view_renders_every_mode(qapp, session):
         assert y_max > 0
 
 
+def test_mfcc_of_a_clip_shorter_than_its_coefficients_stays_upright(qapp):
+    """kudio gives (1, frames, n_mfcc). Guessing the layout from which side
+    is longer turned a clip of fewer frames than coefficients on its side."""
+    import kudio
+    from kudiostudio.widgets import AnalysisView
+
+    sr = 8000
+    y = (0.3 * np.sin(2 * np.pi * 300 * np.arange(sr) / sr)).astype(np.float32)
+    view = AnalysisView()
+    view.set_audio(y, sr)
+    view.mode.setCurrentIndex(AnalysisView.MODE_MFCC)
+    view.n_mfcc.setValue(20)
+    data, y_max, _, _ = view._analyse()
+    frames = np.shape(kudio.mfcc(y, sr, n_mfcc=20))[1]
+    assert frames < 20                      # the case that went wrong
+    assert data.shape == (frames, 20)
+    assert y_max == 20
+
+
 def test_analysis_view_greys_out_the_parameters_a_mode_ignores(qapp, session):
     from kudiostudio.widgets import AnalysisView
 

@@ -764,11 +764,12 @@ class AnalysisView(QWidget):
                                         n_fft=self.n_fft.value(),
                                         hop_length=self.hop.value())
             return feat, float(self.n_mels.value()), "Mel band", None
-        feat = kudio.mfcc(self._y, self._sr, n_mfcc=self.n_mfcc.value())
-        feat = np.squeeze(feat)               # (frames, n_mfcc)
-        if feat.ndim == 2 and feat.shape[0] < feat.shape[1]:
-            feat = feat.T                     # tolerate the transposed layout
-        return feat, float(feat.shape[1]), "MFCC coefficient", None
+        n_mfcc = self.n_mfcc.value()
+        # (1, frames, n_mfcc), as kudio documents it. Not told apart by which
+        # side is longer: a clip of fewer frames than coefficients would be
+        # turned on its side
+        feat = np.reshape(kudio.mfcc(self._y, self._sr, n_mfcc=n_mfcc), (-1, n_mfcc))
+        return feat, float(n_mfcc), "MFCC coefficient", None
 
     def _update_hint(self) -> None:
         mode = self.mode.currentIndex()

@@ -61,9 +61,13 @@ def test_the_application_icon_ships_and_comes_in_every_taskbar_size(qapp):
     assert not icon.pixmap(16, 16).isNull()
 
     # and it goes into the wheel along with the code
-    pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
-        encoding="utf-8")
-    assert re.search(r'kudiostudio = \["assets/\*\.png"\]', pyproject)
+    try:
+        import tomllib
+    except ImportError:            # before 3.11; pytest brings tomli there
+        import tomli as tomllib
+    pyproject = tomllib.loads((Path(__file__).resolve().parent.parent
+                               / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "assets/*.png" in pyproject["tool"]["setuptools"]["package-data"]["kudiostudio"]
 
 
 def test_a_missing_icon_file_gives_an_empty_icon_not_an_error(monkeypatch, qapp,

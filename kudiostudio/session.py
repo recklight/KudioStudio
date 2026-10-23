@@ -21,10 +21,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
-from PySide6.QtCore import QObject, Signal
 
 import kudio
 from kudiostudio import __version__
+from kudiostudio.events import Signal
 
 log = logging.getLogger(__name__)
 
@@ -198,8 +198,12 @@ _DIGEST_FUNCTION = [
 ]
 
 
-class AudioSession(QObject):
-    """Current audio + edit history, shared by the whole application."""
+class AudioSession:
+    """Current audio + edit history, shared by the whole application.
+
+    Its signals are `kudiostudio.events.Signal`, not Qt's, so the same session
+    serves the Qt window and the browser one.
+    """
 
     #: waveform or sample rate replaced (panels should repaint)
     changed = Signal()
@@ -214,8 +218,9 @@ class AudioSession(QObject):
     #: human-readable note for the status bar
     message = Signal(str)
 
-    def __init__(self, parent: Optional[QObject] = None):
-        super().__init__(parent)
+    def __init__(self, parent: object = None):
+        # *parent* is what Qt code passes to every object it builds; a
+        # session has no use for it
         self._y: Optional[np.ndarray] = None
         self._sr: int = 0
         self._name: str = ""
