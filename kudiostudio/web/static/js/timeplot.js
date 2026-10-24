@@ -14,6 +14,12 @@ const CLICK_PIXELS = 3;
 /** How close to a selection edge grabs the edge instead of starting anew. */
 const EDGE_PIXELS = 6;
 
+/** The right margin, and the wider one a second axis needs there. Both
+ *  plots take the same one at the same time: they share a time axis, and a
+ *  gutter on one and not the other would put one instant in two places. */
+const RIGHT = 14;
+export const RIGHT_GUTTER = 62;
+
 export class TimePlot {
   /**
    * @param canvas   the element to draw on
@@ -25,7 +31,7 @@ export class TimePlot {
     this.ctx = canvas.getContext("2d");
     this.view = view;
     this.hooks = hooks;
-    this.margin = { left: 64, right: 14, top: 10, bottom: 24 };
+    this.margin = { left: 64, right: RIGHT, top: 10, bottom: 24 };
     this.selection = null;      // [t0, t1] or null
     this.playhead = null;       // seconds or null
     this.markers = [];          // [{ start, end, label }]
@@ -42,7 +48,7 @@ export class TimePlot {
     canvas.addEventListener("pointerup", (e) => this.pointerUp(e));
     canvas.addEventListener("pointerleave", () => this.leave());
     canvas.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
-    canvas.addEventListener("dblclick", () => hooks.onDoubleClick?.());
+    canvas.addEventListener("dblclick", (e) => this.doubleClick(e));
   }
 
   readColors() {
@@ -122,6 +128,7 @@ export class TimePlot {
 
     this.drawTimeAxis(ctx, a);
     this.drawValueAxis(ctx, a);
+    this.drawRightAxis(ctx, a);
     ctx.strokeStyle = this.colors.border;
     ctx.lineWidth = 1;
     roundRect(ctx, a.x + 0.5, a.y + 0.5, a.w - 1, a.h - 1, 6);
@@ -133,6 +140,18 @@ export class TimePlot {
 
   /** The vertical axis's labels, in the left margin. */
   drawValueAxis() {}
+
+  /** A second axis in the right gutter, when the plot has one. */
+  drawRightAxis() {}
+
+  /** Make room on the right for a second axis, or give it back. */
+  setRightGutter(on) {
+    const right = on ? RIGHT_GUTTER : RIGHT;
+    if (this.margin.right === right) return;
+    this.margin.right = right;
+    this.resized();
+    this.requestDraw();
+  }
 
   drawTimeGrid(ctx, a) {
     const { values } = ticks(this.view.t0, this.view.t1, a.w, 90);
@@ -337,6 +356,10 @@ export class TimePlot {
 
   /** The vertical axis's value at *y*, for the hover readout. */
   valueAt() { return null; }
+
+  /** Zoom to the selection or out to the whole clip; a plot with a
+   *  vertical axis of its own can take double-clicks on that instead. */
+  doubleClick() { this.hooks.onDoubleClick?.(); }
 }
 
 export function roundRect(ctx, x, y, w, h, r) {

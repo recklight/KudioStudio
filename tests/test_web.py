@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""The browser window's back end: the plot data, the player, the Studio
-commands and the local server. No Qt and no browser; the page itself is
-checked by hand in a browser and in the window."""
+"""The window's back end: the plot data, the player, the Studio commands
+and the local server. No browser; the page itself is checked by hand in a
+browser and in the window."""
 from __future__ import annotations
 
 import http.client
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(autouse=True)
 def english_afterwards():
-    """A Studio loads its language into `tr`; the Qt tests expect English."""
+    """A Studio loads its language into `tr`; the tests that follow expect English."""
     yield
     i18n.load(i18n.DEFAULT)
 
@@ -152,6 +152,19 @@ def test_a_one_frame_click_survives_the_zoomed_out_slice():
     assert part.pixels.max() == 255
 
 
+def test_a_zoom_into_the_axis_gets_its_bins_at_full_resolution():
+    data = np.zeros((10, 1000), np.float32)
+    data[:, 10] = 1.0                       # one bin near the bottom
+    img = analysis.Image(data, 1.0, 1000.0, "Frequency", "Hz", (0.0, 1.0))
+    whole = analysis.image_slice(img, 0.0, 1.0, columns=10, rows=50)
+    assert whole.pixels.shape == (50, 10)   # pooled 20 bins to a row
+    low = analysis.image_slice(img, 0.0, 1.0, columns=10, rows=50, y0=0.0, y1=50.0)
+    assert low.pixels.shape == (50, 10)     # 50 bins, one each
+    assert (low.y0, low.y1) == (0.0, 50.0)
+    lit = np.flatnonzero(low.pixels[:, 0])
+    assert lit.tolist() == [50 - 1 - 10]    # bin 10, counted from the top
+
+
 def test_the_slice_reports_the_whole_frames_it_covers():
     img = analysis.Image(np.zeros((100, 4), np.float32), 1.0, 4.0, "", None, (0.0, 1.0))
     part = analysis.image_slice(img, 0.234, 0.5, columns=1000, rows=4)
@@ -213,9 +226,10 @@ def test_gain_is_applied_and_clipped(quiet, monkeypatch):
 # -------------------------------------------------------------------- studio
 
 def test_the_first_state_showing_new_audio_has_a_new_version(studio, tone):
-    """Loading clears the selection before it announces the audio; a state
-    pushed in between used to carry the new audio under the old version,
-    and the page kept its old view of the timeline."""
+    """Loading clears the selection before it announces the audio. Were the
+    version a count of signals, a state pushed in between would carry the
+    new audio under the old number, and the page would keep its view of the
+    last clip's timeline."""
     drain = _events(studio)
     before = studio.version
     studio.call("open_files", [[str(tone)]])
@@ -298,6 +312,22 @@ def test_levels_are_measured_once_per_version(studio, tone):
     assert first["peak_dbfs"] == pytest.approx(20 * np.log10(0.4), abs=0.1)
     assert first["lufs"] is not None and not first["clipped"]
     assert studio.call("levels") is first
+    # one second is shorter than the short-term window: no curve, not a bad one
+    assert first["curve"] is None and first["short_term_s"] == kudio.SHORT_TERM
+
+
+def test_the_loudness_curve_comes_with_the_levels(studio, tmp_path):
+    sr = 16000
+    t = np.arange(6 * sr) / sr
+    y = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    path = tmp_path / "six.wav"
+    kudio.save_wave(path, y, sr)
+    studio.call("open_files", [[str(path)]])
+    curve = studio.call("levels")["curve"]
+    assert len(curve["times"]) == len(curve["lufs"]) > 10
+    assert all(isinstance(v, float) or v is None for v in curve["lufs"])
+    loud = [v for v in curve["lufs"] if v is not None]
+    assert max(loud) == pytest.approx(-13.7, abs=1.5)
 
 
 def test_switching_language_measures_the_problems_again(studio, tone):
@@ -375,8 +405,8 @@ def test_commands_need_the_token(server):
 
 
 def test_a_refused_post_does_not_poison_the_next_request(server):
-    """The body of a refused POST used to stay unread on the kept-alive
-    connection and be taken for the next request line (a 501)."""
+    """The body of a refused POST has to be read off the kept-alive
+    connection, or it is taken for the next request line (a 501)."""
     body = b'{"args":[],"kwargs":{}}'
     refused = (f"POST /api/state HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n"
                f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n"
@@ -406,11 +436,10 @@ def test_unknown_commands_and_bad_bodies(server):
 
 
 def test_a_failing_command_answers_instead_of_dropping(server, monkeypatch):
-    def boom(self):
+    def boom():
         raise RuntimeError("disk on fire")
 
-    from kudiostudio.web import studio as studio_module
-    monkeypatch.setitem(studio_module.COMMANDS, "revert", boom)
+    monkeypatch.setitem(server.studio.commands, "revert", boom)
     status, data = _post(server, "revert")
     assert status == 200 and data == {"ok": False, "error": "RuntimeError: disk on fire"}
 
@@ -432,6 +461,15 @@ def test_plot_data_comes_as_bytes_with_its_description(server, tone):
     # 440 Hz sits low on the axis, so near the bottom row of the image
     pixels = np.frombuffer(body, np.uint8).reshape(rows, columns)
     assert pixels.mean(axis=1).argmax() > rows * 0.8
+
+    # zoomed to 0-1000 Hz, the same tone is near the middle
+    response, body = _get(server, "/data/image?t0=0&t1=1&columns=64&rows=32&y0=0&y1=1000",
+                          headers)
+    y1 = float(response.getheader("X-Kudio-Y1"))
+    assert float(response.getheader("X-Kudio-Y0")) == 0.0 and 1000 <= y1 < 1032
+    rows = int(response.getheader("X-Kudio-Rows"))
+    pixels = np.frombuffer(body, np.uint8).reshape(rows, -1)
+    assert 0.35 < pixels.mean(axis=1).argmax() / rows < 0.65
 
     response, _ = _get(server, "/data/peaks?t0=0&t1=1&columns=100")
     assert response.status == 403
@@ -475,10 +513,38 @@ def test_the_event_stream_starts_with_the_state(server):
 
 # ---------------------------------------------------------------------- page
 
-#: names the page shows as they are: kudio's own parameter names, and the
+#: names the page shows as they are: kudio's own parameter names, Python's
+#: None where a seed is left to chance (as the call reads), and the
 #: language menu's title, which is in both languages on purpose
 UNTRANSLATED = {"STFT", "Mel", "MFCC", "n_fft", "hop_length", "n_mels", "n_mfcc",
-                "Language / 語言"}
+                "None", "Language / 語言"}
+
+#: a keyword name, as the parameter lists label a parameter ("cutoff",
+#: "db_range low"), a special value ("random"), or the kudio function a box
+#: is for ("kudio.f0 (pYIN)", "kudio.record / kudio.StreamRecorder"): shown
+#: as it is
+IDENTIFIER = re.compile(r"^[a-z][a-z0-9_.]*( (low|high))?$"
+                        r"|^kudio\.[\w.]+( \([^)]*\))?( / kudio\.[\w.]+)?$")
+
+_JS_STRING = r'"((?:[^"\\]|\\.)*)"'
+#: where the page modules hand English to `t`, directly or through a helper
+_JS_CALLS = re.compile(
+    r"(?:\bt|menuText|section|button|check|hint|\.row)\(\s*" + _JS_STRING)
+_JS_KEYS = re.compile(
+    r"\b(?:label|title|tip|text|placeholder|submit|special)\s*:\s*(?:t\()?" + _JS_STRING)
+#: the TIPS table in main.js: id -> tooltip
+_JS_TIPS = re.compile(r'^\s*"?[\w-]+"?\s*:\s*' + _JS_STRING + r",?\s*$", re.M)
+
+
+def _js_strings(text):
+    found = set()
+    for pattern in (_JS_CALLS, _JS_KEYS):
+        found |= {json.loads(f'"{s}"') for s in pattern.findall(text)}
+    tips = text.split("const TIPS = {", 1)
+    if len(tips) == 2:
+        block = tips[1].split("};", 1)[0]
+        found |= {json.loads(f'"{s}"') for s in _JS_TIPS.findall(block)}
+    return found
 
 
 def _page_strings():
@@ -486,19 +552,64 @@ def _page_strings():
     found = {m.group(1).strip()
              for m in re.finditer(r"<\w+[^>]*\bdata-t\b(?!-)[^>]*>([^<]*)<", html)}
     found |= set(re.findall(r'data-t-title="([^"]*)"', html))
-    for js in (STATIC / "js").glob("*.js"):
-        text = js.read_text(encoding="utf-8")
-        found |= set(re.findall(r'\bt\("((?:[^"\\]|\\.)*)"\)', text))
-        found |= set(re.findall(r'title: "([^"]*)"', text))
+    for js in (STATIC / "js").rglob("*.js"):
+        found |= _js_strings(js.read_text(encoding="utf-8"))
+    return {s for s in found if s and re.search(r"[A-Za-z]", s)}
+
+
+def _needs_translation(text):
+    return text not in UNTRANSLATED and not IDENTIFIER.match(text)
+
+
+def _tool_strings():
+    """What the panels' Python halves put on the page: the parameter lists'
+    labels, tooltips, check box texts, notes, placeholders and dialog titles;
+    the tool modules' tips, notes and choices; and the busy labels jobs run
+    under, which the status bar shows."""
+    import kudiostudio.tools as tools_package
+    from kudiostudio.tools import effects, enhance, metrics, pitch
+    found = set()
+    for params in effects.PARAMS.values():
+        for p in params:
+            found |= {p.label, p.text, p.tip, p.placeholder, p.title, p.special}
+    for module in (effects, enhance, metrics, pitch):
+        for name, value in vars(module).items():
+            if name.isupper() and isinstance(value, str) and \
+                    re.search(r"(_TIP|_HINT|_NOTE|^NOTHING_)", name):
+                found.add(value)
+    found |= {label for label, _, _ in pitch.RANGES}
+    found |= set(metrics.REFERENCES)
+    found |= {text for text, _ in enhance.OTHER_METHODS}
+    panels = Path(tools_package.__file__).parent.parent / "web" / "panels"
+    for source in panels.glob("*.py"):
+        found |= set(re.findall(r'start_job\(\s*"([^"]+)"', source.read_text(encoding="utf-8")))
     return {s for s in found if s}
 
 
 def test_every_string_on_the_page_has_a_chinese_translation():
-    strings = _page_strings()
+    strings = _page_strings() | _tool_strings()
     assert "Waveform" in strings and "Select all" in strings
+    assert "Cu&t\tCtrl+X" in strings                     # a menu entry
+    assert "zero-phase (no time shift)" in strings       # from tools.effects
     table = i18n.table("zh_TW")
-    missing = sorted(s for s in strings - UNTRANSLATED if s not in table)
+    missing = sorted(s for s in strings if _needs_translation(s) and s not in table)
     assert missing == []
+
+
+@pytest.mark.parametrize("module", sorted(p.relative_to(STATIC).as_posix()
+                                          for p in (STATIC / "js").rglob("*.js")))
+def test_every_page_module_parses(module):
+    """A broken module loads as a blank panel, or a blank window, and says
+    so only in the browser's console. Node reads them the way the page does."""
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    done = subprocess.run([node, "--input-type=module", "--check"],
+                          input=(STATIC / module).read_text(encoding="utf-8"),
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
 
 
 def test_every_page_file_is_packaged():
@@ -510,8 +621,90 @@ def test_every_page_file_is_packaged():
     patterns = config["tool"]["setuptools"]["package-data"]["kudiostudio"]
     package = ROOT / "kudiostudio"
     window_icon = package / "assets" / "logo.ico"
+    def matches(relative, pattern):
+        # as setuptools globs: a * stays inside one folder, which fnmatch's
+        # does not -- "js/*.js" must not cover "js/panels/effects.js"
+        parts, wanted = relative.split("/"), pattern.split("/")
+        return len(parts) == len(wanted) and all(map(fnmatch, parts, wanted))
+
     for path in [window_icon, *STATIC.rglob("*")]:
         if path.is_file() and "__pycache__" not in path.parts:
             relative = path.relative_to(package).as_posix()
-            assert any(fnmatch(relative, p) for p in patterns), relative
-    assert "web" in config["project"]["optional-dependencies"]
+            assert any(matches(relative, p) for p in patterns), relative
+    # the window is the program, so what draws it is no extra
+    needs = " ".join(config["project"]["dependencies"]).lower()
+    assert "pywebview" in needs
+
+
+# ----------------------------------------------------- the same clip, edited
+
+def test_an_edit_of_the_same_clip_keeps_the_colour_scale(studio, tone):
+    """A denoised clip drawn on its own levels looks as bright as the noisy
+    one: the colour scale has to stay put while the clip is the same."""
+    studio.call("open_files", [[str(tone)]])
+    first = studio.image()[0].levels
+    s = studio.session
+    s.set_audio(s.y * 0.01, s.sr, undo_label="40 dB down", keep_original=True)
+    assert studio.image()[0].levels == first
+    # what frame-based processing gives back, 128 samples short, is the same clip
+    s.set_audio(s.y[:-128], s.sr, undo_label="denoise", keep_original=True)
+    assert studio.image()[0].levels == first
+    # a trim is not, and neither is a view made another way
+    s.set_audio(s.y[:len(s.y) // 4], s.sr, undo_label="trim", keep_original=True)
+    trimmed = studio.image()[0].levels
+    assert trimmed != first
+    studio.call("set_analysis", kwargs={"n_fft": 1024})
+    assert studio.image()[0].levels != trimmed
+
+
+def test_another_file_of_the_same_length_gets_its_own_scale(studio, tone, tmp_path):
+    studio.call("open_files", [[str(tone)]])
+    first = studio.image()[0].levels
+    y, sr = kudio.file_load(str(tone), sr=None)
+    other = tmp_path / "quiet.wav"
+    kudio.save_wave(other, (y * 0.01).astype(np.float32), sr)
+    studio.call("open_files", [[str(other)]])
+    assert studio.image()[0].levels != first
+
+
+def test_a_pause_breaks_the_loudness_curve_rather_than_sinking_it(studio, tmp_path):
+    """After sound, a pause measures the weighting filter's tail -- finite,
+    and thousands of LU down -- not -inf. Drawn as a level it drags the
+    curve's axis down with it."""
+    from kudiostudio.web.studio import SILENCE_LUFS
+    sr = 16000
+    t = np.arange(12 * sr) / sr
+    y = 0.3 * np.sin(2 * np.pi * 440 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 0.3 * t))
+    y[4 * sr:8 * sr] = 0.0
+    path = tmp_path / "pause.wav"
+    kudio.save_wave(path, y.astype(np.float32), sr)
+    studio.call("open_files", [[str(path)]])
+    lufs = studio.call("levels")["curve"]["lufs"]
+    assert None in lufs, "the pause is a gap"
+    assert min(v for v in lufs if v is not None) >= SILENCE_LUFS
+
+
+# ------------------------------------------------------------ the server, worn
+
+def test_a_missing_logo_is_a_404_not_a_dropped_connection(server, monkeypatch, tmp_path):
+    from kudiostudio.web import server as module
+    monkeypatch.setattr(module, "LOGO", tmp_path / "logo.png")
+    response, _ = _get(server, "/assets/logo.png")
+    assert response.status == 404
+    assert _get(server, "/theme.css")[0].status == 200
+
+
+def test_a_request_the_page_gave_up_on_prints_no_traceback(server, capsys):
+    """The page drops a request for peaks or an image whenever a newer one
+    replaces it; the write into the closed socket is not worth a traceback.
+    Anything else still is."""
+    try:
+        raise ConnectionAbortedError(10053, "the page went away")
+    except ConnectionAbortedError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert capsys.readouterr().err == ""
+    try:
+        raise ValueError("a real fault")
+    except ValueError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert "a real fault" in capsys.readouterr().err

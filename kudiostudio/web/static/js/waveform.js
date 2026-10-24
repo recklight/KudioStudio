@@ -1,9 +1,15 @@
 // The waveform: per pixel column, the lowest and highest sample in it, as a
 // filled band; zoomed in past two samples a column, the samples themselves.
+// Over it, when asked, the short-term loudness on an axis of its own.
 
 import { data } from "./api.js";
 import { ticks } from "./format.js";
 import { TimePlot, monoFont } from "./timeplot.js";
+
+/** Smallest loudness span the right axis shows, in LU. A steady take varies
+ *  by a fraction of a dB, and scaling to that magnifies its own dither into
+ *  a level that looks all over the place. */
+const MIN_LOUDNESS_SPAN = 12;
 
 export class WaveformPlot extends TimePlot {
   constructor(canvas, view, hooks) {
@@ -14,6 +20,33 @@ export class WaveformPlot extends TimePlot {
     this.controller = null;
     this.timer = null;
     this.waveColor = getComputedStyle(document.documentElement).getPropertyValue("--wave").trim();
+    this.loudnessColor = getComputedStyle(document.documentElement).getPropertyValue("--loudness").trim();
+    this.loudness = null;       // { times, lufs, lo, hi } while shown
+  }
+
+  /** Short-term loudness over the waveform, or null to take it down. */
+  setLoudness(curve) {
+    if (!curve || !curve.times.length) {
+      this.loudness = null;
+    } else {
+      const finite = curve.lufs.filter((v) => v !== null);
+      let lo = Math.min(...finite);
+      let hi = Math.max(...finite);
+      if (!finite.length) { lo = -70; hi = 0; }
+      if (hi - lo < MIN_LOUDNESS_SPAN) {
+        const middle = (hi + lo) / 2;
+        lo = middle - MIN_LOUDNESS_SPAN / 2;
+        hi = middle + MIN_LOUDNESS_SPAN / 2;
+      }
+      this.loudness = { ...curve, lo: lo - 1, hi: hi + 1 };
+    }
+    this.setRightGutter(Boolean(this.loudness));
+    this.requestDraw();
+  }
+
+  lufsY(value, a) {
+    const { lo, hi } = this.loudness;
+    return a.y + a.h - ((value - lo) / (hi - lo)) * a.h;
   }
 
   /** New audio (or a new version of it): forget what was drawn. */
@@ -27,6 +60,17 @@ export class WaveformPlot extends TimePlot {
   clear() {
     this.version = -1;
     this.chunk = null;
+    this.requestDraw();
+  }
+
+  /** A take's rolling waveform, from a `monitor` event: drawn as it is
+   *  sent, on full scale so the level reads as a level, and nothing is
+   *  fetched while it is up. The next setAudio replaces it. */
+  live(wave) {
+    this.version = -1;
+    this.peak = 1;
+    this.chunk = wave ? { kind: wave.kind, start: wave.start, step: wave.step,
+                          values: new Float32Array(wave.values) } : null;
     this.requestDraw();
   }
 
@@ -82,9 +126,51 @@ export class WaveformPlot extends TimePlot {
       ctx.stroke();
     }
     const c = this.chunk;
-    if (!c || !c.values.length) return;
-    if (c.kind === "peaks") this.drawPeaks(ctx, a, c);
-    else this.drawSamples(ctx, a, c);
+    if (c && c.values.length) {
+      if (c.kind === "peaks") this.drawPeaks(ctx, a, c);
+      else this.drawSamples(ctx, a, c);
+    }
+    this.drawLoudness(ctx, a);
+  }
+
+  /** -inf, digital silence, comes as null: a gap in the line, which is what
+   *  silence should look like, rather than a drop to some floor. */
+  drawLoudness(ctx, a) {
+    const curve = this.loudness;
+    if (!curve) return;
+    ctx.save();
+    ctx.strokeStyle = this.loudnessColor;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    let open = false;
+    for (let i = 0; i < curve.times.length; i++) {
+      const v = curve.lufs[i];
+      if (v === null) { open = false; continue; }
+      const x = this.timeToX(curve.times[i]);
+      const y = this.lufsY(v, a);
+      if (open) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      open = true;
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawRightAxis(ctx, a) {
+    if (!this.loudness) return;
+    const { lo, hi } = this.loudness;
+    const { values } = ticks(lo, hi, a.h, 26);
+    ctx.fillStyle = this.loudnessColor;
+    ctx.font = `11px ${monoFont()}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    for (const v of values) {
+      const y = this.lufsY(v, a);
+      if (y < a.y + 14 || y > a.y + a.h - 6) continue;
+      ctx.fillText(String(Math.round(v)), a.x + a.w + 8, y);
+    }
+    ctx.textBaseline = "top";
+    ctx.fillText("LUFS", a.x + a.w + 8, a.y);
   }
 
   drawPeaks(ctx, a, c) {

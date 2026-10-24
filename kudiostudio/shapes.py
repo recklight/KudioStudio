@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """The line icons, as SVG text.
 
-Kept apart from `kudiostudio.icons`, which turns them into Qt icons, so the
-browser window can draw the same set without importing Qt. Drawn on a 24-unit
-grid with a 2-unit round stroke; ``currentColor`` marks the solid parts.
+The server hands them to the page as ``/icons.json``, and the page draws
+them inline. Drawn on a 24-unit grid with a 2-unit round stroke;
+``currentColor`` marks the solid parts.
 """
 from __future__ import annotations
 
 from typing import Dict
+from xml.etree import ElementTree
 
 #: SVG body per icon. ``fill="currentColor"`` marks the solid shapes; every
 #: other element is stroked.
@@ -17,7 +18,7 @@ SHAPES: Dict[str, str] = {
             'L8.5 3.94A1 1 0 0 0 7 4.8z" fill="currentColor" stroke="none"/>',
     "stop": '<rect x="5.5" y="5.5" width="13" height="13" rx="2" '
             'fill="currentColor" stroke="none"/>',
-    # toolbar
+    # the top bar
     "open": '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7'
             'v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>',
     "save": '<path d="M5 3.5h10.5L20.5 8.5V19a1.5 1.5 0 0 1-1.5 1.5H5'
@@ -30,8 +31,8 @@ SHAPES: Dict[str, str] = {
     "zoom-full": '<path d="M8 3.5H5.5a2 2 0 0 0-2 2V8M16 3.5h2.5a2 2 0 0 1 2 2V8'
                  'M3.5 16v2.5a2 2 0 0 0 2 2H8M20.5 16v2.5a2 2 0 0 1-2 2H16"/>'
                  '<path d="M7 12h10"/>',
-    # the tool rail, one per panel; inspect is the browser window's view of
-    # the analysis settings and the levels
+    # the tool rail, one per panel; inspect is the analysis settings, the
+    # selection and the levels
     "inspect": '<path d="M3 12.5h3.4l2.3-6.5 4.4 12.5 3-9 1.8 3H21"/>',
     "effects": '<path d="M6 4v5M6 13v7M12 4v9M12 17v3M18 4v2M18 10v10"/>'
                '<circle cx="6" cy="11" r="2"/><circle cx="12" cy="15" r="2"/>'
@@ -53,25 +54,29 @@ SHAPES: Dict[str, str] = {
     "metrics": '<path d="M4 20h16M7 16.5v-4M12 16.5V6M17 16.5v-7"/>',
     "batch": '<rect x="8" y="8" width="12.5" height="12.5" rx="2"/>'
              '<path d="M16 8V5.5a2 2 0 0 0-2-2H5.5a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2H8"/>',
-    # inside the controls: check boxes, combo boxes, spin boxes
-    "check": '<path d="M5 12.5 10 17.5 19.5 7"/>',
-    "chevron-down": '<path d="M5.5 9 12 15.5 18.5 9"/>',
-    "chevron-up": '<path d="M5.5 15 12 8.5 18.5 15"/>',
+    # the close mark on the panel view over the plots
     "close": '<path d="M7 7l10 10M17 7 7 17"/>',
 }
 
 
-def svg(name: str, color: str, stroke: float = 2.0) -> bytes:
-    """The icon *name* as SVG text, drawn in *color*.
+#: the icons drawn here, which a plugin may not redraw
+BUILT_IN = frozenset(SHAPES)
 
-    A heavier *stroke* is for the marks drawn at 8-12 px inside a control,
-    where the usual 2 units come out under a pixel wide.
+
+def register(name: str, body: str) -> None:
+    """Add a plugin panel's icon under *name*.
+
+    The body has to parse as SVG, which is what the page needs before it
+    draws it on the rail. A built-in name is refused, so a plugin cannot
+    change how a built-in tool looks.
     """
-    body = SHAPES[name].replace("currentColor", color)
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
-            f'fill="none" stroke="{color}" stroke-width="{stroke:g}" '
-            f'stroke-linecap="round" stroke-linejoin="round">{body}</svg>'
-            ).encode()
+    if name in BUILT_IN:
+        raise ValueError(f"icon {name!r} is a built-in one")
+    try:
+        ElementTree.fromstring(f'<svg xmlns="http://www.w3.org/2000/svg">{body}</svg>')
+    except ElementTree.ParseError:
+        raise ValueError(f"icon {name!r} is not valid SVG") from None
+    SHAPES[name] = body
 
 
-__all__ = ["SHAPES", "svg"]
+__all__ = ["SHAPES", "BUILT_IN", "register"]

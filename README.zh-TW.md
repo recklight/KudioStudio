@@ -6,7 +6,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/kudiostudio.svg)](https://pypi.org/project/kudiostudio/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Qt](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://doc.qt.io/qtforpython/)
+[![GUI](https://img.shields.io/badge/GUI-pywebview-1fc6f0.svg)](https://pywebview.flowrl.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
@@ -16,7 +16,7 @@
 每個控制項都對應到一個有文件說明的 `kudio` 函式，每個面板下方的說明文字會
 顯示它即將執行的確切呼叫，所以你在這裡試出來的任何做法，都能直接轉成程式碼。
 
-![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/main.png)
+![KudioStudio](https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/main.zh-TW.png)
 
 ## 安裝
 
@@ -25,7 +25,12 @@ pip install kudiostudio
 kudiostudio
 ```
 
-需要 **Python 3.9+**。在 Linux 上，播放與錄音另外需要 PortAudio 的函式庫（`sudo apt install libportaudio2`），大多數桌面環境已經有了。所有較重的元件都是選用的 extra：
+需要 **Python 3.9+**。視窗是程式自己提供的一個網頁，透過 [pywebview](https://pywebview.flowrl.com/)
+用系統本來就有的網頁元件畫出來：Windows 10 與 11 是 WebView2，macOS 是 WebKit。在 Linux 上
+pywebview 要靠 GTK 或 Qt 來畫，它以 extra 的方式安裝（`pip install "pywebview[gtk]"`，系統套件見它的
+[安裝說明](https://pywebview.flowrl.com/guide/installation.html)）；兩者都沒有時，`kudiostudio` 會改在
+預設瀏覽器開啟同一個頁面。在 Linux 上，播放與錄音另外需要 PortAudio 的函式庫（`sudo apt install libportaudio2`），
+大多數桌面環境已經有了。所有較重的元件都是選用的 extra：
 
 | Extra | 加入的功能 |
 |---|---|
@@ -36,7 +41,7 @@ kudiostudio
 | `pip install "kudiostudio[audio]"` | 在 Linux 與 macOS 上「錄到按停止」的錄音。它需要 PyAudio，而 PyPI 只有 Windows 的預先編譯版，其他系統要由 pip 現場編譯：請先裝 PortAudio 的標頭檔（`sudo apt install portaudio19-dev`，或 `brew install portaudio`）。Windows 的基本安裝就已經包含 |
 | `pip install "kudiostudio[all]"` | 以上全部，PESQ 除外 |
 
-基本安裝保持輕量：除非你要求，否則不會安裝 PyTorch；Qt 也只裝必要的模組，不含網頁引擎。
+基本安裝保持輕量：除非你要求，否則不會安裝 PyTorch，也完全不需要 GUI 工具組。
 
 要修改 KudioStudio 本身，請從原始碼安裝：
 
@@ -49,16 +54,16 @@ pip install -e ".[dev]"
 ```bash
 kudiostudio                    # 空白工作階段
 kudiostudio clip.wav           # 啟動時開啟一個檔案
-kudiostudio --no-theme         # 使用原生 Qt 樣式
+kudiostudio manifest.json      # 語料庫的 manifest 會在 Manifest 面板開啟
+kudiostudio --browser          # 改在預設瀏覽器開啟同一個頁面
 kudiostudio --no-plugins       # 不載入其他套件加入的面板
 kudiostudio --lang zh_TW       # 以繁體中文介面啟動
-kudiostudio --reset            # 忘記儲存的視窗位置與大小
+kudiostudio --reset            # 忘記儲存的設定
 ```
 
-介面提供**英文**與**繁體中文**。`檢視 → Language / 語言` 可以切換，並詢問是否
-重新啟動，因為變更會從下次啟動開始套用；選擇會被記住。若沒有儲存過選擇，會在有對應翻譯時
-使用系統語言。下拉選單的值、`kudio` 參數名稱與呼叫說明文字維持程式中的寫法，
-讓你讀到的內容仍與 API 一致。
+介面提供**英文**與**繁體中文**。右上角的選單可以立即切換，已開啟的面板也會跟著換，
+選擇會被記住。若沒有儲存過選擇，會在有對應翻譯時使用系統語言。清單裡的值、`kudio` 參數名稱與
+呼叫說明文字維持程式中的寫法，讓你讀到的內容仍與 API 一致。
 
 ## 各面板的功能
 
@@ -147,7 +152,7 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
 選取範圍只有一個、沒有名稱，而且一做新的選取就消失了。標記則是會保留下來的具名時間點與範圍：
 點一下跳過去，雙擊範圍即可選取它，而 **`Find speech`** 會用 `kudio.vad` 填滿清單。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/dock_markers.png" width="260" alt="標記面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/sidebar_markers.zh-TW.png" width="260" alt="標記清單">
 
 標記是*時間*上的位置，所以改變長度的編輯會移動它們——刪掉兩秒，後面的一切都會往左移。
 復原會把它們放回原位，因為標記清單是跟著復原堆疊一起存放的，而不是重新計算出來的。
@@ -156,8 +161,8 @@ y = kudio.splice([y[:3200], y[6400:]], sr, 0.03)  # 0.200–0.400 s
 會直接把標記讀回來。`Export…` 則會改寫成 **Audacity 標籤軌**，那只是三欄純文字，
 音訊界大部分的工具都已經能讀。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_effects.png" width="330" alt="Effects 面板">
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_synthesize.png" width="330" alt="Synthesize 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_effects.zh-TW.png" width="330" alt="Effects 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_synthesize.zh-TW.png" width="330" alt="Synthesize 面板">
 
 ### 與原始音訊做 A/B 比較
 
@@ -181,8 +186,8 @@ A/B — the original, +17.6 LU against the edit; turn on Match loudness to compa
 兩者之間的座標軸刻意**不會**重新縮放：一個同時把音量減半的降噪器，看起來就該只有一半高，
 而不是被拉伸回去填滿整張圖。縮放狀態在切換時會保留，也是同樣的理由。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_original.png" width="420" alt="A/B：原始的含噪音訊">
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_edited.png" width="420" alt="A/B：經過 trad_enhance 之後">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_original.zh-TW.png" width="420" alt="A/B：原始的含噪音訊">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/ab_edited.zh-TW.png" width="420" alt="A/B：經過 trad_enhance 之後">
 
 *同一段音訊、同樣的座標軸、同一個瞬間——`trad_enhance` 讓背景雜訊變稀薄，並保留了 chirp。*
 
@@ -194,9 +199,9 @@ A/B — the original, +17.6 LU against the edit; turn on Match loudness to compa
 它會循環播放，所以找出合適的 `top_db` 是靠聽，而不是套用—聽—復原—再來一次。
 Preview 與 Apply 在同樣的音訊上執行同樣的程式碼，所以你聽到的就是 Apply 將會提交的結果。
 
-- **Effects** 在你轉動旋鈕時重新算繪，防抖動延遲為 150 ms。
-- **Enhance** 在工作執行緒上執行——降噪要花的是秒，不是毫秒——它會像 Denoise 一樣處理整段音訊，
-  然後循環播放選取的部分。
+- **Effects** 在你轉動旋鈕時重新算繪，最後一次轉動後 120 ms 開始。
+- **Enhance** 不在視窗的執行緒上算——降噪要花的是秒，不是毫秒——它會像 Denoise 一樣處理整段音訊，
+  然後循環播放選取的部分。算的時候再轉旋鈕，接著算的是最新的數值，中間經過的會略過。
 
 任何其他要求播放的動作——Play、Stop、一次編輯——都會結束試聽並釋放按鈕。
 
@@ -233,8 +238,10 @@ Metrics 面板的每個指標都需要在劣化訊號旁邊放一個乾淨的參
 **真實錄音永遠沒有**——它的「原始版本」*就是*含噪的那個，所以拿它來評分，量到的是你改動了
 音訊多少，而不是你有沒有改善它。
 
-`kudio.audio_report` 不需要參考訊號，所以分析視圖旁的 **Levels** 區塊永遠是即時的：
+`kudio.audio_report` 不需要參考訊號，所以 Inspect 工具上的 **Levels** 讀數永遠是即時的：
 峰值、響度、頻寬，以及錄音本身有什麼問題。Metrics 面板的 **Inspect** 會給出完整的一組數據。
+
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/sidebar_levels.zh-TW.png" width="300" alt="Levels 讀數">
 
 它能抓出那些默默浪費掉一個資料集的問題：
 
@@ -267,7 +274,7 @@ DNS-Challenge 的權重，kudio 與本程式都沒有隨附；面板會告訴你
 能既保留輕聲的子音又去掉房間的聲音。
 
 `kudio.vad` 以**這段錄音自己的底噪**為基準逐幀判斷，並用頻譜平坦度分辨人聲與嘶嘶聲。
-它出現在兩個地方：**`vad_trim`** 效果，以及標記面板中的 **`Find speech`**，
+它出現在兩個地方：**`vad_trim`** 效果，以及標記清單上方的 **`Find speech`**，
 後者會把每個偵測到的區段變成可以逐一點選的標記。
 
 ### 分析視圖
@@ -275,35 +282,36 @@ DNS-Challenge 的權重，kudio 與本程式都沒有隨附；面板會告訴你
 對數功率 STFT、對數 mel 與 MFCC，使用的是訓練腳本也會用的同一組 `kudio` 呼叫——
 控制項下方的說明文字就是確切的呼叫：
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_stft.png" width="270" alt="STFT 視圖">
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mel.png" width="270" alt="Mel 視圖">
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mfcc.png" width="270" alt="MFCC 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_stft.zh-TW.png" width="270" alt="STFT 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mel.zh-TW.png" width="270" alt="Mel 視圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_mfcc.zh-TW.png" width="270" alt="MFCC 視圖">
 
 同一組圖也負責呈現兩樣*不是*這段音訊本身的東西：錄音進行中的滾動畫面，
 以及畫在頻譜圖上的 f0 輪廓。兩者都在下面說明。
 
 ### 音量跑到哪裡去了？
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_loudness.png" width="600" alt="畫在波形上的短期響度">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_loudness.zh-TW.png" width="600" alt="畫在波形上的短期響度">
 
-Levels 區塊對整段音訊給出一個整合 LUFS 數值——那是你做正規化的依據，但對於找出
+Levels 讀數對整段音訊給出一個整合 LUFS 數值——那是你做正規化的依據，但對於找出
 某人離麥克風遠了一點的那一刻毫無幫助。**Loudness over time** 會在波形上、以獨立的 LUFS 軸
 畫出短期響度曲線（EBU Tech 3341，3 秒視窗，100 ms 跳距），所以「這裡是 -31 LUFS」
 是一個你能據以行動的數字，而不是「大約三分之一高」。
 
-上圖是一段音量漂移了 13 dB 又回來的錄音。Levels 區塊的結果一致：`range 13.0 LU`。
+上圖是一段音量漂移了 13 dB 又回來的錄音。Levels 讀數的結果一致：`range 13.0 LU`。
 
 它不需要額外的量測。Levels 讀數本來就會為了報告掃過整段訊號，所以曲線、true peak 與範圍
-都出自同一次掃描——一個工作執行一次得到四個答案，這也代表它們不可能描述的是某次編輯的四個不同時刻。
+都出自同一次掃描——一次量測得到四個答案，這也代表它們不可能描述的是某次編輯的四個不同時刻。
 
 有兩點是刻意這樣設計的：
 
 - **曲線不做閘控。** 閘控是為了不讓停頓拉低*整合*數值；一條在閘門觸發處被打出洞的曲線，
-  描述的會是一段在字與字之間不存在的錄音。真正的靜音仍然會讓線條中斷，因為那裡的音量確實是零。
+  描述的會是一段在字與字之間不存在的錄音。真正的靜音仍然會讓線條中斷，因為那裡的音量確實是零——
+  也就是低於 BS.1770 的絕對閘限 -70 LUFS 的地方，聲音之後的停頓在那裡量到的只是加權濾波器衰減的尾巴。
 - **比 3 秒視窗還短的音訊沒有曲線**，核取方塊會說明這一點，而不是打勾了卻什麼都沒發生。
   退而使用 400 ms 視窗，會在不知不覺間回答另一個問題。
 
-**True peak** 與取樣峰值並列在 Levels 區塊中，兩者不一致的情況比你想的還常見。
+**True peak** 與取樣峰值並列在 Levels 讀數中，兩者不一致的情況比你想的還常見。
 樣本是一條曲線上的點，而這條曲線會從點與點之間穿過，並且會超出——所以一個沒有任何樣本達到
 滿刻度的檔案，在轉換器或有損編碼器中仍可能削波。`audio_report` 看不到這一點（樣本本身沒有任何
 問題），所以它以 dBTP 另外回報，並在常見的 -1 dBTP 交付上限發出警告。
@@ -334,8 +342,8 @@ SI-SDR             +14.210 dB          ...instead of -7.890 dB
 頻譜圖會顯示諧波堆疊，但它不會告訴你*哪一條*線是基頻，而且一旦那條線很弱就幫不上忙了——
 電話頻帶、高通濾波、低沉的聲音落在最前面幾個頻帶之下。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_pitch.png" width="270" alt="Pitch 面板">
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_pitch.png" width="480" alt="畫在頻譜圖上的 f0 輪廓">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_pitch.zh-TW.png" width="270" alt="Pitch 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_pitch.zh-TW.png" width="480" alt="畫在頻譜圖上的 f0 輪廓">
 
 **Pitch** 面板執行 `kudio.f0`（pYIN），回報中位數、以 Hz *及*半音表示的 5–95% 範圍——
 半音才是人實際感知音高的單位——以及音訊中有多少比例是有聲的。輪廓畫在 STFT 視圖上，
@@ -357,7 +365,7 @@ SI-SDR             +14.210 dB          ...instead of -7.890 dB
 **Compare** 面板會在完全相同的音訊、以完全相同的分幀跑過全部七種方法，逐一量測，
 並讓你試聽任何一列而不必提交。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_compare.png" width="420" alt="Compare 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_compare.zh-TW.png" width="420" alt="Compare 面板">
 
 這七種方法是同樣三個決策的不同組合——估計雜訊、估計先驗 SNR、把它轉成增益——
 所以固定雜訊估計器就能單獨比較增益規則。**估計器與增益規則一樣是重要的槓桿**：
@@ -404,14 +412,15 @@ Enhance 面板的控制項是**由 `kudio.METHODS` 產生的**——範圍、預
 
 ### 看著錄音進來
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_live.png" width="600" alt="錄音進行中的滾動頻譜圖">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_live.zh-TW.png" width="600" alt="錄音進行中的滾動頻譜圖">
 
 波形監看從一開始就有；頻譜圖則沒有，因為每秒重算好幾次 STFT、只為了畫出一個早已捲走的視窗，
 代價比它呈現的資訊還高。`kudio.SpectrogramStream` 正確地解決了這個問題：一個由欄位組成的
 環形緩衝區，每一欄都只在其樣本到達時計算**一次**。
 
-Record 面板每個 tick 從錄音器取出一次資料並把新音訊交出去；視圖把它全部送進轉換，
-並每秒重繪幾次。分析永遠不會被略過——那會遺失音訊——會被略過的永遠是繪圖。
+Record 面板每 50 ms 從錄音器取出一次資料，把新音訊全部送進轉換；每送進四次，頁面就收到一張畫面。
+分析永遠不會被略過——那會遺失音訊——會被略過的永遠是繪圖。錄音中改了 `n_fft` 或視圖，畫面會重新開始，
+而不是讓視窗左半用一種方式算、右半用另一種方式算。
 
 有三個細節很容易出錯，而一旦出錯就看得出來：
 
@@ -430,7 +439,7 @@ Enhance 面板開箱即可執行傳統 DSP。用 `pip install "kudiostudio[enhan
 [kudioenhance](https://pypi.org/project/kudioenhance/) 之後，面板也能載入它訓練出的模型：把 `run_dir` 指向一個執行目錄，
 它就會取得模型、正規化統計量，以及訓練時使用的 STFT 參數——所以推論不可能在不知不覺中與訓練不一致。
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_enhance.png" width="330" alt="選取了學習式模型的 Enhance 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_enhance.zh-TW.png" width="330" alt="選取了學習式模型的 Enhance 面板">
 
 只有在真正使用該方法時才會匯入 PyTorch，若沒有安裝，面板會告訴你如何安裝，而不是直接失敗。
 用它 0.1 版訓練的執行目錄早於改用 PyTorch，無法載入：面板會告訴你必須重新訓練。
@@ -443,7 +452,7 @@ Enhance 面板開箱即可執行傳統 DSP。用 `pip install "kudiostudio[enhan
 
 ### 把語料庫讀回來
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_manifest.png" width="420" alt="Manifest 面板">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/panel_manifest.zh-TW.png" width="420" alt="Manifest 面板">
 
 Synthesize 面板會在每個語料庫旁寫出 `manifest.json`，而其中一半的內容——房間、鏈路、目標音——
 不在任何檔名裡。`File → Open manifest…`——或在命令列執行 `kudiostudio manifest.json`——
@@ -531,6 +540,7 @@ PESQ 有兩種不同的尺度。kudio 預設回報 MOS-LQO；語音增強的論�
 | 按鍵 | 動作 |
 |---|---|
 | `Ctrl+O` / `Ctrl+Shift+S` | 開啟 / 另存新檔 |
+| `Ctrl+Q` | 結束（等執行中的工作做完，絕不在中途） |
 | `Ctrl+Shift+E` | 把選取範圍存成獨立檔案 |
 | `Ctrl+Z` | 復原上一個編輯 |
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Del` | 剪下 / 複製 / 貼上 / 刪除選取範圍 |
@@ -541,64 +551,68 @@ PESQ 有兩種不同的尺度。kudio 預設回報 MOS-LQO；語音增強的論�
 | `Ctrl+L` | 循環播放上次播放的範圍 |
 | `Ctrl+B` | 與原始音訊做 A/B 比較 |
 | `Ctrl+E` / `Ctrl+F` | 縮放至選取範圍 / 縮小至整段音訊 |
+| `+` / `-` | 以播放頭為中心放大 / 縮小 |
+| `←` / `→` | 沿著音訊捲動 |
 
 在**任一張圖**上拖曳即可選取，或在 **Selection** 欄位輸入精確的範圍。點擊任何位置即可移動播放頭——
-播放中點擊會從該處繼續播放。波形與頻譜圖共用時間軸、選取範圍、播放頭與標記，
-所以你對其中一張做的任何操作都會顯示在另一張上。
+播放中點擊會從該處繼續播放。滾輪以游標為中心縮放，`Shift` + 滾輪或觸控板橫向滑動則是捲動。
+波形與頻譜圖共用時間軸、選取範圍、播放頭與標記，所以你對其中一張做的任何操作都會顯示在另一張上。
 
-`Space`、`Home` 與剪貼簿相關按鍵刻意*不*註冊為視窗快捷鍵。Qt 會在按鍵送到取得焦點的元件**之前**
-先處理快捷鍵，所以視窗層級的 `Ctrl+C` 會讓工具面板中的每個路徑欄位都無法複製，`Space` 則會讓你
-無法輸入含空格的檔名。它們改在 `keyPressEvent` 中處理，只有在沒有其他元件需要時才會收到；
-選單上仍會顯示這些按鍵。
+只有在焦點不在可輸入文字、數字或選項的欄位時，按鍵才會送到視窗：視窗層級的 `Ctrl+C` 會讓
+工具面板中的每個路徑欄位都無法複製，`Space` 則會讓你無法輸入含空格的檔名。
 
 ## 專案結構
 
 ```
 kudiostudio/
-├── __main__.py       # 命令列進入點、參數解析
-├── app.py            # 主視窗：dock、工具側欄、選單、元件串接
+├── __main__.py       # `kudiostudio`——web/app.py 的 main
 ├── session.py        # AudioSession — 音訊、復原、選取、剪貼簿、
 │                     #   標記、接合交叉淡化、A/B、響度對齊，
 │                     #   以及以腳本形式呈現的編輯歷程
-├── workers.py        # QThread 輔助工具，讓耗時的 kudio 呼叫不會卡住 UI，
-│                     #   並讓循環參照的回收留在 GUI 執行緒上
-├── theme.py          # 共用色彩
-├── style.py          # 深色主題：Fusion、調色盤、樣式表
-├── icons.py          # 工具列、播放控制列與工具側欄的線條圖示
+├── events.py         # AudioSession 宣告變更所用的訊號
+├── tools/            # 各工具的控制項、檢查、呼叫與文字：
+│                     #   effects、enhance、compare、record、synth、manifest、
+│                     #   pitch、metrics、batch
+├── measure.py        # Levels 讀數：報告、true peak、響度曲線
+├── i18n.py           # 翻譯，搭配 locales/zh_TW.py
 ├── plugins.py        # 其他套件透過 entry point 加入的面板
-├── assets/logo.png   # 視窗與工作列圖示，與 kudio 共用同一個標誌
-├── widgets/
-│   ├── views.py      # TimePlot 基底類別 + 波形、頻譜圖/mel/MFCC、
-│   │                 #   錄音中的滾動畫面與 f0 疊圖
-│   ├── levels.py     # 不需參考訊號的音量 / 響度 / 警告讀數
-│   ├── markers.py    # 標記清單，以及 Find speech
-│   └── transport.py  # 播放 / 停止 / 播放頭 / 循環 / A/B / 響度對齊 / 增益，
-│                     #   以及接合交叉淡化
-└── panels/
-    ├── base.py       # Panel 基底類別
-    ├── browse.py     # 檔案清單
-    ├── effects.py    ├── enhance.py   ├── compare.py
-    ├── record.py     ├── synth.py     ├── manifest.py
-    ├── pitch.py      ├── metrics.py   └── batch.py
+├── theme.py          # 色彩，頁面以 CSS 變數讀取
+├── shapes.py         # 線條圖示，以 SVG 表示
+├── assets/           # 視窗與工作列圖示，與 kudio 共用同一個標誌
+└── web/
+    ├── app.py        # 視窗：先開本機伺服器，再用 pywebview 開在它上面
+    ├── server.py     # 只接受 127.0.0.1、每次執行一組 token；提供頁面與資料
+    ├── studio.py     # Studio — 視窗的指令、一個工作階段、播放
+    ├── editing.py    ├── markers.py    ├── monitor.py    ├── analysis.py
+    ├── jobs.py       # 每個面板一個工作，不佔用伺服器的執行緒
+    ├── panels/       # 各工具的 Python 那一半
+    └── static/       # 頁面：index.html、css/、js/ 與 js/panels/
 ```
 
-面板之間從不直接溝通。它們讀取並修改共用的 `AudioSession`；視圖則在它的 `changed` 訊號發出時重繪。
-想要開啟檔案的面板會透過 `open_requested` 請視窗處理，讓檔案像其他檔案一樣出現在 Files 清單中。
-新增面板只需繼承 `Panel` 並把它加到 `PANEL_CLASSES`。
+頁面是套件裡直接提供的純 HTML、CSS 與 JavaScript 模組：沒有建置步驟，也沒有打包工具，
+所以你讀到的就是實際執行的程式碼。它透過同一條路徑 `POST /api/<command>` 向 Python 端要所有東西，
+波形與頻譜圖以二進位的形式只取畫面上的那一段，變更則以 server-sent events 送來。
+伺服器只回應 `127.0.0.1` 上帶著這次執行 token 的請求，所以別的瀏覽器裡的別的網頁無法操作它。
+
+每個工具分成兩半。Python 那一半是一個 `WebPanel`，它的 `@command` 方法由頁面以 `<id>.<name>`
+呼叫；頁面那一半是一個模組，用 `ui.js` 建出控制項並呼叫這些指令。兩者都依靠 `tools/`，
+各工具顯示的參數、檢查與 `kudio` 呼叫都只寫在那裡一次。面板之間從不直接溝通：它們操作共用的
+`AudioSession`，視窗在它變更時重繪。
 
 不適合放進這個專案的工具，面板也可以放在它自己的套件裡。那個套件在 `kudiostudio.panels`
-這個 entry point 群組下登記它的 `Panel` 子類別，視窗就會把它放上工具側欄，排在內建工具下方的分隔線之後：
+這個 entry point 群組下登記它的 `WebPanel` 子類別，視窗就會把它放上工具側欄，排在內建工具下方的分隔線之後：
 
 ```toml
 [project.entry-points."kudiostudio.panels"]
-spectra = "mypackage.studio:SpectraPanel"
+spectra = "mypackage.web:SpectraPanel"
 ```
 
-載入時會讀兩個類別屬性：`icon_svg` 是側欄圖示，以 SVG 內容畫在 `icons.py` 用的 24 格座標上；
-`messages` 是它的翻譯，格式與 `locales/zh_TW.py` 相同。匯入或建構失敗的外掛不會出現在側欄上，
-狀態列會指出是哪一個，視窗照常開啟；`--no-plugins` 則完全不載入外掛。
-
-UI 是用 Python 建構的——沒有 `.ui` 檔，也沒有 `uic` 步驟，所以你讀到的就是實際執行的程式碼。
+類別要說明它的頁面模組在哪裡：`static_dir` 是套件裡的一個資料夾，視窗以 `/plugins/<id>/` 提供它，
+`script` 則是其中的模組。這個模組和內建的一樣掛載，用同一組控制項、以 `ctx.call` 呼叫自己的指令，
+結果需要的空間比面板欄大時，可以用 `ctx.view` 在圖上蓋一個自己的檢視。載入時還會讀兩個類別屬性：
+`icon_svg` 是側欄圖示，以 SVG 內容畫在 `shapes.py` 用的 24 格座標上；`messages` 是它的翻譯，
+格式與 `locales/zh_TW.py` 相同。匯入或建構失敗的外掛不會出現在側欄上，狀態列會指出是哪一個，
+視窗照常開啟；`--no-plugins` 則完全不載入外掛。
 
 ## 測試
 
@@ -606,27 +620,27 @@ UI 是用 Python 建構的——沒有 `.ui` 檔，也沒有 `uic` 步驟，所�
 pytest -q
 ```
 
-563 個測試，涵蓋：工作階段的復原/選取/剪貼簿/標記運算；匯出的編輯腳本在另一個直譯器中執行時，
+774 個測試，涵蓋：工作階段的復原/選取/剪貼簿/標記運算；匯出的編輯腳本在另一個直譯器中執行時，
 能得到與工作階段完全相同的樣本；一份來自真實合成執行的 manifest，不論視窗從哪裡啟動都能找到它的檔案
 並計算覆蓋情況；正規化後讀回的目錄樹，每個沒達標的檔案都以正確的原因列出；殘響副本完全等於以 seed
-產生的房間；不會延遲音訊的量測房間；響度對齊；播放頭的時序；預覽與播放的循環；共用的座標軸與色階；
-比較表的排名，以及在參考訊號不乾淨時拒絕選出贏家；學習式模型那一列的計時不含載入模型的那幾秒；
-滾動視圖保證每一欄只計算一次，且真實音訊永遠優先於即時畫面；音高輪廓拒絕繪製的位置；兩張圖的左右邊距
-保持相同寬度，讓共用的時間軸真正對齊；各面板的行為；主視窗的元件串接；其他套件的面板放上側欄，
-或在載入失敗時被略過並說明原因；工作結束時立即釋放的面板會在
-GUI 執行緒上被回收；以繁體中文建構、但下拉選單讀回的仍是英文值的視窗；以及整個程式在工作進行中也能乾淨地結束——最後這兩項在獨立的直譯器中執行，
-因為它們要防範的正是崩潰。Qt 以無頭模式（`offscreen`）執行，所以測試套件可以在 CI 中運作。
-學習式降噪的測試（標記為 `learned`）會真的訓練一個 epoch 的模型，在面板自己的工作執行緒上執行它，
+產生的房間；不會延遲音訊的量測房間；響度對齊；播放頭的時序；預覽與播放的循環；同一段音訊編輯時保持不變的
+色階與振幅軸；比較表的排名，以及在參考訊號不乾淨時拒絕選出贏家；學習式模型那一列的計時不含載入模型的那幾秒；
+即時畫面保證每一欄只計算一次；音高輪廓拒絕繪製的位置；各面板的指令；伺服器拒絕其他來源與其他 token；
+其他套件的面板放上側欄，或在載入失敗時被略過並說明原因；頁面上每一句都有中文；以及整個程式在工作進行中
+也能乾淨地結束，這一項在獨立的直譯器中執行。測試完全不需要螢幕：Python 端透過視窗自己的指令驅動，
+決定哪些控制項變灰、選了什麼、什麼時候要重新要資料的頁面模組，則在 `node` 下對著替身文件執行，
+沒有安裝 `node` 時會略過。學習式降噪的測試（標記為 `learned`）會真的訓練一個 epoch 的模型，
 並在 kudioenhance 或 PyTorch 未安裝或無法匯入時乾淨地略過——除非設定了 `KUDIOSTUDIO_REQUIRE_LEARNED=1`，
 此時會改為失敗，供那些專門安裝了兩者來跑這些測試的 CI 工作使用。無限長度的錄音器則透過假的裝置驅動，
 因為 CI 沒有麥克風。
 
-`tools/smoke.py` 是另一半：在單一程序中執行 166 項端對端檢查，涵蓋單元測試無法涵蓋的部分——
-真實檔案、非預設的取樣率、長達一分鐘的輸入、`kudio` 命令列，以及驅動真實工作執行緒的視窗。
+`tools/smoke.py` 是另一半：在單一程序中執行 162 項端對端檢查，涵蓋單元測試無法涵蓋的部分——
+真實檔案、非預設的取樣率、長達一分鐘的輸入、`kudio` 命令列，以及驅動真實工作的視窗伺服器。
 任何一項失敗都會以非零狀態碼結束。
 
 README 的截圖是程式產生的，不是手動擷取的——修改視窗之後請重新執行
-`python tools/screenshots.py`，並提交有變動的圖片。
+`python tools/screenshots.py`（中文 README 的截圖加上 `--lang zh_TW`），並提交有變動的圖片。
+它用無頭模式的 Chrome、Chromium 或 Edge 畫出視窗，裝了哪一個就用哪一個。
 
 ## 相關專案
 

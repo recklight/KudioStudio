@@ -12,22 +12,14 @@ MESSAGES = {
         'kudio 音訊工具組的桌面工作台。',
     'audio files to open on start-up; a corpus manifest (.json) opens in the Manifest panel':
         '啟動時要開啟的音訊檔；語料庫 manifest（.json）會在 Manifest 面板中開啟',
-    'discard saved window geometry and settings':
-        '捨棄儲存的視窗位置與設定',
-    'use the native Qt style instead of the dark theme':
-        '使用原生 Qt 樣式，而非深色主題',
     'debug logging':
         '除錯記錄',
     'A/B — the original, {} LU against the edit; turn on Match loudness to compare fairly':
         'A/B — 原始音訊，比編輯版本 {} LU；開啟「響度對齊」才能公平比較',
-    'KudioStudio {} — kudio {} ready.':
-        'KudioStudio {} — kudio {} 已就緒。',
     'Files':
         '檔案',
     'Markers':
         '標記',
-    'Tools':
-        '工具',
     '&File':
         '檔案(&F)',
     '&Open…':
@@ -86,8 +78,6 @@ MESSAGES = {
         '縮小至整段音訊(&O)',
     '&Help':
         '說明(&H)',
-    'Main':
-        '主工具列',
     'Open audio':
         '開啟音訊',
     'Open a corpus manifest':
@@ -118,18 +108,12 @@ MESSAGES = {
         '接合交叉淡化',
     'Milliseconds blended at each cut and paste.\n0 disables it, at the cost of a click where two pieces meet.':
         '每次剪下與貼上時混合的毫秒數。\n設為 0 即停用，代價是兩段接合處會出現喀聲。',
-    'Splice cross&fade… ({} ms)':
-        '接合交叉淡化(&F)…（{} ms）',
     'A/B — monitoring the edit':
         'A/B — 監聽編輯版本',
     'A/B — the original, level as-is (too short to measure loudness)':
         'A/B — 原始音訊，音量維持原樣（太短，無法量測響度）',
     'A/B — the original, levelled to the edit ({} LU applied)':
         'A/B — 原始音訊，已對齊編輯版本的響度（套用 {} LU）',
-    'About KudioStudio':
-        '關於 KudioStudio',
-    "<b>KudioStudio {}</b><br>A desktop workbench for the <a href='https://pypi.org/project/kudio/'>kudio</a> audio toolkit.<br><br>kudio {} · MIT licence":
-        "<b>KudioStudio {}</b><br><a href='https://pypi.org/project/kudio/'>kudio</a> 音訊工具組的桌面工作台。<br><br>kudio {} · MIT 授權",
     'Plugin: {}':
         '外掛：{}',
     'Plugin {} was left out — {}':
@@ -164,8 +148,6 @@ MESSAGES = {
         '接合處現在是硬切 — 每個接點都可能出現喀聲。',
     '{}  ·  {}s  ·  {} Hz  ·  {} samples':
         '{}  ·  {} 秒  ·  {} Hz  ·  {} 個樣本',
-    'no audio loaded':
-        '未載入音訊',
     'Quitting when {} — a running job cannot be stopped half-way.':
         '將在{}後結束 — 執行中的工作無法中途停止。',
     'Could not open {} — {}: {}':
@@ -174,14 +156,10 @@ MESSAGES = {
         '儲存失敗 — {}: {}',
     'Export failed — {}: {}':
         '匯出失敗 — {}: {}',
-    'the level meters':
-        '音量表',
     ' finishes':
         '完成',
     ' and {} finish':
         '與 {} 完成',
-    'Select a folder':
-        '選擇資料夾',
     'Load an audio file first.':
         '請先載入音訊檔。',
     'Batch':
@@ -244,10 +222,10 @@ MESSAGES = {
         '批次轉換',
     'Converting …':
         '轉換中…',
-    '\nNoise floor down {} dB on average — a measurement of what was removed, not of whether it sounds better. Open one and listen.':
-        '\n底噪平均降低 {} dB — 這是量測去除了多少，不代表聽起來更好。請開一個來聽聽看。',
-    '\nLevelled to {} LUFS after the denoise pass, which takes level out with the noise.':
-        '\n已在降噪之後調整到 {} LUFS，因為降噪會連同雜訊拿掉一些音量。',
+    'Noise floor down {} dB on average — a measurement of what was removed, not of whether it sounds better. Open one and listen.':
+        '底噪平均降低 {} dB — 這是量測去除了多少，不代表聽起來更好。請開一個來聽聽看。',
+    'Levelled to {} LUFS after the denoise pass, which takes level out with the noise.':
+        '已在降噪之後調整到 {} LUFS，因為降噪會連同雜訊拿掉一些音量。',
     ', {} missed the loudness target':
         '，{} 個未達響度目標',
     'Loudness, read back from disk: all {} file(s) {}.':
@@ -274,12 +252,16 @@ MESSAGES = {
         '殘響副本需要自己的資料夾 — 不能是輸出資料夾，也不能在它裡面或包住它。',
     'A batch job is already running.':
         '已有批次工作在執行中。',
-    '\n… and {} more':
-        '\n… 另有 {} 個',
+    '… and {} more':
+        '… 另有 {} 個',
+    '{} failed:':
+        '{} 個失敗：',
     '{} could not get there':
         '{} 個未能達標',
     '{} got there with too little headroom':
         '{} 個達標但餘裕不足',
+    '{} could not get there and {} got there with too little headroom':
+        '{} 個未能達標，{} 個達標但餘裕不足',
     'could not get there':
         '未能達標',
     'on target, too little headroom':
@@ -288,28 +270,14 @@ MESSAGES = {
         '\n\n{} 個失敗：\n',
     ' and ':
         ' 與',
-    'Audio (*.wav *.flac *.mp3 *.ogg *.aiff);;All files (*)':
-        '音訊 (*.wav *.flac *.mp3 *.ogg *.aiff);;所有檔案 (*)',
     'Add files…':
         '加入檔案…',
-    'Add folder…':
-        '加入資料夾…',
     'Remove':
         '移除',
     'Clear':
         '清除',
-    'Add audio files':
-        '加入音訊檔',
-    'Add a folder of audio':
-        '加入音訊資料夾',
-    'Added {} file(s) from {}.':
-        '已從 {1} 加入 {0} 個檔案。',
     'Added {} file(s).':
         '已加入 {} 個檔案。',
-    'No audio files found in {}.':
-        '在 {} 中找不到音訊檔。',
-    'Could not scan {} — {}':
-        '無法掃描 {} — {}',
     'none — a real recording has no clean version':
         '無 — 真實錄音沒有乾淨版本',
     "the original, before this session's edits":
@@ -364,8 +332,6 @@ MESSAGES = {
         '學習式模型',
     'Select the clean reference':
         '選擇乾淨的參考訊號',
-    'Audio (*.wav *.flac *.mp3 *.ogg)':
-        '音訊 (*.wav *.flac *.mp3 *.ogg)',
     'Running {} combination(s) …':
         '正在執行 {} 種組合…',
     'Comparison failed — {}':
@@ -1024,10 +990,6 @@ MESSAGES = {
         '剪貼簿來自一段錄音，腳本無法讀回',
     'Levels':
         '音量',
-    'The peak of the waveform between the samples (BS.1770-4 Annex 2).\nSamples are points on a curve that passes between them, and the\ncurve overshoots — so a file with no sample at full scale can\nstill clip in a converter or a lossy encoder.':
-        '樣本之間的波形峰值（BS.1770-4 附錄 2）。\n樣本是一條曲線上的點，曲線會從點之間穿過，而且會超出 —\n所以沒有任何樣本達到滿刻度的檔案，\n在轉換器或有損編碼器中仍可能削波。',
-    'Loudness range, EBU Tech 3342: how far the loud parts sit above\nthe quiet ones. A consistent delivery lands near 3-6 LU.':
-        '響度範圍，EBU Tech 3342：大聲部分比安靜部分高出多少。\n一致的交付通常落在 3–6 LU。',
     'true peak':
         'true peak',
     'nothing wrong with the recording itself':
@@ -1058,18 +1020,12 @@ MESSAGES = {
         '已標記 {}',
     'Rename marker':
         '重新命名標記',
-    'Label:':
-        '標籤：',
     'Markers cleared.':
         '已清除標記。',
     'Export markers':
         '匯出標記',
-    'Audacity labels (*.txt);;JSON (*.json)':
-        'Audacity 標籤 (*.txt);;JSON (*.json)',
     'Import markers':
         '匯入標記',
-    'Labels (*.txt *.tsv *.json);;All files (*)':
-        '標籤 (*.txt *.tsv *.json);;所有檔案 (*)',
     'Imported {} marker(s) from {}':
         '已從 {1} 匯入 {0} 個標記',
     'marker {}':
@@ -1094,14 +1050,8 @@ MESSAGES = {
         'A / B  ·  編輯版本',
     'A / B  ·  original':
         'A / B  ·  原始音訊',
-    'Play':
-        '播放',
     'Play from the cursor, or the selection (Space)':
         '從游標或選取範圍開始播放（Space）',
-    'Stop':
-        '停止',
-    'Stop playback (Space)':
-        '停止播放（Space）',
     'Selection only':
         '只播選取範圍',
     'Play just the highlighted range when there is a selection.':
@@ -1124,34 +1074,12 @@ MESSAGES = {
         '接合淡化',
     'Short-term loudness (EBU Tech 3341) over the waveform, on its own LUFS\naxis. The integrated figure in the Levels box is one number for the whole\nclip; this is where it moved.':
         '在波形上以獨立的 LUFS 軸顯示短期響度（EBU Tech 3341）。\nLevels 區塊中的整合數值是整段音訊的一個數字；\n這條曲線顯示它在哪裡變動。',
-    'STFT (log-power)':
-        'STFT（對數功率）',
-    'Mel (log-power)':
-        'Mel（對數功率）',
-    'Time':
-        '時間',
-    'Amplitude':
-        '振幅',
-    'Loudness':
-        '響度',
     'Frequency':
         '頻率',
     'Loudness over time':
         '響度隨時間變化',
-    'View':
-        '檢視',
     'Analysis':
         '分析',
-    'no selection':
-        '未選取',
-    'Zoom':
-        '縮放',
-    'Fit the selection to the width (Ctrl+E)':
-        '把選取範圍縮放至整個寬度（Ctrl+E）',
-    'Full':
-        '全部',
-    'Show the whole clip again (Ctrl+F)':
-        '再次顯示整段音訊（Ctrl+F）',
     'Selection':
         '選取範圍',
     'MFCC coefficient':
@@ -1162,8 +1090,6 @@ MESSAGES = {
         '音訊短於 {} 秒的短期視窗（EBU Tech 3341），所以沒有曲線可畫。',
     '{} s selected':
         '已選取 {} 秒',
-    'Language: {}':
-        '語言：{}',
     'peak':
         '峰值',
     'loudness':
@@ -1209,14 +1135,28 @@ MESSAGES = {
         '縮放至選取範圍（Ctrl+E）',
     'Zoom out to whole clip (Ctrl+F)':
         '縮小至整段音訊（Ctrl+F）',
-    'Hold the edit against the audio you started with (Ctrl+B)':
-        '把編輯結果和原本的音訊對照（Ctrl+B）',
     'Remove from the list':
         '從清單移除',
     'Path of an audio file on this computer':
         '這台電腦上音訊檔的路徑',
     'Dropping files needs the KudioStudio window; use Open here.':
         '拖放檔案要在 KudioStudio 視窗裡才行，這裡請用「開啟」。',
-    'This tool has not been moved to the new window yet. It still works in the Qt window: python -m kudiostudio':
-        '這個工具還沒搬進新視窗，在 Qt 視窗裡照常能用：python -m kudiostudio',
+    'OK':
+        '確定',
+    'Close':
+        '關閉',
+    'Path':
+        '路徑',
+    'Save audio as (Ctrl+Shift+S)':
+        '另存音訊（Ctrl+Shift+S）',
+    'A desktop workbench for the kudio audio toolkit.':
+        'kudio 音訊工具組的桌面工作台。',
+    'Close the browser tab to leave; the server stops with Ctrl+C.':
+        '要離開請關掉瀏覽器分頁；伺服器用 Ctrl+C 停止。',
+    'kudio.vad — mark every span that contains speech':
+        'kudio.vad — 把每一段含有語音的範圍標記起來',
+    'Rendering a preview…':
+        '正在產生試聽…',
+    'silent':
+        '無聲',
 }

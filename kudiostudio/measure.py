@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Level, loudness and "is this recording usable" -- `kudio.audio_report`.
 
-The measuring half of the Levels readout, apart from any window, so the
-browser window reports the same numbers measured the same way.
+The measuring half of the Levels readout, apart from any window;
+`Studio.levels` turns it into what the page shows.
 """
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ TRUE_PEAK_WARN_DBTP = -1.0
 class Measurement(NamedTuple):
     """One pass over the audio, answering everything the readout shows.
 
-    All four come from the same worker job because they walk the same signal:
-    running them separately would filter it four times and, worse, let the
-    panel show numbers measured from four different moments of an edit.
+    All four come from one call because they walk the same signal: running
+    them separately would filter it four times and, worse, let the Levels
+    box show numbers measured from four different moments of an edit.
     """
 
     report: object                       # kudio.AudioReport
@@ -34,7 +34,8 @@ class Measurement(NamedTuple):
 
 
 def measure(y, sr) -> Measurement:
-    """Everything the Levels box reports, off the GUI thread."""
+    """Everything the Levels box reports. A long file takes half a second,
+    so `Studio.levels` calls this with its lock released."""
     report = kudio.audio_report(y, sr)
     peak = kudio.true_peak(y, sr)
     try:

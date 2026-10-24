@@ -1,11 +1,15 @@
-// The window: wires the plots, the transport and the panels to the Studio
-// behind the local server, and keeps them in step with its events.
+// The window: wires the plots, the transport, the menus and the panels to
+// the Studio behind the local server, and keeps them in step with its events.
 
 import { call, listen } from "./api.js";
+import { about, ask, askNumber, choosePath } from "./dialogs.js";
 import { clock, hertz, level } from "./format.js";
 import { load as loadTable, t, translatePage } from "./i18n.js";
 import { fillIcons, loadIcons, svg } from "./icons.js";
+import { MarkerList } from "./markers.js";
+import { MenuBar, menuText } from "./menus.js";
 import { Overview } from "./overview.js";
+import { Panels } from "./panels.js";
 import { SpectrogramPlot } from "./spectrogram.js";
 import { TimeView } from "./view.js";
 import { WaveformPlot } from "./waveform.js";
@@ -13,26 +17,33 @@ import { WaveformPlot } from "./waveform.js";
 const $ = (id) => document.getElementById(id);
 const app = $("app");
 
-/** The tool rail. Only Inspect is in this window so far; the rest still
- *  live in the Qt one. */
-const TOOLS = [
-  { id: "inspect", icon: "inspect", title: "Inspect", ready: true },
-  { id: "effects", icon: "effects", title: "Effects" },
-  { id: "enhance", icon: "enhance", title: "Enhance" },
-  { id: "compare", icon: "compare", title: "Compare" },
-  { id: "record", icon: "record", title: "Record" },
-  { id: "synthesize", icon: "synthesize", title: "Synthesize" },
-  { id: "manifest", icon: "manifest", title: "Manifest" },
-  { id: "pitch", icon: "pitch", title: "Pitch" },
-  { id: "metrics", icon: "metrics", title: "Metrics" },
-  { id: "batch", icon: "batch", title: "Batch" },
-];
+/** Tooltips of more than one line, set from here because a line break
+ *  inside an HTML attribute becomes CRLF on a Windows checkout and then
+ *  fails to match its translation. */
+const TIPS = {
+  "loop-wrap": "Repeat what was last played (Ctrl+L).\nA panel's Preview always loops; this is for ordinary playback.",
+  "selection-only-wrap": "Play just the highlighted range when there is a selection.",
+  compare: "Hold the edit against the audio you started with (Ctrl+B).\nViews and playback follow; the tools keep working on the edit.",
+  "match-wrap": "Level the original to the edit (ITU-R BS.1770) before comparing.\nOf two versions of a clip the louder is preferred whatever its\nquality, so an unmatched A/B is partly a loudness test.",
+  "xf-wrap": "Milliseconds blended at each cut, paste and insert.\n0 is a hard cut, at the cost of a click where two pieces meet.\nEvery edit says in the status bar how much it applied.",
+  "marker-save": "Write them beside the audio as clip.wav.labels.json, which is picked up automatically next time the file is opened.",
+};
 
 const view = new TimeView();
 let state = null;
 let playback = null;          // { start, end, at } while playing
 let playhead = 0;
 let levelsVersion = -1;
+let loudness = null;          // { curve, shortTerm } for the audio on screen
+let live = null;              // { span, call } while a take is running
+let liveEnded = false;        // a take has just ended; its audio is on its way
+const busy = new Map();       // owner -> label, while a job runs
+
+// A length change below this is the same clip: frame-based processing does
+// not hand back exactly what it was given (kudio's trad_enhance comes back
+// 8 ms short), and calling that a new clip would reset the zoom after every
+// denoise. The server holds the colour scale by the same rule (SAME_CLIP_S).
+const SAME_CLIP_S = 0.05;
 
 // ------------------------------------------------------------------ plots
 
@@ -47,6 +58,12 @@ const wave = new WaveformPlot($("wave"), view, plotHooks("wave"));
 const spec = new SpectrogramPlot($("spec"), view, plotHooks("spec"));
 const overview = new Overview($("overview"), view);
 const plots = [wave, spec];
+
+const markers = new MarkerList({
+  apply: (s) => applyState(s),
+  seek: (time) => { setPlayhead(time); command("seek", [time]); view.follow(time); },
+});
+const panels = new Panels({ apply: (s) => applyState(s), status, state: () => state });
 
 // --------------------------------------------------------------- commands
 
@@ -66,18 +83,161 @@ async function command(name, args = [], kwargs = {}) {
 async function open() {
   const result = await command("open_dialog");
   if (result && result.needs_path) {
-    const path = await ask(t("Open audio"), t("Path of an audio file on this computer"));
+    const path = await ask({ title: t("Open audio"), submit: t("Open"),
+                             placeholder: t("Path of an audio file on this computer") });
     if (path) await command("open_files", [[path]]);
   }
+}
+
+async function openManifest() {
+  const path = await choosePath("open", { title: t("Open a corpus manifest"),
+                                          types: ["Manifest (*.json)", "All files (*.*)"] });
+  if (path) await command("open_manifest", [path]);
 }
 
 function togglePlay() {
   if (state?.has_audio) command("toggle_play");
 }
 
+function seekHome() {
+  if (!state?.has_audio) return;
+  setPlayhead(0);
+  command("seek", [0]);
+  view.follow(0);
+}
+
 function zoomToSelection() {
   const s = state?.selection;
   if (s) view.set(s[0] - (s[1] - s[0]) * 0.02, s[1] + (s[1] - s[0]) * 0.02);
+}
+
+// ------------------------------------------------------------ edit + file
+
+async function insertSilence() {
+  if (!state?.has_audio) return;
+  const seconds = await askNumber({ title: menuText("Insert silence")[0], label: t("Seconds:"),
+                                    value: 1, min: 0.001, max: 600, step: 0.1, unit: "s" });
+  if (seconds !== null) command("insert_silence", [seconds]);
+}
+
+async function crossfadeDialog() {
+  const ms = await askNumber({
+    title: menuText("Splice crossfade")[0],
+    label: t("Milliseconds blended at each cut and paste.\n0 disables it, at the cost of a click where two pieces meet."),
+    value: state?.crossfade_ms ?? 5, min: 0, max: 200, step: 1, unit: "ms",
+  });
+  if (ms !== null) command("set_crossfade", [ms]);
+}
+
+async function saveTo(kind, commandName, title, types) {
+  const suggested = await call("suggest_name", [kind]);
+  const path = await choosePath("save", { title: t(title), suggested, types });
+  if (path) await command(commandName, [path]);
+}
+
+const saveAs = () => state?.has_audio && saveTo("audio", "save_as", "Save audio as", ["WAV (*.wav)"]);
+const saveSelection = () => state?.can_copy
+  && saveTo("selection", "save_selection", "Save selection as", ["WAV (*.wav)"]);
+const exportScript = () => state?.has_history
+  && saveTo("script", "export_script", "Export edits as Python script", ["Python (*.py)"]);
+
+/** The plots as they are on screen, into one PNG: the zoom, the selection
+ *  and the playhead included. */
+async function exportImage() {
+  if (!state?.has_audio) { status(t("Nothing to export.")); return; }
+  const suggested = await call("suggest_name", ["image"]);
+  const path = await choosePath("save", { title: t("Export analysis image"), suggested,
+                                          types: ["PNG (*.png)"] });
+  if (!path) return;
+  const parts = [$("wave"), $("spec")];
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(...parts.map((c) => c.width));
+  const gap = Math.round(10 * dpr);
+  const height = parts.reduce((sum, c) => sum + c.height, 0) + gap * (parts.length + 1);
+  const out = document.createElement("canvas");
+  out.width = width + gap * 2;
+  out.height = height;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--base").trim();
+  ctx.fillRect(0, 0, out.width, out.height);
+  let y = gap;
+  for (const c of parts) {
+    ctx.drawImage(c, gap, y);
+    y += c.height + gap;
+  }
+  await command("write_image", [path, out.toDataURL("image/png")]);
+}
+
+async function showAbout() {
+  const info = await call("about");
+  about(info, info.plugins);
+}
+
+async function quit() {
+  const result = await command("quit");
+  if (result && !result.closing) status(t("Close the browser tab to leave; the server stops with Ctrl+C."));
+}
+
+function edit(name) {
+  return () => state?.has_audio && command(name);
+}
+
+// ------------------------------------------------------------------ menus
+
+const has = () => Boolean(state?.has_audio);
+const MENUS = [
+  { title: "&File", items: [
+    { label: "&Open…", keys: "Ctrl+O", run: open },
+    { label: "Open &manifest…", run: openManifest },
+    { label: "Save &As…", keys: "Ctrl+Shift+S", run: saveAs, enabled: has },
+    { label: "Save &selection as…", keys: "Ctrl+Shift+E", run: saveSelection,
+      enabled: () => Boolean(state?.can_copy) },
+    "-",
+    { label: "&Export analysis image…", run: exportImage, enabled: has },
+    { label: "Export edits as &Python script…", run: exportScript,
+      enabled: () => Boolean(state?.has_history) },
+    "-",
+    { label: "&Quit", keys: "Ctrl+Q", run: quit },
+  ] },
+  { title: "&Edit", items: [
+    { label: "&Undo", keys: "Ctrl+Z", run: () => command("undo"), enabled: () => Boolean(state?.can_undo) },
+    { label: "&Revert to original", run: () => command("revert"), enabled: () => Boolean(state?.can_revert) },
+    "-",
+    { label: "Cu&t\tCtrl+X", run: edit("cut"), enabled: () => Boolean(state?.can_copy) },
+    { label: "&Copy\tCtrl+C", run: edit("copy"), enabled: () => Boolean(state?.can_copy) },
+    { label: "&Paste\tCtrl+V", run: edit("paste"), enabled: () => Boolean(state?.can_paste) },
+    { label: "&Delete\tDel", run: edit("delete"), enabled: () => Boolean(state?.can_copy) },
+    "-",
+    { label: "Crop to selectio&n", keys: "Ctrl+T", run: edit("crop"), enabled: () => Boolean(state?.can_copy) },
+    { label: "&Insert silence…", run: insertSilence, enabled: has },
+    { label: "Splice cross&fade…", run: crossfadeDialog,
+      text: (label) => `${label} (${(state?.crossfade_ms ?? 0).toString()} ms)` },
+    "-",
+    { label: "Select &All", keys: "Ctrl+A", run: () => command("select_all"), enabled: has },
+    { label: "&Clear selection", keys: "Esc", run: () => command("clear_selection"), enabled: has },
+  ] },
+  { title: "&Playback", items: [
+    { label: "&Play / Stop\tSpace", run: togglePlay, enabled: has },
+    { label: "Playhead to &start\tHome", run: seekHome, enabled: has },
+    "-",
+    { label: "&Loop", keys: "Ctrl+L", run: () => command("set_transport", [], { loop: !state?.loop }),
+      enabled: has, checked: () => Boolean(state?.loop) },
+    { label: "&A/B compare original", keys: "Ctrl+B", run: toggleCompare,
+      enabled: () => Boolean(state?.can_compare), checked: () => Boolean(state?.comparing) },
+  ] },
+  { title: "&View", items: [
+    { label: "Zoom to &selection", keys: "Ctrl+E", run: zoomToSelection,
+      enabled: () => Boolean(state?.selection) },
+    { label: "Zoom &out to whole clip", keys: "Ctrl+F", run: () => view.full(), enabled: has },
+  ] },
+  { title: "&Help", items: [
+    { label: "&About", run: showAbout },
+  ] },
+];
+const menuBar = new MenuBar($("menubar"), MENUS);
+
+function toggleCompare() {
+  if (state?.can_compare) command("set_compare", [!state.comparing]);
 }
 
 // ------------------------------------------------------------------ state
@@ -92,6 +252,8 @@ function applyState(next) {
     $("file-name").textContent = next.name;
     $("file-meta").textContent =
       `${(next.sr / 1000).toFixed(next.sr % 1000 ? 1 : 0)} kHz · ${next.duration.toFixed(2)} s`;
+    $("file-chip").title = `${next.name}  ·  ${next.duration.toFixed(2)}s  ·  ${next.sr} Hz  ·  ` +
+      `${next.samples} samples`;
     document.title = `${next.name} — KudioStudio`;
   } else {
     document.title = "KudioStudio";
@@ -100,42 +262,62 @@ function applyState(next) {
   $("status-right").textContent = `KudioStudio ${v.kudiostudio} · kudio ${v.kudio}`;
   $("total").textContent = `/ ${clock(next.duration)}`;
 
+  $("save").disabled = !next.has_audio;
   $("undo").disabled = !next.can_undo;
-  $("revert").disabled = !next.can_undo;
+  $("revert").disabled = !next.can_revert;
   $("zoom-full").disabled = !next.has_audio;
   $("zoom-selection").disabled = !next.selection;
   $("play").disabled = !next.has_audio;
   $("compare").disabled = !next.can_compare;
   $("compare").classList.toggle("on", next.comparing);
+  $("compare").textContent = menuText(next.comparing ? "A / B  ·  original" : "A / B  ·  edited")[0];
+  $("match-loudness").checked = next.match_loudness;
+  $("match-loudness").disabled = !next.can_compare;
+  $("match-wrap").classList.toggle("disabled", !next.can_compare);
   $("loop").checked = next.loop;
   $("selection-only").checked = next.selection_only;
+  if (document.activeElement !== $("crossfade")) $("crossfade").value = next.crossfade_ms;
   setGain(next.gain_db, false);
 
   renderFiles(next);
-  renderMarkers(next);
+  markers.render(next);
+  // while a take runs the plots show it, and the clip's marks are not on it
+  for (const plot of plots) plot.setMarkers(live ? [] : next.markers);
   renderAnalysis(next);
   showSelection(next.selection, null);
+  panels.state(next);
 
   if (!next.has_audio) {
     wave.clear();
     spec.clear();
     overview.clear();
+    if (previous?.has_audio) clearLevels();
     return;
   }
   const newAudio = !previous || previous.version !== next.version;
   if (newAudio) {
-    // an edit keeps the view where it is; another file starts on the whole
-    // of it
-    const newFile = !previous || !previous.has_audio || previous.path !== next.path;
-    if (newFile) {
+    // An edit that keeps the clip -- a denoise, a gain, an A/B swap -- keeps
+    // the zoom and the amplitude axis, since that is when two versions are
+    // being compared: a quieter version has to look quieter. Another file, a
+    // take that has just been recorded, or a trim start on the whole of it.
+    const newFile = !previous || !previous.has_audio || previous.path !== next.path || liveEnded;
+    const sameClip = !newFile && Math.abs(next.duration - previous.duration) <= SAME_CLIP_S;
+    liveEnded = false;
+    if (!sameClip) {
       view.reset(next.duration, next.sr);
     } else {
       view.duration = next.duration;
       view.sampleRate = next.sr;
       view.set(view.t0, view.t1);
     }
-    overview.setAudio(next.version, next.duration).then((peak) => wave.setAudio(next.version, peak));
+    // the axis only ever grows, so nothing is drawn off the plot
+    const held = sameClip ? wave.peak : 0;
+    overview.setAudio(next.version, next.duration)
+      .then((peak) => wave.setAudio(next.version, Math.max(peak, held)));
     spec.setAudio(next.version);
+    // measured from audio that is no longer there; the new one is on its way
+    loudness = null;
+    applyLoudness();
     refreshLevels();
   } else if (previous.call !== next.call) {
     spec.refresh();
@@ -162,27 +344,6 @@ function renderFiles(s) {
   $("files-empty").hidden = s.files.length > 0;
 }
 
-function renderMarkers(s) {
-  const list = $("marker-list");
-  list.replaceChildren();
-  for (const m of s.markers) {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="when mono"></span><span class="label"></span>`;
-    li.querySelector(".when").textContent = m.end > m.start
-      ? `${m.start.toFixed(2)}–${m.end.toFixed(2)}` : m.start.toFixed(3);
-    li.querySelector(".label").textContent = m.label || "—";
-    li.addEventListener("click", () => {
-      setPlayhead(m.start);
-      command("seek", [m.start]);
-      if (m.end > m.start) command("set_selection", [m.start, m.end]);
-    });
-    list.append(li);
-  }
-  $("markers-empty").hidden = s.markers.length > 0;
-  $("marker-count").textContent = s.markers.length ? String(s.markers.length) : "";
-  for (const plot of plots) plot.setMarkers(s.markers);
-}
-
 function renderAnalysis(s) {
   const a = s.analysis;
   for (const button of $("view-mode").querySelectorAll("button")) {
@@ -197,13 +358,16 @@ function renderAnalysis(s) {
   $("hop_length").disabled = !spectral;
   $("n_mels").disabled = a.mode !== "mel";
   $("n_mfcc").disabled = a.mode !== "mfcc";
-  $("call-hint").textContent = s.call;
-  $("call-hint").title = s.call;
+  const call = live?.call || s.call;
+  $("call-hint").textContent = call;
+  $("call-hint").title = call;
 }
 
 function showSelection(sel, from) {
   for (const plot of plots) {
-    if (plot !== (from === "wave" ? wave : from === "spec" ? spec : null)) plot.setSelection(sel);
+    if (plot !== (from === "wave" ? wave : from === "spec" ? spec : null)) {
+      plot.setSelection(live ? null : sel);
+    }
   }
   const start = $("sel-start");
   const end = $("sel-end");
@@ -216,8 +380,9 @@ function showSelection(sel, from) {
 
 function setPlayhead(seconds) {
   playhead = seconds;
-  for (const plot of plots) plot.setPlayhead(state?.has_audio ? seconds : null);
-  overview.setPlayhead(state?.has_audio ? seconds : null);
+  const shown = state?.has_audio && !live ? seconds : null;
+  for (const plot of plots) plot.setPlayhead(shown);
+  overview.setPlayhead(shown);
   $("time").textContent = clock(seconds);
 }
 
@@ -243,6 +408,48 @@ function hover(which, time, value) {
   }
 }
 
+// ------------------------------------------------------------------ takes
+
+/** The plots while a take runs: the last few seconds, right-aligned on
+ *  "now", drawn from the server's snapshots. There is no timeline to select
+ *  on yet, so the plots stop taking the mouse until the take lands. */
+function onMonitor(e) {
+  if (!e.on) {
+    if (live) {
+      live = null;
+      liveEnded = true;
+      app.classList.remove("live");
+      if (state) renderAnalysis(state);
+    }
+    return;
+  }
+  if (!live) {
+    live = { span: e.span || 3, call: "" };
+    app.classList.add("live");
+    for (const plot of plots) {
+      plot.setMarkers([]);
+      plot.setSelection(null);
+    }
+    setPlayhead(playhead);
+    view.reset(live.span, e.sr || 0);
+    overview.clear();
+    loudness = null;
+    applyLoudness();
+    spec.setOverlay(null);
+  }
+  if (e.call) {
+    live.call = e.call;
+    $("call-hint").textContent = e.call;
+    $("call-hint").title = e.call;
+  }
+  if (e.span && e.span !== live.span) {
+    live.span = e.span;
+    view.reset(live.span, 0);
+  }
+  if ("wave" in e) wave.live(e.wave);
+  if ("image" in e) spec.live(e.image, live.span);
+}
+
 // --------------------------------------------------------------- playback
 
 function onPlayback(event) {
@@ -251,10 +458,11 @@ function onPlayback(event) {
     const running = playback !== null;
     playback = { start: event.start, end: event.end, at: performance.now() };
     app.classList.add("playing");
+    app.classList.toggle("previewing", Boolean(event.preview));
     if (!running) requestAnimationFrame(animate);
   } else {
     playback = null;
-    app.classList.remove("playing");
+    app.classList.remove("playing", "previewing");
     setPlayhead(event.position);
   }
 }
@@ -274,6 +482,8 @@ async function refreshLevels() {
   levelsVersion = state.version;
   const measured = await command("levels");
   if (!measured || measured.empty || measured.version !== state.version) return;
+  loudness = { curve: measured.curve, shortTerm: measured.short_term_s };
+  applyLoudness();
   const put = (id, text, cls = "") => {
     const el = $(id);
     el.textContent = text ?? t("n/a");
@@ -298,6 +508,36 @@ async function refreshLevels() {
   }
 }
 
+/** Nothing to measure: the Levels box goes back to how it starts, rather
+ *  than keep the figures of a clip that is gone. */
+function clearLevels() {
+  levelsVersion = -1;
+  loudness = null;
+  applyLoudness();
+  for (const id of ["lv-peak", "lv-true-peak", "lv-loudness", "lv-range", "lv-bandwidth"]) {
+    $(id).textContent = "—";
+    $(id).className = "mono";
+  }
+  $("lv-problems").replaceChildren();
+  $("lv-problems").classList.remove("clean");
+}
+
+/** The short-term loudness over the waveform, when it is ticked and there
+ *  is one. A box that ticks and does nothing is worse than one that says why
+ *  it cannot: a clip shorter than the window has no curve, not a poor one. */
+function applyLoudness() {
+  const box = $("show-loudness");
+  const curve = loudness?.curve ?? null;
+  box.disabled = !curve;
+  $("loudness-wrap").classList.toggle("disabled", !curve);
+  $("loudness-wrap").title = curve || !loudness
+    ? t("Short-term loudness (EBU Tech 3341) over the waveform, on its own LUFS\naxis. The integrated figure in the Levels box is one number for the whole\nclip; this is where it moved.")
+    : t(`The clip is shorter than the ${loudness.shortTerm} s short-term window (EBU Tech 3341), so there is no curve to draw.`);
+  const on = Boolean(curve && box.checked);
+  wave.setLoudness(on ? curve : null);
+  spec.setRightGutter(on);
+}
+
 // ----------------------------------------------------------------- chrome
 
 function status(text, warn = false) {
@@ -305,64 +545,26 @@ function status(text, warn = false) {
   $("status").style.color = warn ? "var(--warn)" : "";
 }
 
-function buildRail() {
-  const rail = $("rail");
-  rail.replaceChildren();
-  TOOLS.forEach((tool, index) => {
-    if (index === 1) {
-      const rule = document.createElement("div");
-      rule.className = "rule";
-      rail.append(rule);
-    }
-    const button = document.createElement("button");
-    button.dataset.tool = tool.id;
-    button.classList.toggle("later", !tool.ready);
-    button.innerHTML = `<i data-icon="${tool.icon}"></i><span data-t>${tool.title}</span>`;
-    button.addEventListener("click", () => selectTool(tool));
-    rail.append(button);
-  });
-  selectTool(TOOLS[0]);
+function onJob(event) {
+  if (event.busy) busy.set(event.owner, event.label);
+  else busy.delete(event.owner);
+  const labels = [...busy.values()].filter(Boolean).map((l) => t(l));
+  $("status-busy").textContent = labels.join(" · ");
+  $("status-dot").classList.toggle("busy", busy.size > 0);
 }
 
-function selectTool(tool) {
-  for (const button of $("rail").querySelectorAll("button")) {
-    button.classList.toggle("active", button.dataset.tool === tool.id);
+function applyTips() {
+  for (const [id, tip] of Object.entries(TIPS)) {
+    const el = $(id);
+    if (el) el.title = t(tip);
   }
-  for (const section of $("panel").querySelectorAll("[data-panel]")) {
-    section.hidden = tool.ready ? section.dataset.panel !== "inspect" : section.dataset.panel !== "later";
-  }
-  if (!tool.ready) $("later-title").textContent = t(tool.title);
-}
-
-/** A small box asking for a line of text; resolves to it, or null. */
-function ask(title, placeholder) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement("div");
-    backdrop.className = "prompt-backdrop";
-    backdrop.innerHTML = `<form class="prompt"><h3></h3><input type="text">` +
-      `<div class="button-row"><button type="button" class="btn subtle cancel"></button>` +
-      `<button type="submit" class="btn primary"></button></div></form>`;
-    backdrop.querySelector("h3").textContent = title;
-    const input = backdrop.querySelector("input");
-    input.placeholder = placeholder;
-    backdrop.querySelector(".cancel").textContent = t("Cancel");
-    backdrop.querySelector("[type=submit]").textContent = t("Open");
-    const done = (value) => { backdrop.remove(); resolve(value); };
-    backdrop.querySelector("form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      done(input.value.trim().replace(/^"(.*)"$/, "$1") || null);
-    });
-    backdrop.querySelector(".cancel").addEventListener("click", () => done(null));
-    backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") done(null); });
-    document.body.append(backdrop);
-    input.focus();
-  });
 }
 
 // ----------------------------------------------------------------- wiring
 
 function bind() {
   $("open").addEventListener("click", open);
+  $("save").addEventListener("click", saveAs);
   $("add-files").addEventListener("click", open);
   $("empty-open").addEventListener("click", open);
   $("undo").addEventListener("click", () => command("undo"));
@@ -370,13 +572,19 @@ function bind() {
   $("zoom-full").addEventListener("click", () => view.full());
   $("zoom-selection").addEventListener("click", zoomToSelection);
   $("play").addEventListener("click", togglePlay);
-  $("compare").addEventListener("click", () => command("set_compare", [!state?.comparing]));
+  $("compare").addEventListener("click", toggleCompare);
+  $("match-loudness").addEventListener("change", (e) => command("set_match_loudness", [e.target.checked]));
   $("loop").addEventListener("change", (e) => command("set_transport", [], { loop: e.target.checked }));
   $("selection-only").addEventListener("change",
     (e) => command("set_transport", [], { selection_only: e.target.checked }));
+  $("crossfade").addEventListener("change", (e) => {
+    const ms = Number(e.target.value);
+    if (Number.isFinite(ms)) command("set_crossfade", [ms]);
+  });
   $("gain").addEventListener("input", (e) => setGain(Number(e.target.value), false));
   $("gain").addEventListener("change", (e) => setGain(Number(e.target.value), true));
   $("select-all").addEventListener("click", () => command("select_all"));
+  $("show-loudness").addEventListener("change", applyLoudness);
   $("clear-selection").addEventListener("click", () => command("clear_selection"));
 
   for (const button of $("view-mode").querySelectorAll("button")) {
@@ -415,6 +623,7 @@ function bind() {
 }
 
 function keyDown(e) {
+  if (document.querySelector(".prompt-backdrop")) return;     // a box is open
   // a check box or the gain slider keeps focus after a click; Space should
   // still play then, so only fields that take text keep their keys
   const typing = e.target.matches?.("input[type=text], input[type=number], select, textarea");
@@ -422,22 +631,32 @@ function keyDown(e) {
   const ctrl = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
   const handled = () => e.preventDefault();
+  if (e.repeat && (e.key === " " || ctrl)) { handled(); return; }
   if (e.key === " " && !ctrl) { handled(); togglePlay(); }
-  else if (e.key === "Home") { handled(); setPlayhead(0); command("seek", [0]); view.follow(0); }
-  else if (e.key === "Escape") { handled(); command("clear_selection"); }
+  else if (e.key === "Home") { handled(); seekHome(); }
+  else if (e.key === "Escape") { handled(); if (!typing) command("clear_selection"); else e.target.blur(); }
+  else if (e.key === "Delete" && !ctrl) { handled(); edit("delete")(); }
+  else if (ctrl && e.shiftKey && key === "s") { handled(); saveAs(); }
+  else if (ctrl && e.shiftKey && key === "e") { handled(); saveSelection(); }
   else if (ctrl && key === "o") { handled(); open(); }
+  else if (ctrl && key === "q") { handled(); quit(); }
   else if (ctrl && key === "a") { handled(); command("select_all"); }
   else if (ctrl && key === "z") { handled(); command("undo"); }
+  else if (ctrl && key === "x") { handled(); edit("cut")(); }
+  else if (ctrl && key === "c") { handled(); edit("copy")(); }
+  else if (ctrl && key === "v") { handled(); edit("paste")(); }
+  else if (ctrl && key === "t") { handled(); edit("crop")(); }
+  else if (ctrl && key === "l") { handled(); if (state?.has_audio) command("set_transport", [], { loop: !state.loop }); }
   else if (ctrl && key === "e") { handled(); zoomToSelection(); }
   else if (ctrl && key === "f") { handled(); view.full(); }
-  else if (ctrl && key === "b") { handled(); if (state?.can_compare) command("set_compare", [!state.comparing]); }
+  else if (ctrl && key === "b") { handled(); toggleCompare(); }
   else if (!ctrl && (e.key === "+" || e.key === "=")) { handled(); view.zoomAt(playhead, 0.5); }
   else if (!ctrl && e.key === "-") { handled(); view.zoomAt(playhead, 2); }
   else if (e.key === "ArrowLeft") { handled(); view.pan(-view.span * 0.15); }
   else if (e.key === "ArrowRight") { handled(); view.pan(view.span * 0.15); }
 }
 
-function applyLanguage(table) {
+async function applyLanguage(table) {
   loadTable(table.messages);
   document.documentElement.lang = table.language.replace("_", "-");
   const select = $("language");
@@ -450,6 +669,8 @@ function applyLanguage(table) {
     select.append(option);
   }
   translatePage();
+  applyTips();
+  menuBar.render();
   // the lists and readouts are built in code; build them again in the new
   // language (same version, so nothing is fetched)
   if (state) {
@@ -457,21 +678,31 @@ function applyLanguage(table) {
     levelsVersion = -1;
     refreshLevels();
   }
+  await panels.translate();
 }
 
 async function boot() {
   await Promise.all([loadIcons(), spec.loadColormap()]);
-  buildRail();
   fillIcons();
-  applyLanguage(await call("translations"));
+  await applyLanguage(await call("translations"));
   bind();
   listen((event) => {
     if (event.type === "state") applyState(event.state);
     else if (event.type === "message") status(event.text);
     else if (event.type === "playback") onPlayback(event);
-  }, (connected) => $("status-dot").classList.toggle("busy", !connected));
+    else if (event.type === "job") { onJob(event); panels.event(event); }
+    else if (event.type === "overlay") spec.setOverlay(event.curve);
+    else if (event.type === "monitor") onMonitor(event);
+    else if (event.type === "tool") panels.select(event.id);
+    else panels.event(event);
+  }, (connected) => $("status-dot").classList.toggle("offline", !connected));
   applyState(await call("state"));
+  spec.setOverlay(await call("overlay"));
+  for (const owner of state.busy) onJob({ owner, busy: true, label: "" });
+  await panels.load();
   status(t("Ready."));
+  const { left_out: leftOut } = await call("about");
+  if (leftOut.length) status(leftOut.join("; "), true);
 }
 
 boot().catch((error) => {

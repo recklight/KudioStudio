@@ -201,8 +201,8 @@ _DIGEST_FUNCTION = [
 class AudioSession:
     """Current audio + edit history, shared by the whole application.
 
-    Its signals are `kudiostudio.events.Signal`, not Qt's, so the same session
-    serves the Qt window and the browser one.
+    Its signals are `kudiostudio.events.Signal`, so the session imports no GUI
+    toolkit; it runs behind the local server the page talks to.
     """
 
     #: waveform or sample rate replaced (panels should repaint)
@@ -218,9 +218,7 @@ class AudioSession:
     #: human-readable note for the status bar
     message = Signal(str)
 
-    def __init__(self, parent: object = None):
-        # *parent* is what Qt code passes to every object it builds; a
-        # session has no use for it
+    def __init__(self):
         self._y: Optional[np.ndarray] = None
         self._sr: int = 0
         self._name: str = ""
@@ -305,7 +303,7 @@ class AudioSession:
                                digest=file_digest(path), stat=_stat(path))
         # a different file entirely -- the previous clip's markers point at
         # moments in audio that is no longer loaded. `set_audio` does this for
-        # recordings; `_apply` does not, so opening a second file used to
+        # recordings; `_apply` does not, so without this a second file would
         # inherit the first one's markers.
         self._set_markers(())
         self._apply(y, int(rate), path.name)
@@ -402,6 +400,14 @@ class AudioSession:
     def original(self) -> Optional[Tuple[np.ndarray, int]]:
         """The unedited audio, for A/B comparison and metrics."""
         return self._original
+
+    @property
+    def origin(self) -> Optional["_Origin"]:
+        """Where the audio on hand starts: the file and how it was read, or
+        the take it was recorded as. Equal across every edit of one clip, and
+        different for another file or another take -- two takes are never
+        the same audio, however alike."""
+        return self._origin
 
     # --------------------------------------------------------- A/B compare
 

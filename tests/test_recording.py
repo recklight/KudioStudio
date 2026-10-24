@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
-"""The Record panel's open-ended mode, against a fake StreamRecorder.
+"""Stand-ins for the two things CI does not have, a microphone and a
+browser, and a check on the real `StreamRecorder.drain()`.
 
-There is no microphone in CI, so the recorder is replaced by one that hands
-over whatever the test feeds it. What is under test is the panel: the two
-device index spaces, the meter, the rolling monitor and the stop path.
+`FakeRecorder` takes the place of `kudio.StreamRecorder` in the Record tests
+(test_web_record.py). It hands over whatever the test feeds it, through the
+same methods the Record panel reads on every tick.
+
+`run_page` mounts a panel's page module in node, for the part of a panel
+that only the page decides: which box is locked, what a button says, how a
+reading is written out, what a preset writes into the boxes.
 """
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import threading
+
 import numpy as np
 import pytest
 
-from kudiostudio.panels.record import MODE_FIXED, MODE_STREAM, RecordPanel
-from kudiostudio.session import AudioSession
+from kudiostudio.web.server import STATIC
 
 
 class FakeRecorder:
@@ -60,172 +71,134 @@ class FakeRecorder:
         self._level = level
 
 
-@pytest.fixture
-def panel(qapp, monkeypatch):
-    import kudio
-    FakeRecorder.instances = []
-    monkeypatch.setattr(kudio, "StreamRecorder", FakeRecorder)
-    return RecordPanel(AudioSession())
+#: Just enough of a document for a page module, and the ui.js it builds its
+#: controls with. An event fires only when a step fires it, as in the
+#: browser, where a script writing a box's value fires nothing.
+PAGE = r"""
+class Element {
+  constructor(tag) {
+    Object.assign(this, { tagName: tag, children: [], listeners: {}, found: {}, style: {},
+                          dataset: {}, hidden: false, disabled: false, textContent: "",
+                          title: "", className: "", value: "" });
+    const names = new Set();
+    this.classList = {
+      add: (name) => names.add(name),
+      contains: (name) => names.has(name),
+      toggle: (name, on = !names.has(name)) => {
+        if (on) names.add(name); else names.delete(name);
+        return on;
+      },
+    };
+  }
+  get options() { return this.children; }
+  append(...nodes) { this.children.push(...nodes); }
+  replaceChildren(...nodes) { this.children = nodes; }
+  addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
+  setAttribute(name, value) { this[name] = value; }
+  querySelector(selector) { return (this.found[selector] ??= new Element("span")); }
+  fire(type) { for (const fn of this.listeners[type] ?? []) fn({ target: this }); }
+}
+globalThis.Option = class extends Element {
+  constructor(text = "", value = text) {
+    super("option");
+    Object.assign(this, { textContent: text, value });
+  }
+};
+// api.js reads the session token from the page as it loads
+globalThis.document = { createElement: (tag) => new Element(tag),
+                        querySelector: () => ({ content: "" }) };
+
+const ui = await import(__UI__);
+const { t } = await import(__I18N__);
+const { mount } = await import(__MODULE__);
+const answers = __ANSWERS__;
+const asked = [];
+const ctx = {
+  ui, t, memory: {},
+  call: async (name, args = []) => {
+    asked.push([name, args]);
+    const answer = answers[`${name} ${JSON.stringify(args)}`] ?? answers[name];
+    return Array.isArray(answer) ? answer.shift() : answer;
+  },
+};
+const root = document.createElement("div");
+const mounted = await mount(root, ctx);
+
+function* walk(node) {
+  yield node;
+  for (const child of node.children) yield* walk(child);
+}
+// the control on the form row labelled *label*
+function box(label) {
+  for (const node of walk(root)) {
+    const i = node.children.findIndex((c) => c.tagName === "label" && c.textContent === label);
+    if (i >= 0) return node.children[i + 1].children[0];
+  }
+  throw new Error(`no row labelled ${label}`);
+}
+function text(pattern) {
+  for (const node of walk(root)) {
+    if (!node.children.length && pattern.test(node.textContent)) return node.textContent;
+  }
+  return null;
+}
+const primary = () => [...walk(root)].find((n) => n.tagName === "button" &&
+                                                   n.className.includes("primary"));
+const lastCall = (name = "call_text") => asked.filter(([n]) => n === name).pop()[1];
+// the page's own calls are async; one turn of the loop lets them all land
+const settle = () => new Promise((done) => setTimeout(done, 0));
+async function choose(label, value) {
+  box(label).value = String(value);
+  box(label).fire("change");
+  await settle();
+}
+async function type(label, value) {
+  const { input } = box(label);
+  input.value = String(value);
+  input.fire("input");
+  await settle();
+}
+async function click(node) {
+  node.fire("click");
+  await settle();
+}
+
+const seen = {};
+__STEPS__
+console.log(JSON.stringify(seen));
+"""
 
 
-def test_fixed_mode_is_the_default(panel):
-    assert panel.mode.currentText() == MODE_FIXED
-    assert panel.seconds.isEnabled() is True
-    assert "kudio.record(" in panel.call.text()
+def run_page(module, answers, steps):
+    """Mount *module* (a path under static/js) in node and run *steps*, some
+    JavaScript, after it. The page's calls are answered from *answers*: by
+    ``"name [args]"`` first, then by name, and a list there is the answers
+    to successive calls. A step hands the page an event through `mounted`,
+    what the module's mount returned. Returns what the steps put in `seen`."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js = STATIC / "js"
+    source = (PAGE.replace("__UI__", json.dumps((js / "ui.js").as_uri()))
+              .replace("__I18N__", json.dumps((js / "i18n.js").as_uri()))
+              .replace("__MODULE__", json.dumps((js / module).as_uri()))
+              .replace("__ANSWERS__", json.dumps(answers))
+              .replace("__STEPS__", steps))
+    done = subprocess.run([node, "--input-type=module"], input=source, capture_output=True,
+                          text=True, encoding="utf-8", timeout=60)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
 
 
-def test_switching_to_stream_mode_changes_the_call_and_the_index_space(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    assert panel.seconds.isEnabled() is False
-    assert "kudio.StreamRecorder(" in panel.call.text()
-    # the two backends number devices independently; the label has to say which
-    assert "PyAudio" in panel.device_space.text()
-    panel.mode.setCurrentText(MODE_FIXED)
-    assert "sounddevice" in panel.device_space.text()
-
-
-def test_start_opens_a_recorder_and_the_button_becomes_stop(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    assert panel._recorder is not None
-    assert panel.record_button.text().endswith("Stop")
-    assert panel.mode.isEnabled() is False
-
-
-def test_stop_commits_the_take_to_the_session(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    panel._recorder.feed(np.full(8000, 0.2, dtype=np.float32))
-    panel._record()                          # the same button, now Stop
-
-    assert panel._recorder is None
-    assert panel.session.has_audio is True
-    assert len(panel.session.y) == 8000
-    assert panel.record_button.text().endswith("Start")
-    assert panel.mode.isEnabled() is True
-
-
-def test_an_empty_take_is_not_committed(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    messages = []
-    panel.status.connect(messages.append)
-    panel._record()
-    panel._record()
-    assert panel.session.has_audio is False
-    assert "Nothing was captured" in messages[-1]
-
-
-def test_the_meter_follows_the_level(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    panel._recorder.feed(np.zeros(1600, dtype=np.float32), level=0.5)
-    panel._on_meter_tick()
-    assert panel.meter.value() == pytest.approx(-6, abs=1)
-    assert panel.elapsed.text().startswith("0.10")
-
-
-def test_silence_pins_the_meter_at_the_floor(panel):
-    from kudiostudio.panels.record import METER_FLOOR_DB
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    panel._recorder.feed(np.zeros(160, dtype=np.float32), level=0.0)
-    panel._on_meter_tick()
-    assert panel.meter.value() == int(METER_FLOOR_DB)
-
-
-def test_arriving_audio_is_handed_over_once_and_only_once(panel):
-    """The display accumulates what it is given, so a sample sent twice is
-    drawn twice at two different times -- and anything doing per-column
-    analysis downstream computes it twice as well."""
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-
-    seen = []
-    panel.monitor_chunk.connect(lambda y, sr: seen.append((y, sr)))
-    panel._recorder.feed(np.full(1600, 0.3, dtype=np.float32))
-    panel._on_meter_tick()
-    panel._recorder.feed(np.full(800, 0.3, dtype=np.float32))
-    panel._on_meter_tick()
-    panel._on_meter_tick()                    # nothing new arrived
-
-    assert [len(y) for y, _ in seen] == [1600, 800]
-    assert {sr for _, sr in seen} == {16000}
-
-
-def test_a_take_announces_its_rate_before_any_audio(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    started, stopped = [], []
-    panel.monitor_started.connect(started.append)
-    panel.monitor_stopped.connect(lambda: stopped.append(True))
-
-    panel._record()
-    assert started == [16000]
-    assert stopped == []
-
-    panel._recorder.feed(np.full(1600, 0.2, dtype=np.float32))
-    panel._record()                           # stop
-    assert stopped == [True]
-
-
-def test_hitting_the_length_cap_stops_the_take(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    messages = []
-    panel.status.connect(messages.append)
-    panel._record()
-    panel._recorder.feed(np.full(4000, 0.1, dtype=np.float32))
-    panel._recorder.capped = True
-    panel._on_meter_tick()
-    assert panel._recorder is None
-    assert any("cap" in m for m in messages)
-
-
-def test_a_device_that_will_not_open_is_reported(panel, monkeypatch):
-    import kudio
-
-    def explode(**kwargs):
-        raise RuntimeError("no input device")
-
-    monkeypatch.setattr(kudio, "StreamRecorder", explode)
-    panel.mode.setCurrentText(MODE_STREAM)
-    messages = []
-    panel.status.connect(messages.append)
-    panel._record()
-    assert panel._recorder is None
-    assert "no input device" in messages[-1]
-
-
-def test_shutdown_closes_an_open_take(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    recorder = panel._recorder
-    panel.shutdown()
-    assert recorder.recording is False
-    assert panel._recorder is None
-
-
-def test_a_stereo_take_is_mixed_down_for_the_session(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel._record()
-    panel._recorder.channels = 2
-    panel._recorder._audio = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
-    panel._record()
-    assert panel.session.y.ndim == 1
-    assert np.allclose(panel.session.y, [0.5, 0.5])
-
-
-# ------------------------------------------------- live monitoring (kudio 3.5)
-
-def test_drain_never_returns_the_same_audio_twice(panel):
+def test_drain_never_returns_the_same_audio_twice():
     """tail() overlaps between calls; feeding that to a recursive denoiser
     processes the same samples repeatedly and wrecks its state."""
-    import kudio
     from kudio.core.stream import StreamRecorder
 
-    # the real class, driven through the fake reader the fixture installs
+    # the real class with its buffers filled by hand, so no device is opened
     rec = StreamRecorder.__new__(StreamRecorder)
     rec._chunks, rec._frames, rec._drained = [], 0, 0
     rec._channels, rec._sr, rec._capped, rec._level = 1, 16000, False, 0.0
-    import threading
     rec._lock = threading.Lock()
 
     assert rec.drain().size == 0
@@ -234,99 +207,3 @@ def test_drain_never_returns_the_same_audio_twice(panel):
     assert rec.drain().size == 0                     # nothing new
     rec._chunks.append(np.arange(10, 20, dtype=np.float32))
     assert np.array_equal(rec.drain(), np.arange(10, 20))
-
-
-def test_monitor_off_by_default(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    assert panel.monitor_method.currentData() is None
-    assert panel._enhancer is None
-
-
-def test_turning_on_monitoring_builds_a_stream_enhancer(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("logmmse"))
-    panel._record()
-    assert panel._enhancer is not None
-    assert panel._enhancer.method == "logmmse"
-    assert panel._enhancer.sr == panel._recorder.sr
-
-
-def test_the_monitor_shows_the_enhanced_stream(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("wiener"))
-    panel._record()
-
-    rng = np.random.default_rng(0)
-    noise = (0.2 * rng.standard_normal(16000)).astype(np.float32)
-    panel._recorder.feed(noise)
-    seen = []
-    panel.monitor_chunk.connect(lambda y, sr: seen.append(y))
-    for _ in range(8):
-        panel._on_meter_tick()
-
-    assert seen, "nothing was drawn"
-    assert all(np.all(np.isfinite(y)) for y in seen)
-    drawn = np.concatenate(seen)
-    # what reaches the display is the denoised stream, not the microphone
-    assert float(np.sqrt(np.mean(drawn ** 2))) < float(np.sqrt(np.mean(noise ** 2)))
-
-
-def test_a_denoiser_that_gives_up_keeps_the_display_alive(panel):
-    """A monitor that stops updating looks like a dead microphone."""
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("wiener"))
-    panel._record()
-
-    def explode(block):
-        raise RuntimeError("nope")
-
-    panel._enhancer.process = explode
-    seen = []
-    panel.monitor_chunk.connect(lambda y, sr: seen.append(y))
-    panel._recorder.feed(np.full(1600, 0.2, dtype=np.float32))
-    panel._on_meter_tick()
-
-    assert panel._enhancer is None
-    assert len(seen) == 1 and len(seen[0]) == 1600      # the raw block got through
-    assert "see the log" in panel.monitor_result.text()
-
-
-def test_monitoring_reports_how_much_it_is_removing(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("logmmse"))
-    panel._record()
-    rng = np.random.default_rng(1)
-    panel._recorder.feed((0.2 * rng.standard_normal(16000)).astype(np.float32))
-    for _ in range(8):
-        panel._on_meter_tick()
-    assert "dB" in panel.monitor_result.text()
-
-
-def test_the_take_is_committed_raw_even_while_monitoring(panel):
-    """Monitoring is monitoring — the same rule the A/B follows."""
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("logmmse"))
-    panel._record()
-    raw = (0.2 * np.random.default_rng(2).standard_normal(8000)).astype(np.float32)
-    panel._recorder.feed(raw)
-    panel._on_meter_tick()
-    panel._record()                                   # stop
-
-    assert np.allclose(panel.session.y, raw, atol=1e-6)
-
-
-def test_stopping_releases_the_enhancer(panel):
-    panel.mode.setCurrentText(MODE_STREAM)
-    panel.monitor_method.setCurrentIndex(panel.monitor_method.findData("wiener"))
-    panel._record()
-    panel._recorder.feed(np.zeros(4000, dtype=np.float32))
-    panel._record()
-    assert panel._enhancer is None
-
-
-def test_only_streamable_methods_are_offered(panel):
-    import kudio
-    offered = {panel.monitor_method.itemData(i)
-               for i in range(panel.monitor_method.count())} - {None}
-    assert offered == set(kudio.STREAMABLE_METHODS)
-    assert "specsub" not in offered              # cannot stream

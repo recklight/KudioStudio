@@ -353,7 +353,7 @@ def test_markers_changed_fires_once_per_change(session):
 
 # ----------------------------------------------------- crossfade, per edit
 
-def flat(qapp, seconds: float = 1.0) -> AudioSession:
+def flat(seconds: float = 1.0) -> AudioSession:
     """A constant signal: any length lost at a seam is the crossfade's doing
     and nothing else's."""
     session = AudioSession()
@@ -361,10 +361,10 @@ def flat(qapp, seconds: float = 1.0) -> AudioSession:
     return session
 
 
-def test_a_length_can_be_given_for_one_edit_without_changing_the_default(qapp):
+def test_a_length_can_be_given_for_one_edit_without_changing_the_default():
     """A 5 ms splice inside a word and a 200 ms one between takes are
     different jobs; choosing the second must not make every later cut long."""
-    session = flat(qapp)
+    session = flat()
     session.set_selection(0.2, 0.4)
 
     messages = []
@@ -375,10 +375,10 @@ def test_a_length_can_be_given_for_one_edit_without_changing_the_default(qapp):
     assert session.crossfade_ms == DEFAULT_CROSSFADE_MS      # default untouched
 
 
-def test_the_override_actually_changes_how_much_audio_is_swallowed(qapp):
+def test_the_override_actually_changes_how_much_audio_is_swallowed():
     """The note in the status bar has to describe the audio, not decorate it."""
     def length_after(crossfade_ms):
-        session = flat(qapp)
+        session = flat()
         session.set_selection(0.2, 0.4)
         session.delete(crossfade_ms=crossfade_ms)
         return len(session.y)
@@ -386,8 +386,8 @@ def test_the_override_actually_changes_how_much_audio_is_swallowed(qapp):
     assert length_after(0.0) > length_after(5.0) > length_after(100.0)
 
 
-def test_zero_for_one_edit_is_a_hard_cut_and_says_so(qapp):
-    session = flat(qapp)
+def test_zero_for_one_edit_is_a_hard_cut_and_says_so():
+    session = flat()
     session.set_selection(0.2, 0.4)
 
     messages = []
@@ -398,15 +398,15 @@ def test_zero_for_one_edit_is_a_hard_cut_and_says_so(qapp):
     assert len(session.y) == SR - int(0.2 * SR)      # nothing else was taken
 
 
-def test_a_negative_override_is_treated_as_off_not_as_an_error(qapp):
-    session = flat(qapp)
+def test_a_negative_override_is_treated_as_off_not_as_an_error():
+    session = flat()
     session.set_selection(0.2, 0.4)
     assert session.delete(crossfade_ms=-10.0) is True
     assert len(session.y) == SR - int(0.2 * SR)
 
 
-def test_every_splicing_edit_takes_the_override(qapp):
-    session = flat(qapp)
+def test_every_splicing_edit_takes_the_override():
+    session = flat()
     messages = []
     session.message.connect(messages.append)
 

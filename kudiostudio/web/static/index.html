@@ -8,6 +8,7 @@
   <link rel="icon" href="/assets/logo.png">
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/panels.css">
   <script type="module" src="/static/js/main.js"></script>
 </head>
 <body>
@@ -18,6 +19,7 @@
       <img class="brand-mark" src="/assets/logo.png" alt="">
       <span class="brand-name">Kudio<b>Studio</b></span>
     </div>
+    <nav class="menubar" id="menubar"></nav>
     <div class="file-chip" id="file-chip" hidden>
       <span class="file-name" id="file-name"></span>
       <span class="file-meta mono" id="file-meta"></span>
@@ -25,6 +27,9 @@
     <nav class="top-actions">
       <button class="btn ghost" id="open" data-t-title="Open audio files (Ctrl+O)">
         <i data-icon="open"></i><span data-t>Open</span>
+      </button>
+      <button class="btn ghost icon-only" id="save" data-t-title="Save audio as (Ctrl+Shift+S)" disabled>
+        <i data-icon="save"></i>
       </button>
       <span class="divider"></span>
       <button class="btn ghost icon-only" id="undo" data-t-title="Undo (Ctrl+Z)" disabled>
@@ -64,8 +69,25 @@
         <h2 data-t>Markers</h2>
         <span class="count mono" id="marker-count"></span>
       </div>
+      <div class="mini-row">
+        <button class="btn mini" id="marker-add" data-t>＋ At playhead</button>
+        <button class="btn mini" id="marker-mark" data-t>＋ Selection</button>
+      </div>
+      <div class="mini-row">
+        <button class="btn mini" id="marker-vad" data-t data-t-title="kudio.vad — mark every span that contains speech">Find speech</button>
+      </div>
       <ul class="marker-list" id="marker-list"></ul>
       <p class="hint" id="markers-empty" data-t>No markers. A sidecar file next to the audio is read when it opens.</p>
+      <div class="mini-row">
+        <button class="btn mini" id="marker-rename" data-t>Rename</button>
+        <button class="btn mini" id="marker-remove" data-t>Remove</button>
+        <button class="btn mini" id="marker-clear" data-t>Clear</button>
+      </div>
+      <div class="mini-row">
+        <button class="btn mini" id="marker-save" data-t>Save</button>
+        <button class="btn mini" id="marker-export" data-t data-t-title="Write a .txt Audacity label track, or a .json file elsewhere.">Export…</button>
+        <button class="btn mini" id="marker-import" data-t>Import…</button>
+      </div>
     </section>
   </aside>
 
@@ -104,6 +126,16 @@
         <p class="hint mono">WAV · FLAC · OGG · MP3</p>
       </div>
     </div>
+
+    <section class="panel-view card" id="panel-view" hidden>
+      <header class="panel-view-head">
+        <span class="panel-view-title" id="panel-view-title"></span>
+        <button class="btn subtle icon-only" id="panel-view-close" data-t-title="Close">
+          <i data-icon="close"></i>
+        </button>
+      </header>
+      <div class="panel-view-body" id="panel-view-body"></div>
+    </section>
   </main>
 
   <aside class="tools">
@@ -121,6 +153,7 @@
           <label data-t>n_mfcc</label>
           <input class="num mono" type="number" id="n_mfcc" min="4" max="128">
         </div>
+        <label class="check loudness-check" id="loudness-wrap"><input type="checkbox" id="show-loudness" disabled><span class="check-box"></span><span data-t>Loudness over time</span></label>
       </section>
       <section class="panel-section" data-panel="inspect">
         <h3 data-t>Selection</h3>
@@ -147,10 +180,6 @@
         </dl>
         <ul class="problems" id="lv-problems"></ul>
       </section>
-      <section class="panel-section placeholder" data-panel="later" hidden>
-        <h3 id="later-title"></h3>
-        <p class="hint" data-t>This tool has not been moved to the new window yet. It still works in the Qt window: python -m kudiostudio</p>
-      </section>
     </div>
   </aside>
 
@@ -166,11 +195,17 @@
       </div>
     </div>
     <div class="transport-mid">
-      <label class="toggle"><input type="checkbox" id="selection-only" checked><span class="switch"></span><span data-t>Selection only</span></label>
-      <label class="toggle"><input type="checkbox" id="loop"><span class="switch"></span><span data-t>Loop</span></label>
-      <button class="btn subtle ab" id="compare" data-t-title="Hold the edit against the audio you started with (Ctrl+B)" disabled>A / B</button>
+      <label class="toggle" id="selection-only-wrap"><input type="checkbox" id="selection-only" checked><span class="switch"></span><span data-t>Selection only</span></label>
+      <label class="toggle" id="loop-wrap"><input type="checkbox" id="loop"><span class="switch"></span><span data-t>Loop</span></label>
+      <button class="btn subtle ab" id="compare" disabled>A / B</button>
+      <label class="toggle" id="match-wrap"><input type="checkbox" id="match-loudness" checked><span class="switch"></span><span data-t>Match loudness</span></label>
     </div>
     <div class="transport-right">
+      <label class="xf" id="xf-wrap">
+        <span data-t>Splice xf</span>
+        <input class="num mono" type="number" id="crossfade" min="0" max="200" step="1">
+        <span class="mono">ms</span>
+      </label>
       <label class="gain">
         <span data-t>Gain</span>
         <input type="range" id="gain" min="-24" max="12" step="1" value="0">
@@ -182,6 +217,7 @@
   <div class="statusbar">
     <span class="status-dot" id="status-dot"></span>
     <span class="status-text" id="status"></span>
+    <span class="status-busy mono" id="status-busy"></span>
     <span class="status-right mono" id="status-right"></span>
   </div>
 </div>

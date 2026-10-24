@@ -11,10 +11,9 @@ requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE.txt"]
 authors = [{ name = "RL" }]
-keywords = ["audio", "gui", "pyside6", "spectrogram", "speech-enhancement", "dsp"]
+keywords = ["audio", "gui", "pywebview", "spectrogram", "speech-enhancement", "dsp"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -38,10 +37,10 @@ dependencies = [
     # and a plain install should never need a compiler, so there it is the
     # [audio] extra instead
     "PyAudio>=0.2.13; sys_platform == 'win32'",
-    # QtCore, QtGui, QtWidgets, QtSvg and QtOpenGL are all this needs. The
-    # PySide6 package adds WebEngine and the rest, about 430 MB more
-    "PySide6-Essentials>=6.6",
-    "pyqtgraph>=0.13",
+    # the window: a page served from this process, shown in the system's own
+    # web view (WebView2 on Windows, WebKit on macOS). Where pywebview finds
+    # no web view to draw with, the page opens in the default browser instead
+    "pywebview>=5",
     "numpy>=1.22",
 ]
 
@@ -56,11 +55,8 @@ dnsmos = ["kudio[dnsmos]>=3.7.1"]
 # learned models in the Enhance and Compare panels; pulls in PyTorch, hence
 # optional
 enhance = ["kudioenhance>=1.0"]
-# the browser-built window, python -m kudiostudio.web; on Windows it draws
-# with the WebView2 runtime that ships with the system
-web = ["pywebview>=5"]
-all = ["kudiostudio[audio,eval,dnsmos,enhance,web]"]
-dev = ["kudiostudio[eval]", "pytest>=7.0", "pytest-qt>=4.2"]
+all = ["kudiostudio[audio,eval,dnsmos,enhance]"]
+dev = ["kudiostudio[eval]", "pytest>=7.0"]
 
 [project.scripts]
 kudiostudio = "kudiostudio.__main__:main"
@@ -76,10 +72,10 @@ version = { attr = "kudiostudio.__version__" }
 [tool.setuptools.packages.find]
 include = ["kudiostudio*"]
 
-# the window icons, read at run time, and the browser window's page
+# the window's icon, read at run time, and its page
 [tool.setuptools.package-data]
 kudiostudio = ["assets/*.png", "assets/*.ico", "web/static/*.html", "web/static/css/*.css",
-               "web/static/js/*.js"]
+               "web/static/js/*.js", "web/static/js/panels/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

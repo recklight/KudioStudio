@@ -6,7 +6,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/kudiostudio.svg)](https://pypi.org/project/kudiostudio/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Qt](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://doc.qt.io/qtforpython/)
+[![GUI](https://img.shields.io/badge/GUI-pywebview-1fc6f0.svg)](https://pywebview.flowrl.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
@@ -26,9 +26,16 @@ pip install kudiostudio
 kudiostudio
 ```
 
-Requires **Python 3.9+**. On Linux, playback and recording also need
-PortAudio's library (`sudo apt install libportaudio2`), which most desktop
-installs already have. Everything heavy is an opt-in extra:
+Requires **Python 3.9+**. The window is a page the program serves to
+itself, drawn by the web view the system already has, through
+[pywebview](https://pywebview.flowrl.com/): WebView2 on Windows 10 and 11,
+WebKit on macOS. On Linux pywebview draws with GTK or Qt, which it installs as
+extras (`pip install "pywebview[gtk]"`, with the system packages its
+[installation guide](https://pywebview.flowrl.com/guide/installation.html)
+lists); with neither, `kudiostudio` opens the same page in the default browser
+instead. Playback and recording also need PortAudio's library on Linux
+(`sudo apt install libportaudio2`), which most desktop installs already have.
+Everything heavy is an opt-in extra:
 
 | Extra | Adds |
 |---|---|
@@ -39,8 +46,8 @@ installs already have. Everything heavy is an opt-in extra:
 | `pip install "kudiostudio[audio]"` | recording until stopped, on Linux and macOS. It needs PyAudio, which PyPI only has prebuilt for Windows, so elsewhere pip compiles it: install PortAudio's headers first (`sudo apt install portaudio19-dev`, or `brew install portaudio`). On Windows the plain install already includes it |
 | `pip install "kudiostudio[all]"` | all of the above except PESQ |
 
-The base install stays light: no PyTorch unless you ask for it, and Qt's
-essential modules only, not its web engine.
+The base install stays light: no PyTorch unless you ask for it, and no GUI
+toolkit at all.
 
 To work on KudioStudio itself, install it from a checkout:
 
@@ -53,18 +60,19 @@ pip install -e ".[dev]"
 ```bash
 kudiostudio                    # empty session
 kudiostudio clip.wav           # open a file on start-up
-kudiostudio --no-theme         # native Qt style
+kudiostudio manifest.json      # a corpus manifest opens in the Manifest panel
+kudiostudio --browser          # the same page in the default browser
 kudiostudio --no-plugins       # leave out panels other packages add
 kudiostudio --lang zh_TW       # interface in Traditional Chinese
-kudiostudio --reset            # forget saved window geometry
+kudiostudio --reset            # forget saved settings
 ```
 
 The interface comes in **English** and **Traditional Chinese (繁體中文)**.
-`View → Language / 語言` switches between them and offers to restart, since
-the change applies from the next start; the choice is remembered. With no
-choice saved, the system's language is used when there is a translation for
-it. Combo-box values, `kudio` parameter names and the call captions stay as
-the code spells them, so what you read still matches the API.
+The menu at the top right switches between them at once, open panels
+included, and the choice is remembered. With no choice saved, the system's
+language is used when there is a translation for it. The values in a list,
+`kudio` parameter names and the call captions stay as the code spells them,
+so what you read still matches the API.
 
 ## What each panel does
 
@@ -175,7 +183,7 @@ A selection is single, unnamed and gone the moment you make another one.
 Markers are named points and ranges that stay: click to jump, double-click a
 range to select it, and **`Find speech`** fills the list from `kudio.vad`.
 
-<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/dock_markers.png" width="260" alt="The markers dock">
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/sidebar_markers.png" width="260" alt="The marker list">
 
 They are positions in *time*, so an edit that changes the length moves them —
 delete two seconds and everything after it shifts left. Undo puts them back
@@ -231,10 +239,11 @@ It loops, so finding the right `top_db` is a matter of listening rather than
 apply-listen-undo-repeat. Preview and Apply run the same code on the same
 audio, so what you hear is exactly what Apply will commit.
 
-- **Effects** re-renders as you turn a knob, debounced at 150 ms.
-- **Enhance** runs on a worker thread — denoising is seconds, not milliseconds
-  — processes the whole clip exactly as Denoise will, then loops whatever is
-  selected.
+- **Effects** re-renders as you turn a knob, 120 ms after the last turn.
+- **Enhance** renders off the window's thread — denoising is seconds, not
+  milliseconds — processes the whole clip exactly as Denoise will, then loops
+  whatever is selected. Turn a knob while it renders and the newest values
+  render next; the ones in between are skipped.
 
 Anything else claiming playback — Play, Stop, an edit — ends the audition and
 releases the button.
@@ -278,9 +287,11 @@ signal. A synthetic dataset has one. **A real recording never does** — its
 "original" *is* the noisy one, so scoring against it measures how much you
 changed the audio, not whether you improved it.
 
-`kudio.audio_report` needs no reference, so the **Levels** box beside the
-analysis view is always live: peak, loudness, bandwidth, and whatever is wrong
+`kudio.audio_report` needs no reference, so the **Levels** readout on the
+Inspect tool is always live: peak, loudness, bandwidth, and whatever is wrong
 with the recording itself. The Metrics panel's **Inspect** gives the full set.
+
+<img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/sidebar_levels.png" width="300" alt="The Levels readout">
 
 It catches the things that quietly waste a dataset:
 
@@ -318,7 +329,7 @@ the room.
 
 `kudio.vad` decides per frame against **this recording's own noise floor**, and
 uses spectral flatness to tell a voice from a hiss. It is in two places: the
-**`vad_trim`** effect, and **`Find speech`** in the markers dock, which turns
+**`vad_trim`** effect, and **`Find speech`** above the marker list, which turns
 every detected span into a marker you can click through.
 
 ### Analysis views
@@ -338,19 +349,19 @@ spectrogram. Both are below.
 
 <img src="https://raw.githubusercontent.com/recklight/KudioStudio/master/docs/images/analysis_loudness.png" width="600" alt="short-term loudness over the waveform">
 
-The Levels box gives one integrated LUFS figure for the whole clip — the
+The Levels readout gives one integrated LUFS figure for the whole clip — the
 number you normalise against, and no help at all in finding the moment
 somebody leaned away from the microphone. **Loudness over time** draws the
 short-term curve (EBU Tech 3341, 3 s window, 100 ms hop) over the waveform on
 its own LUFS axis, so "-31 LUFS here" is a number you can act on rather than
 "about a third as tall".
 
-Above, a take that drifts 13 dB and comes back. The Levels box agrees: `range
+Above, a take that drifts 13 dB and comes back. The Levels readout agrees: `range
 13.0 LU`.
 
 It costs no extra measurement. The Levels readout already walks the signal for
 its report, so the curve, the true peak and the range come out of that same
-pass — four answers from one worker job, which also means they cannot describe
+pass — four answers from one measurement, which also means they cannot describe
 four different moments of an edit.
 
 Two things it is deliberate about:
@@ -358,12 +369,14 @@ Two things it is deliberate about:
 - **The curve is ungated.** Gating is what stops pauses dragging the
   *integrated* figure down; a curve with holes punched in it where the gate
   fired would describe a recording that stops existing between words. Real
-  silence still breaks the line, because there the level genuinely is nothing.
+  silence still breaks the line, because there the level genuinely is nothing
+  — below BS.1770's absolute gate of -70 LUFS, where a pause after sound only
+  measures the weighting filter dying away.
 - **A clip shorter than the 3 s window has no curve**, and the checkbox says so
   rather than ticking and doing nothing. Falling back to the 400 ms window
   would quietly answer a different question.
 
-**True peak** is in the Levels box beside the sample peak, and the two
+**True peak** is in the Levels readout beside the sample peak, and the two
 disagree more often than you would think. Samples are points on a curve that
 passes between them, and the curve overshoots — so a file with no sample at
 full scale can still clip in a converter or a lossy encoder. `audio_report`
@@ -503,10 +516,12 @@ scrolled away costs more than it shows. `kudio.SpectrogramStream` fixes that
 properly: a ring buffer of columns, each computed **once**, when the samples
 for it arrive.
 
-The Record panel drains the recorder once per tick and hands the new audio
-over; the view pushes all of it through the transform and redraws a few times
-a second. Analysis is never skipped — that would lose audio — and drawing
-always is.
+The Record panel drains the recorder every 50 ms and pushes all of the new
+audio through the transform; the page is sent a picture every fourth push.
+Analysis is never skipped — that would lose audio — and drawing always is.
+Change `n_fft` or the view mid-take and the picture starts again, rather than
+show a window whose left half was computed one way and its right half
+another.
 
 Three details that are easy to get wrong and visible when you do:
 
@@ -657,6 +672,7 @@ The panel reports which ones are present rather than failing.
 | Key | Action |
 |---|---|
 | `Ctrl+O` / `Ctrl+Shift+S` | Open / Save As |
+| `Ctrl+Q` | Quit (after a running job, never in the middle of one) |
 | `Ctrl+Shift+E` | Save the selection as its own file |
 | `Ctrl+Z` | Undo the last edit |
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Del` | Cut / copy / paste / delete the selection |
@@ -667,75 +683,84 @@ The panel reports which ones are present rather than failing.
 | `Ctrl+L` | Loop what was last played |
 | `Ctrl+B` | A/B against the original |
 | `Ctrl+E` / `Ctrl+F` | Zoom to selection / zoom out to the whole clip |
+| `+` / `-` | Zoom in / out around the playhead |
+| `←` / `→` | Scroll along the clip |
 
 Drag on **either plot** to select, or type an exact range into the
 **Selection** boxes. Click anywhere to move the playhead — click while playing
-and it keeps playing from there. The waveform and the spectrogram share the
-time axis, the selection, the playhead and the markers, so anything you do to
-one shows on the other.
+and it keeps playing from there. The wheel zooms around the pointer, and
+`Shift` + wheel or a sideways swipe scrolls. The waveform and the spectrogram
+share the time axis, the selection, the playhead and the markers, so anything
+you do to one shows on the other.
 
-`Space`, `Home` and the clipboard keys are deliberately *not* registered as
-window shortcuts. Qt resolves shortcuts **before** the key reaches the focused
-widget, so a window-level `Ctrl+C` would take copy away from every path field
-in the tool panels, and `Space` away from typing a filename with a space in it.
-They are handled in `keyPressEvent`, which only sees them when nothing else
-wanted them; the menus show the keys anyway.
+The keys reach the window only when the focus is not in a field that takes
+text, a number or a choice: a window-wide `Ctrl+C` would take copy away from
+every path field in the tool panels, and `Space` away from typing a file name
+with a space in it.
 
 ## Layout
 
 ```
 kudiostudio/
-├── __main__.py       # CLI entry point, argument parsing
-├── app.py            # main window: docks, tool rail, menus, wiring
-├── session.py        # AudioSession — audio, undo, selection, clipboard,
+├── __main__.py       # `kudiostudio` -- web/app.py's main
+├── session.py        # AudioSession -- audio, undo, selection, clipboard,
 │                     #   markers, splice crossfade, A/B, loudness match,
 │                     #   and the edit history as a script
-├── workers.py        # QThread helpers, so long kudio calls never block the UI,
-│                     #   and cycle collection kept on the GUI thread
-├── theme.py          # shared colours
-├── style.py          # the dark theme: Fusion, palette, stylesheet
-├── icons.py          # line icons for the toolbar, transport and tool rail
+├── events.py         # the signals AudioSession announces its changes with
+├── tools/            # each tool's controls, checks, calls and wording:
+│                     #   effects, enhance, compare, record, synth, manifest,
+│                     #   pitch, metrics, batch
+├── measure.py        # the Levels readout: report, true peak, loudness curve
+├── i18n.py           # translation, with locales/zh_TW.py
 ├── plugins.py        # panels other packages add, found by entry point
-├── assets/logo.png   # the window and taskbar icon, the same mark as kudio's
-├── widgets/
-│   ├── views.py      # TimePlot base + waveform, spectrogram/mel/MFCC,
-│   │                 #   the rolling take and the f0 overlay
-│   ├── levels.py     # reference-free level / loudness / warnings readout
-│   ├── markers.py    # the marker list, and Find speech
-│   └── transport.py  # play / stop / playhead / loop / A/B / match / gain,
-│                     #   and the splice crossfade
-└── panels/
-    ├── base.py       # Panel base class
-    ├── browse.py     # file list
-    ├── effects.py    ├── enhance.py   ├── compare.py
-    ├── record.py     ├── synth.py     ├── manifest.py
-    ├── pitch.py      ├── metrics.py   └── batch.py
+├── theme.py          # the colours, which the page reads as CSS variables
+├── shapes.py         # the line icons, as SVG
+├── assets/           # the window and taskbar icon, the same mark as kudio's
+└── web/
+    ├── app.py        # the window: the local server, then pywebview on it
+    ├── server.py     # 127.0.0.1 only, a token per run, the page, its data
+    ├── studio.py     # Studio -- the window's commands, one session, playback
+    ├── editing.py    ├── markers.py    ├── monitor.py    ├── analysis.py
+    ├── jobs.py       # one job per panel, off the server's threads
+    ├── panels/       # each tool's Python half
+    └── static/       # the page: index.html, css/, js/ and js/panels/
 ```
 
-Panels never talk to each other. They read and mutate the shared
-`AudioSession`; the views repaint on its `changed` signal. A panel that wants a
-file opened asks the window with `open_requested`, so the file lands in the
-Files list like any other. Adding a panel means subclassing `Panel` and
-appending it to `PANEL_CLASSES`.
+The page is plain HTML, CSS and JavaScript modules served from the package:
+no build step and no bundler, so what you read is what runs. It asks the
+Python side for everything through one route, `POST /api/<command>`, gets the
+waveform and the spectrogram as binary slices of exactly what is on screen,
+and hears what changed as server-sent events. The server only answers
+`127.0.0.1` with this run's token, so another page in another browser cannot
+drive it.
+
+A tool is two halves. Its Python half is a `WebPanel` whose `@command`
+methods the page calls as `<id>.<name>`, and its page half is a module that
+builds the controls from `ui.js` and calls them. Both lean on `tools/`, where
+the parameters, the checks and the `kudio` call each tool shows are written
+once. Panels never talk to each other: they act on the shared `AudioSession`,
+and the window redraws when it changes.
 
 A panel can also live in a package of its own, for tools that have no place
-in this repository. The package names its `Panel` subclass under the
+in this repository. The package names its `WebPanel` subclass under the
 `kudiostudio.panels` entry point group, and the window puts it on the tool
 rail, below a rule under the built-in tools:
 
 ```toml
 [project.entry-points."kudiostudio.panels"]
-spectra = "mypackage.studio:SpectraPanel"
+spectra = "mypackage.web:SpectraPanel"
 ```
 
-Two class attributes are read as it loads: `icon_svg`, its rail icon as an
-SVG body on the 24-unit grid `icons.py` draws on, and `messages`, its
+The class says where its page module is: `static_dir`, a folder in the
+package, which the window serves at `/plugins/<id>/`, and `script`, the module
+inside it. The module mounts like the built-in ones, with the same controls,
+`ctx.call` for its own commands, and `ctx.view`, which puts a view of its own
+over the plots when its results need more room than the panel column has.
+Two more class attributes are read as it loads: `icon_svg`, its rail icon as
+an SVG body on the 24-unit grid `shapes.py` draws on, and `messages`, its
 translations in the form `locales/zh_TW.py` uses. A plugin that fails to
 import or to build is left off the rail and named in the status bar, and the
 window opens without it; `--no-plugins` leaves them all out.
-
-The UI is built in Python — there are no `.ui` files and no `uic` step, so what
-you read is what runs.
 
 ## Tests
 
@@ -743,40 +768,41 @@ you read is what runs.
 pytest -q
 ```
 
-563 tests covering the session's undo/selection/clipboard/marker arithmetic,
-the exported edit script landing on the session's own samples when it is run
-in a separate interpreter, a manifest from a real synthesis run finding its
-files from wherever the window was started and counting its coverage, a
-normalised tree read back with every file that missed the target named for
-the right reason, reverberant copies that are exactly their seeded rooms, a
-measured room that does not delay the audio, loudness matching, the
-playhead's timing, the preview and playback loops, the
-shared axes and colour scale, the comparison table's ranking and its refusal
-to crown a winner when the reference is not clean, a learned row timed
-without the seconds its model took to load, the rolling views' promise
-that every column is computed once and that real audio always wins over a live
-one, where the pitch contour refuses to draw, the two plots' left and right
-gutters staying the same width so a shared time axis actually lines up, each
-panel's behaviour, the main window's wiring, another package's panel put on
-the rail or left off it with the reason named, a panel let go of the moment its
-job ends being freed on the GUI thread, a window built in Traditional
-Chinese that still reads its combo boxes back in English, and the whole program quitting
-cleanly mid-job — those last two in an interpreter of their own, since what
-they guard against is a crash. Qt runs headless (`offscreen`), so the suite
-works in CI. The learned-denoising tests (marked `learned`) train a one-epoch
-model for real, run it on the panels' own worker threads, and skip cleanly
-when kudioenhance or PyTorch is not installed or will not import — unless
-`KUDIOSTUDIO_REQUIRE_LEARNED=1` is set, which makes them fail instead, for a
-job that installs both precisely to run them. The open-ended recorder is
-driven through a fake device, since CI has no microphone.
+774 tests covering the session's undo/selection/clipboard/marker
+arithmetic, the exported edit script landing on the session's own samples when
+it is run in a separate interpreter, a manifest from a real synthesis run
+finding its files from wherever the window was started and counting its
+coverage, a normalised tree read back with every file that missed the target
+named for the right reason, reverberant copies that are exactly their seeded
+rooms, a measured room that does not delay the audio, loudness matching, the
+playhead's timing, the preview and playback loops, a colour scale and an
+amplitude axis held while the clip is the same one, the comparison table's
+ranking and its refusal to crown a winner when the reference is not clean, a
+learned row timed without the seconds its model took to load, the live view's
+promise that every column is computed once, where the pitch contour refuses to
+draw, each panel's commands, the server refusing another origin and another
+token, another package's panel put on the rail or left off it with the reason
+named, every string on the page having its Chinese, and the whole program
+quitting cleanly mid-job, in an interpreter of its own. Nothing in the suite
+needs a display: the Python side is driven through the window's own commands,
+and the page modules that decide what is greyed out, what is selected and what
+gets asked for again run under `node` against a stand-in document, skipping
+where `node` is not installed. The learned-denoising tests (marked `learned`)
+train a one-epoch model for real and skip cleanly when kudioenhance or PyTorch
+is not installed or will not import — unless `KUDIOSTUDIO_REQUIRE_LEARNED=1` is
+set, which makes them fail instead, for a job that installs both precisely to
+run them. The open-ended recorder is driven through a fake device, since CI has
+no microphone.
 
-`tools/smoke.py` is the other half: 166 end-to-end checks in one process,
+`tools/smoke.py` is the other half: 162 end-to-end checks in one process,
 covering what the unit suites cannot — real files, non-default sample rates,
-minute-long feeds, the `kudio` command line, and the window driving a real
-worker thread. It exits non-zero on any failure.
+minute-long feeds, the `kudio` command line, and the window's server driving a
+real job. It exits non-zero on any failure.
 
 The README's screenshots are generated, not hand-captured — rerun
-`python tools/screenshots.py` after changing the window and commit what moved.
+`python tools/screenshots.py` (and `--lang zh_TW` for the Chinese README)
+after changing the window, and commit what moved. It draws the window in a
+headless Chrome, Chromium or Edge, whichever is installed.
 
 ## Related
 

@@ -1,8 +1,9 @@
 /* KudioStudio, drawn in HTML.
 
    The colours come from /theme.css, which the server writes out of
-   kudiostudio/theme.py, so this file and the Qt window cannot drift apart.
-   Everything here is layout, type and surfaces. */
+   kudiostudio/theme.py. The window's background while the page loads comes
+   from there too, so the two cannot drift apart. Everything here is layout,
+   type and surfaces. */
 
 :root {
   --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft JhengHei UI",
@@ -50,7 +51,7 @@ body {
 .app {
   display: grid;
   height: 100vh;
-  grid-template-columns: 248px minmax(0, 1fr) 384px;
+  grid-template-columns: 248px minmax(0, 1fr) 420px;
   grid-template-rows: 52px minmax(0, 1fr) 72px 26px;
   grid-template-areas:
     "top     top       top"
@@ -260,6 +261,15 @@ i[data-icon] svg { width: 100%; height: 100%; }
 
 /* the empty window: everything but the drop zone steps back */
 .empty { position: absolute; inset: var(--gap); display: none; }
+/* a panel's own view over the plots, and over the empty page: what it shows
+   may need no audio at all */
+.panel-view { position: absolute; inset: var(--gap); z-index: 5; display: flex;
+              flex-direction: column; overflow: hidden; }
+.panel-view[hidden] { display: none; }
+.panel-view-head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px;
+                   border-bottom: var(--line); }
+.panel-view-title { flex: 1; color: var(--primary-text); font-weight: 600; }
+.panel-view-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
 .app[data-state="empty"] .empty { display: grid; place-items: center; }
 .app[data-state="empty"] .overview,
 .app[data-state="empty"] .plot { visibility: hidden; }
@@ -327,7 +337,6 @@ i[data-icon] svg { width: 100%; height: 100%; }
   background: var(--primary);
   box-shadow: 0 0 10px var(--primary);
 }
-.rail button.later { opacity: 0.55; }
 .rail .rule { height: 1px; background: var(--border); margin: 6px 6px; }
 
 .panel { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -346,7 +355,7 @@ i[data-icon] svg { width: 100%; height: 100%; }
   align-items: center;
 }
 .field-grid label { color: var(--hint); font-family: var(--font-mono); font-size: 12px; }
-input.num, select {
+input.num, input.text, select {
   height: 28px;
   width: 100%;
   padding: 0 8px;
@@ -358,9 +367,9 @@ input.num, select {
   font-size: 12.5px;
   transition: border-color var(--ease);
 }
-input.num:hover, select:hover { border-color: #3a4f66; }
-input.num:focus, select:focus { border-color: var(--primary); outline: none; }
-input.num:disabled { color: var(--disabled); background: var(--surface); }
+input.num:hover, input.text:hover, select:hover { border-color: #3a4f66; }
+input.num:focus, input.text:focus, select:focus { border-color: var(--primary); outline: none; }
+input.num:disabled, input.text:disabled { color: var(--disabled); background: var(--surface); }
 input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
 .select-wrap.compact select { width: auto; height: 28px; }
 
@@ -375,7 +384,6 @@ input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
 .problems { margin: 10px 0 0; padding: 0 0 0 16px; color: var(--warn); font-size: 12px; }
 .problems.clean { color: var(--hint); list-style: none; padding: 0; }
 
-.placeholder p { margin: 0; }
 
 /* -------------------------------------------------------------- transport */
 

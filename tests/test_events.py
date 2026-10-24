@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Signals without Qt, behaving the way the Qt code that uses them expects."""
+"""The session's signals: which slots are called, in what order, and when one
+is dropped."""
 from __future__ import annotations
 
 import gc
@@ -75,20 +76,6 @@ def test_disconnect_one_or_all():
         source.happened.disconnect(receiver.on)
 
 
-def test_a_slot_on_a_deleted_qt_object_is_dropped_not_fatal():
-    source, seen = Source(), []
-
-    def deleted(value):
-        raise RuntimeError("Internal C++ object (QLabel) already deleted.")
-
-    source.happened.connect(deleted)
-    source.happened.connect(seen.append)
-    source.happened.emit(1)
-    source.happened.emit(2)
-    assert seen == [1, 2]
-    assert len(source.happened) == 1
-
-
 def test_any_other_error_in_a_slot_propagates():
     source = Source()
 
@@ -98,20 +85,3 @@ def test_any_other_error_in_a_slot_propagates():
     source.happened.connect(broken)
     with pytest.raises(RuntimeError, match="something else"):
         source.happened.emit(1)
-
-
-def test_the_session_needs_no_qt(tmp_path):
-    """Imported in a fresh interpreter: the session alone loads no PySide6."""
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parent.parent
-    code = ("import sys; sys.path.insert(0, %r)\n"
-            "import kudiostudio.session\n"
-            "print(sorted(m for m in sys.modules if m.startswith('PySide6')))"
-            % str(root))
-    done = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                          text=True, timeout=120, cwd=tmp_path)
-    assert done.returncode == 0, done.stderr[-2000:]
-    assert done.stdout.strip() == "[]"

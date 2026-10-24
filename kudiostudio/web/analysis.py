@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """What the plots draw, computed in Python and sent as compact binary.
 
-The browser never receives the audio itself. For the waveform it gets, per
+The page never receives the audio itself. For the waveform it gets, per
 pixel column, the lowest and the highest sample in it; for the spectrogram,
 the visible stretch of the image already scaled to bytes. Both are a few
 kilobytes whatever the length of the clip, which is what keeps a ten-minute
 file as quick to zoom as a ten-second one.
 
-The spectrogram is computed by the same `kudio` calls as the Qt window's, so
-what is drawn is still exactly what a training script would consume.
+The spectrogram is computed by the `kudio` calls that `Settings.call` writes
+out for the window, so what is drawn is exactly what a training script would
+consume.
 """
 from __future__ import annotations
 
@@ -157,26 +158,37 @@ class Slice:
     """Part of an `Image`, scaled to bytes for the client to colour.
 
     *pixels* is ``(rows, columns)`` uint8, row 0 at the top of the plot. The
-    columns cover *t0* to *t1*, which can be a little wider than what was
-    asked for, since frames are whole.
+    columns cover *t0* to *t1* and the rows *y0* to *y1* on the vertical
+    axis; both can be a little wider than what was asked for, since frames
+    and bins are whole.
     """
 
     pixels: np.ndarray
     t0: float
     t1: float
+    y0: float = 0.0
+    y1: float = 0.0
 
 
-def image_slice(img: Image, t0: float, t1: float, columns: int,
-                rows: int) -> Slice:
+def image_slice(img: Image, t0: float, t1: float, columns: int, rows: int,
+                y0: float = 0.0, y1: Optional[float] = None) -> Slice:
+    """The stretch *t0*..*t1* of *img*, and of its vertical axis *y0*..*y1*
+    (all of it when *y1* is None). Cut before it is pooled, so a zoom into
+    the bottom of the axis gets the bins there at full resolution rather
+    than the few rows they would have been at full range."""
     frames, bins = img.data.shape
-    if frames == 0 or img.duration <= 0:
-        return Slice(np.zeros((0, 0), np.uint8), t0, t1)
+    y1 = img.y_max if y1 is None else y1
+    if frames == 0 or img.duration <= 0 or img.y_max <= 0:
+        return Slice(np.zeros((0, 0), np.uint8), t0, t1, y0, y1)
     per_frame = img.duration / frames
     f0 = max(0, int(np.floor(t0 / per_frame)))
     f1 = min(frames, int(np.ceil(t1 / per_frame)))
-    if f1 <= f0:
-        return Slice(np.zeros((0, 0), np.uint8), t0, t1)
-    part = img.data[f0:f1]
+    per_bin = img.y_max / bins
+    b0 = max(0, int(np.floor(max(0.0, y0) / per_bin)))
+    b1 = min(bins, int(np.ceil(min(y1, img.y_max) / per_bin)))
+    if f1 <= f0 or b1 <= b0:
+        return Slice(np.zeros((0, 0), np.uint8), t0, t1, y0, y1)
+    part = img.data[f0:f1, b0:b1]
     part = _pool(part, max(1, int(columns)), axis=0)
     part = _pool(part, max(1, int(rows)), axis=1)
     lo, hi = img.levels
@@ -185,7 +197,7 @@ def image_slice(img: Image, t0: float, t1: float, columns: int,
     pixels = np.round(scaled * 255).astype(np.uint8)
     # frames run along x and bins up y; the client wants rows from the top
     pixels = np.ascontiguousarray(pixels.T[::-1])
-    return Slice(pixels, f0 * per_frame, f1 * per_frame)
+    return Slice(pixels, f0 * per_frame, f1 * per_frame, b0 * per_bin, b1 * per_bin)
 
 
 def _pool(data: np.ndarray, size: int, axis: int) -> np.ndarray:

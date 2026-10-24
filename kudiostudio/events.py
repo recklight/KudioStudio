@@ -1,19 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Signals without Qt.
+"""Signals for the session.
 
-`AudioSession` announces its changes the way a Qt object does --
-``session.changed.connect(slot)``, ``session.changed.emit()`` -- but it has
-to work where there is no Qt at all, behind the local server the window talks
-to. So it declares them with this class instead.
+`AudioSession` announces its changes as ``session.changed.connect(slot)`` and
+``session.changed.emit()``. It lives behind the local server the window talks
+to and imports no GUI toolkit, so it declares them with this class.
 
-Two things are kept from Qt's behaviour, because code written against Qt
-signals relies on them:
-
-* A bound method is held weakly. Connecting ``panel.refresh`` does not keep
-  the panel alive, and once the panel is gone its slot quietly drops out.
-* A slot whose Qt object has already been deleted raises ``RuntimeError``
-  when it is called; Qt would have disconnected it, so here it is dropped
-  the moment that happens instead of breaking every later emit.
+A bound method is held weakly, so a slot can be connected and forgotten:
+connecting ``panel.refresh`` does not keep the panel alive, and once the
+panel is gone its slot quietly drops out.
 
 Slots run on the thread that emits, at once, in the order they connected.
 """
@@ -59,14 +53,7 @@ class BoundSignal:
             if slot is None:
                 self._drop(ref)
                 continue
-            try:
-                slot(*args)
-            except RuntimeError as e:
-                # a PySide widget deleted on the C++ side while its Python
-                # wrapper lived on; Qt would have disconnected it
-                if "already deleted" not in str(e):
-                    raise
-                self._drop(ref)
+            slot(*args)
 
     def _drop(self, ref) -> None:
         try:
@@ -79,7 +66,7 @@ class BoundSignal:
 
 
 class Signal:
-    """Declared on a class like a Qt signal; each instance gets its own.
+    """Declared once on a class; each instance gets its own.
 
     The argument types are documentation only: nothing converts or checks
     them, the slots receive what `emit` was given.

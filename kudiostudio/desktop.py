@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """What the operating system needs to know about KudioStudio.
 
-Shared by both windows, so it imports no GUI toolkit.
+Plain ctypes; nothing here imports a GUI toolkit.
 """
 from __future__ import annotations
 

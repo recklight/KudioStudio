@@ -22,7 +22,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # the checks are about what a clone of this repository does, not about
 # the plugins this machine happens to have installed
 os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
@@ -631,129 +630,128 @@ def align_checks(tmp: Path) -> None:
 # ---------------------------------------------------------------- the app
 
 def app_checks(tmp: Path) -> None:
-    print("\nKudioStudio, driving the real widgets")
-    from PySide6.QtCore import QEventLoop, QTimer
-    from PySide6.QtWidgets import QApplication
+    print("\nKudioStudio, through the window's own server")
+    import http.client
+    import json
 
-    from kudiostudio.app import KudioStudio
-
-    app = QApplication.instance() or QApplication(sys.argv[:1])
-
-    def settle(ms=30):
-        app.processEvents()
-        loop = QEventLoop()
-        QTimer.singleShot(ms, loop.quit)
-        loop.exec()
-        app.processEvents()
+    from kudiostudio.web.server import LocalServer
+    from kudiostudio.web.studio import Prefs, Studio
 
     clip = tmp / "app.wav"
     kudio.save_wave(clip, voice(16000, 3.0, 160.0), 16000)
 
-    window = KudioStudio(reset=True)
-    window.open_files([str(clip)])
-    check("clip loaded", window.session.has_audio)
+    studio = Studio(prefs=Prefs(tmp / "window.json"), language="en")
+    server = LocalServer(studio, 0)
+    server.start()
 
-    pitch = next(p for p in window.panels if p.title == "Pitch")
-    window.tools.setCurrentWidget(pitch)
-    pitch._run()
-    for _ in range(400):
-        settle(20)
-        if not pitch.jobs.busy and pitch._track is not None:
-            break
-    check("the worker finished", pitch._track is not None)
-    check("median is right",
-          abs(pitch._track.median_hz - 160.0) < 5.0,
-          f"{pitch._track.median_hz:.1f} Hz")
-    check("contour is on the spectrogram",
-          window.analysis.spectrogram.overlay_visible)
+    def request(method: str, path: str, payload=None):
+        conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=60)
+        body = json.dumps(payload).encode() if payload is not None else None
+        conn.request(method, path, body=body,
+                     headers={"Content-Type": "application/json",
+                              "X-Kudio-Token": server.token})
+        response = conn.getresponse()
+        data = response.read()
+        conn.close()
+        return response.status, data
 
-    pitch._add_markers()
-    check("markers added", len(window.session.markers) >= 3,
-          f"{len(window.session.markers)} markers")
+    def call(name: str, *args, **kwargs):
+        status, data = request("POST", f"/api/{name}", {"args": list(args), "kwargs": kwargs})
+        reply = json.loads(data)
+        if status != 200 or not reply.get("ok"):
+            raise RuntimeError(f"{name}: {reply.get('error') or status}")
+        return reply["result"]
 
-    window.analysis.mode.setCurrentIndex(window.analysis.MODE_MEL)
-    check("hidden on the mel axis",
-          not window.analysis.spectrogram.overlay_visible)
-    window.analysis.mode.setCurrentIndex(window.analysis.MODE_STFT)
-    check("back on the STFT axis", window.analysis.spectrogram.overlay_visible)
-
-    # a real edit must drop it: it describes audio that no longer exists
-    window.session.set_selection(0.5, 1.0)
-    window.session.delete()
-    settle()
-    check("an edit drops the contour",
-          not window.analysis.spectrogram.overlay_visible)
-    check("and the panel knows", pitch._track is None)
-
-    print("\n  a take, through the real signal path")
-    record = next(p for p in window.panels if p.title == "Record")
-    y, sr = kudio.file_load(str(clip), sr=None, mono=True)
-    record.monitor_started.emit(sr)
-    for i in range(0, len(y), 800):                 # 50 ms at a time
-        record.monitor_chunk.emit(y[i:i + 800], sr)
-    settle()
-    stream = window.analysis._monitor_stream
-    check("the view built a stream", stream is not None)
-    expected = (len(y) - stream.n_fft) // stream.hop_length + 1
-    check("every column computed once", stream.frames_seen == expected,
-          f"{stream.frames_seen} vs {expected}")
-    # a 3.00 s clip cannot fill a 3.008 s window (the window is a column
-    # count, not a time), so what must hold is that nothing was dropped
-    check("nothing dropped on the way in",
-          stream.filled == min(stream.frames_seen, stream.n_columns),
-          f"{stream.filled} of {stream.n_columns} columns held")
-
-    record.monitor_stopped.emit()
-    check("stopping releases the stream", window.analysis._monitor_stream is None)
-
-    # committing a take must take the live picture down
-    window.analysis.start_monitor(sr)
-    window.analysis.feed_monitor(y[:8000], sr)
-    window.session.set_audio(y, sr, name="take")
-    settle()
-    check("committing ends the live view", window.analysis._monitor_sr == 0)
-
-    print("\n  the loudness curve reaches the waveform")
-    analysis = window.analysis
-    analysis.set_audio(y, sr)
-    for _ in range(80):                     # the readout debounces onto a worker
-        settle(30)
-        if analysis._loudness is not None:
-            break
-    check("the readout handed one over", analysis._loudness is not None)
-    check("true peak is on screen", "dBTP" in analysis.levels.true_peak.text(),
-          analysis.levels.true_peak.text())
-    check("range is on screen", "LU" in analysis.levels.range.text(),
-          analysis.levels.range.text())
-
-    analysis.show_loudness.setChecked(True)
-    check("drawn when asked", analysis.waveform.loudness_visible)
-    check("both plots reserve the gutter",
-          analysis.spectrogram.plotItem.getAxis("right").isVisible())
-
-    print("\n  and the two plots line up, with it on and with it off")
-    for state in (True, False):
-        analysis.show_loudness.setChecked(state)
-        settle(80)
-        wave = analysis.waveform.plotItem.vb.sceneBoundingRect()
-        spec = analysis.spectrogram.plotItem.vb.sceneBoundingRect()
-        check(f"curve {'on ' if state else 'off'}: same plot area",
-              abs(wave.left() - spec.left()) < 1
-              and abs(wave.right() - spec.right()) < 1,
-              f"{wave.left():.1f}..{wave.right():.1f} vs "
-              f"{spec.left():.1f}..{spec.right():.1f}")
-
-    print("\n  crossfade, per edit")
-    window.transport.crossfade.setValue(25.0)
-    check("the bar writes the session", window.session.crossfade_ms == 25.0)
     messages = []
-    window.session.message.connect(messages.append)
-    window.session.set_selection(0.2, 0.4)
-    window.session.delete(crossfade_ms=120.0)
-    check("one edit can override", "120 ms" in messages[-1], messages[-1])
-    check("without moving the default", window.session.crossfade_ms == 25.0)
+    said = studio.events.subscribe()
 
-    window.close()
+    def drain() -> None:
+        while not said.empty():
+            event = said.get_nowait()
+            if event["type"] == "message":
+                messages.append(event["text"])
+
+    try:
+        state = call("open_files", [str(clip)])
+        check("clip loaded", state["has_audio"] and state["sr"] == 16000)
+        status, peaks = request("GET", "/data/peaks?t0=0&t1=3&columns=400")
+        check("the waveform is served", status == 200 and len(peaks) > 400 * 4,
+              f"{len(peaks)} bytes")
+        status, image = request("GET", "/data/image?t0=0&t1=3&columns=300&rows=128")
+        # never more columns than the clip has frames, so not 300 here
+        check("the spectrogram is served", status == 200 and len(image) >= 100 * 128,
+              f"{len(image)} bytes")
+
+        call("pitch.track", 65, 400, 2048, 10)
+        check("the worker finished", studio.jobs.wait(60))
+        track = studio.panel("pitch")._track
+        check("median is right", track is not None and abs(track.median_hz - 160.0) < 5.0,
+              f"{track.median_hz:.1f} Hz" if track is not None else "no track")
+        curve = call("overlay")
+        check("contour is on the spectrogram", bool(curve and curve["times"]))
+
+        before = len(studio.session.markers)
+        call("pitch.add_markers")
+        added = len(studio.session.markers) - before
+        check("markers added", added >= 3, f"{added} markers")
+
+        # a real edit must drop it: it describes audio that no longer exists
+        call("set_selection", 0.5, 1.0)
+        call("delete")
+        check("an edit drops the contour", call("overlay") is None)
+        check("and the panel knows", not call("pitch.describe")["has_track"])
+
+        print("\n  a take, through the live monitor")
+        y, sr = kudio.file_load(str(clip), sr=None, mono=True)
+        monitor = studio.monitor
+        with studio.lock:
+            monitor.start(sr)
+            for i in range(0, len(y), 800):                 # 50 ms at a time
+                monitor.push(y[i:i + 800], sr)
+        stream = monitor.stream
+        check("the monitor built a stream", stream is not None)
+        expected = (len(y) - stream.n_fft) // stream.hop_length + 1
+        check("every column computed once", stream.frames_seen == expected,
+              f"{stream.frames_seen} vs {expected}")
+        # a 3.00 s clip cannot fill a 3.008 s window (the window is a column
+        # count, not a time), so what must hold is that nothing was dropped
+        check("nothing dropped on the way in",
+              stream.filled == min(stream.frames_seen, stream.n_columns),
+              f"{stream.filled} of {stream.n_columns} columns held")
+        picture = monitor.snapshot()
+        check("the picture has both plots", picture["wave"] is not None
+              and picture["image"] is not None)
+        with studio.lock:
+            monitor.stop()
+        check("stopping releases the stream", monitor.stream is None and not monitor.running)
+
+        print("\n  the loudness readout, of a take long enough to have a range")
+        take = voice(16000, 10.0, 160.0, seed=3)
+        with studio.lock:
+            studio.session.set_audio(take, 16000, name="take")
+        levels = call("levels")
+        check("true peak is measured", levels.get("true_peak_db") is not None,
+              str(levels.get("true_peak_db")))
+        check("range is measured", levels.get("range_lu") is not None,
+              str(levels.get("range_lu")))
+        curve = levels.get("curve") or {}
+        check("the loudness curve comes with it", len(curve.get("times") or []) > 10,
+              f"{len(curve.get('times') or [])} points")
+
+        print("\n  crossfade, per edit")
+        call("set_crossfade", 25.0)
+        check("the setting reaches the session", studio.session.crossfade_ms == 25.0)
+        drain()
+        with studio.lock:
+            studio.session.set_selection(0.2, 0.4)
+            studio.session.delete(crossfade_ms=120.0)
+        drain()
+        check("one edit can override", any("120 ms" in m for m in messages),
+              messages[-1] if messages else "nothing said")
+        check("without moving the default", studio.session.crossfade_ms == 25.0)
+    finally:
+        server.close()
+        studio.shutdown()
 
 
 def main() -> int:

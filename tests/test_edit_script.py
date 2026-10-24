@@ -16,10 +16,10 @@ import numpy as np
 import pytest
 
 import kudio
-from kudiostudio.panels.compare import ComparePanel
-from kudiostudio.panels.effects import EffectsPanel
-from kudiostudio.panels.enhance import LEARNED, TRAD, WAVELET, EnhancePanel
 from kudiostudio.session import UNDO_DEPTH, AudioSession
+from kudiostudio.tools import compare, effects
+from kudiostudio.tools.enhance import LEARNED, TRAD, WAVELET
+from kudiostudio.web.studio import Prefs, Studio
 
 SR = 16000
 
@@ -57,42 +57,87 @@ def replay(step, before: np.ndarray, sr: int) -> np.ndarray:
     return namespace["y"]
 
 
-def run_and_wait(panel) -> None:
-    """Denoising and comparing run on a worker; drive the loop until it lands."""
-    from PySide6.QtCore import QEventLoop, QTimer
-
-    loop = QEventLoop()
-    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
-    QTimer.singleShot(60_000, loop.quit)
-    panel._run()
-    if panel.jobs.busy:
-        loop.exec()
-    panel.jobs.wait(60_000)
-
-
 def gain(session: AudioSession, db: float) -> None:
     """A whole-clip or selected-range edit that says what it did."""
     session.replace_selection(kudio.gain(session.selected_audio(), db),
                               undo_label="gain", code=f"y = kudio.gain(y, db={db})")
 
 
+# ------------------------------------------------------------- the window
+
+@pytest.fixture
+def quiet(monkeypatch):
+    monkeypatch.setattr(kudio, "play_audio", lambda y, rate=None, **_: None)
+
+
+def _window(tmp_path, path) -> Studio:
+    studio = Studio(prefs=Prefs(tmp_path / "window.json"), language="en")
+    studio.call("open_files", [[str(path)]])
+    return studio
+
+
+@pytest.fixture
+def studio(tmp_path, quiet, tone):
+    """The window with the tone the `session` fixture holds."""
+    s = _window(tmp_path, tone)
+    yield s
+    s.jobs.wait(60)
+    s.shutdown()
+
+
+@pytest.fixture
+def real_studio(tmp_path, quiet, recording):
+    """The window with the recording the `real_session` fixture holds."""
+    s = _window(tmp_path, recording)
+    yield s
+    s.jobs.wait(60)
+    s.shutdown()
+
+
+def apply(studio, name: str, **values):
+    """Apply effect *name* the way the Effects page does. The page caps a
+    cutoff's box at this clip's Nyquist, so the 8 kHz low-pass default
+    arrives as 7999 Hz at 16 kHz."""
+    sr = studio.session.sr
+    for p in effects.PARAMS[name]:
+        if p.nyquist:
+            values.setdefault(p.name, min(p.default, sr / 2 - 1))
+    return studio.call("effects.apply", [name, values])
+
+
+def denoise(studio, method: str, **values) -> None:
+    """Denoise runs as a job; wait until its result is in the session."""
+    studio.call("enhance.denoise", [method, values])
+    assert studio.jobs.wait(60)
+
+
+def said(studio):
+    """What the status bar is told from here on."""
+    q = studio.events.subscribe()
+
+    def drain():
+        out = []
+        while not q.empty():
+            event = q.get_nowait()
+            if event["type"] == "message":
+                out.append(event["text"])
+        return out
+
+    return drain
+
+
 # ------------------------------------------------------------- the property
 
-def test_the_exported_script_makes_the_audio_the_session_holds(real_session,
+def test_the_exported_script_makes_the_audio_the_session_holds(real_studio,
                                                                tmp_path):
-    session = real_session
-    effects = EffectsPanel(session)
+    session = real_studio.session
 
     # an effect on the whole clip
-    effects.effect.setCurrentText("highpass")
-    effects.hp_cutoff.setValue(120.0)
-    effects._apply()
+    apply(real_studio, "highpass", cutoff=120.0)
 
     # an effect on a selection, one that changes the selection's length
     session.set_selection(0.3, 0.9)
-    effects.effect.setCurrentText("time_stretch")
-    effects.stretch_rate.setValue(1.25)
-    effects._apply()
+    apply(real_studio, "time_stretch", rate=1.25)
 
     # a replacement joined back with a crossfade of its own length
     session.set_selection(1.0, 1.2)
@@ -108,8 +153,7 @@ def test_the_exported_script_makes_the_audio_the_session_holds(real_session,
     session.set_selection(0.5, 0.7)
     session.copy()
     session.clear_selection()
-    effects.effect.setCurrentText("random_gain")        # seed left on random
-    effects._apply()
+    apply(real_studio, "random_gain")                   # seed left on random
     session.clear_selection()
     session.paste(at=1.3)
 
@@ -123,9 +167,7 @@ def test_the_exported_script_makes_the_audio_the_session_holds(real_session,
     session.set_selection(0.05, 1.8)
     session.crop_to_selection()
 
-    enhance = EnhancePanel(session)
-    enhance.method.setCurrentIndex(enhance.method.findData("logmmse"))
-    run_and_wait(enhance)
+    denoise(real_studio, "logmmse")
 
     assert [step.label for step in session.history][:-1] == [
         "highpass", "time_stretch", "reverse", "cut", "random_gain", "paste",
@@ -151,7 +193,7 @@ def test_the_steps_read_as_labelled_code(session):
     assert "kudio.save_wave(OUTPUT, y, sr, subtype='PCM_16')" in script
 
 
-def test_the_original_is_read_the_way_the_session_read_it(qapp, tone):
+def test_the_original_is_read_the_way_the_session_read_it(tone):
     """Same arguments to file_load, so the script starts from the same samples."""
     session = AudioSession()
     session.load_file(tone, sr=8000)
@@ -280,8 +322,7 @@ def test_a_copy_from_before_an_undone_edit_is_rebuilt(session, tmp_path):
     assert_reproduces(session, tmp_path)
 
 
-def test_a_paste_from_another_file_at_another_rate_is_rebuilt(
-        qapp, tmp_path, recording):
+def test_a_paste_from_another_file_at_another_rate_is_rebuilt(tmp_path, recording):
     other = tmp_path / "other.wav"
     t = np.arange(SR // 2) / 8000
     kudio.save_wave(other, (0.3 * np.sin(2 * np.pi * 330 * t)).astype(np.float32),
@@ -304,155 +345,118 @@ def test_a_paste_from_another_file_at_another_rate_is_rebuilt(
     assert_reproduces(session, tmp_path)
 
 
-# ---------------------------------------------------------------- the panels
+# ---------------------------------------------------------------- the tools
 
-@pytest.mark.parametrize("name", [effect for effect in EffectsPanel.EFFECTS
+@pytest.mark.parametrize("name", [effect for effect in effects.EFFECTS
                                   if effect != "split_on_silence"])
-def test_every_effect_records_the_call_it_applied(real_session, tmp_path, name):
+def test_every_effect_records_the_call_it_applied(real_studio, tmp_path, name):
     """Replayed on the same audio, the recorded code gives what Apply gave.
 
     This is what stops the caption and the computation drifting apart: a
     parameter the caption leaves out shows up here as a different result.
     """
-    panel = EffectsPanel(real_session)
-    panel.effect.setCurrentText(name)
+    session = real_studio.session
+    values = {}
     if name == "add_noise_snr":
         noise = tmp_path / "noise.wav"
         kudio.save_wave(noise, 0.1 * np.random.default_rng(3).standard_normal(SR)
                         .astype(np.float32), SR)
-        panel._noise_path = noise
+        values["noise"] = str(noise)
     if name == "measured_room":
         ir = tmp_path / "hall.wav"
         response = np.concatenate([np.zeros(240, dtype=np.float32),
                                    kudio.rir(48000, rt60=0.4, seed=5)])
         kudio.save_wave(ir, response, 48000, subtype="FLOAT")
-        assert panel.load_ir(ir)
+        assert real_studio.call("effects.load_ir", [str(ir)])["ir"]["name"] == "hall.wav"
+        values["ir"] = str(ir)
     if name == "bit_depth":
-        panel.depth_dither.setChecked(True)        # the seed matters with dither
-    real_session.set_selection(0.5, 1.5)
-    before = real_session.y.copy()
-    panel._apply()
+        values["dither"] = True                    # the seed matters with dither
+    session.set_selection(0.5, 1.5)
+    before = session.y.copy()
+    apply(real_studio, name, **values)
 
-    assert [step.label for step in real_session.history] == [name]
-    assert np.array_equal(replay(real_session.history[0], before,
-                                 real_session.sr), real_session.y)
+    assert [step.label for step in session.history] == [name]
+    assert np.array_equal(replay(session.history[0], before, session.sr), session.y)
 
 
-def test_a_measured_room_is_reproduced_by_the_script(real_session, tmp_path):
+def test_a_measured_room_is_reproduced_by_the_script(real_studio, tmp_path):
     """The response is read from its file in the script, at the clip's rate
     and from the direct sound on -- the same read the panel made."""
-    session = real_session
+    session = real_studio.session
     path = tmp_path / "hall.wav"
     response = np.concatenate([np.zeros(576, dtype=np.float32),
                                kudio.rir(48000, rt60=0.5, drr_db=2.0, seed=4)])
     kudio.save_wave(path, np.stack([response, 0.7 * response], axis=1), 48000,
                     subtype="FLOAT")
 
-    panel = EffectsPanel(session)
-    panel.effect.setCurrentText("measured_room")
-    assert panel.load_ir(path)
+    assert real_studio.call("effects.load_ir", [str(path)])["ir"] is not None
     session.set_selection(0.4, 1.2)
-    panel._apply()
+    apply(real_studio, "measured_room", ir=str(path))
     session.clear_selection()
-    panel.ir_align.setChecked(False)
-    panel._apply()
+    apply(real_studio, "measured_room", ir=str(path), align=False)
 
     script = session.edit_script()
     assert f"kudio.file_load({str(path.absolute())!r}, sr=sr)[0][192:]" in script
     assert_reproduces(session, tmp_path)
 
 
-def test_a_random_seed_is_pinned_to_the_one_apply_drew(session):
+def test_a_random_seed_is_pinned_to_the_one_apply_drew(studio):
     """Random means a new result each Apply, and the history has to say which."""
-    panel = EffectsPanel(session)
-    panel.effect.setCurrentText("random_gain")
-    assert "seed=None" in panel.call.text()
+    assert "seed=None" in studio.call("effects.call_text", ["random_gain", {}])
 
-    panel._apply()
-    panel._apply()
-    first, second = (step.code for step in session.history)
+    apply(studio, "random_gain")
+    apply(studio, "random_gain")
+    first, second = (step.code for step in studio.session.history)
     assert "seed=None" not in first and "seed=None" not in second
     assert first != second
 
 
 @pytest.mark.parametrize("method", ["logmmse", WAVELET, TRAD])
-def test_a_denoise_records_the_call_the_worker_ran(session, method):
-    panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(panel.method.findData(method))
+def test_a_denoise_records_the_call_the_job_ran(studio, method):
+    session = studio.session
     before = session.y.copy()
-    run_and_wait(panel)
+    denoise(studio, method)
 
     assert len(session.history) == 1
-    assert np.array_equal(replay(session.history[0], before, session.sr),
-                          session.y)
+    assert np.array_equal(replay(session.history[0], before, session.sr), session.y)
 
 
-def test_a_denoise_of_audio_edited_while_it_ran_is_not_given_code(session):
+def test_a_denoise_of_audio_edited_while_it_ran_is_not_given_code(studio):
     """It was computed from audio the history no longer holds, so any code
     would repeat it on different audio."""
-    from PySide6.QtCore import QEventLoop, QTimer
+    # the result is handed back under the window's lock, so holding it makes
+    # the gain land first however fast the denoise is
+    with studio.lock:
+        studio.call("enhance.denoise", ["logmmse", {}])
+        gain(studio.session, -3.0)
+    assert studio.jobs.wait(60)
 
-    panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(panel.method.findData("logmmse"))
-    loop = QEventLoop()
-    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
-    QTimer.singleShot(60_000, loop.quit)
-    panel._run()
-    gain(session, -3.0)                    # lands before the result does
-    if panel.jobs.busy:
-        loop.exec()
-    panel.jobs.wait(60_000)
-
-    assert [step.code is None for step in session.history] == [False, True]
-    assert session.edit_script_warnings()
+    assert [step.code is None for step in studio.session.history] == [False, True]
+    assert studio.session.edit_script_warnings()
 
 
-def test_pressing_denoise_again_mid_run_leaves_the_running_jobs_code_alone(
-        session):
+def test_pressing_denoise_again_mid_run_leaves_the_running_jobs_code_alone(studio):
     """The second press is refused; it must not relabel the first result."""
-    from PySide6.QtCore import QEventLoop, QTimer
+    messages = said(studio)
+    with studio.lock:                   # the first job cannot finish meanwhile
+        studio.call("enhance.denoise", ["logmmse", {}])
+        studio.call("enhance.denoise", [WAVELET, {}])
+    assert studio.jobs.wait(60)
 
-    panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(panel.method.findData("logmmse"))
-    messages = []
-    panel.status.connect(messages.append)
-    loop = QEventLoop()
-    panel.jobs.busy_changed.connect(lambda busy: None if busy else loop.quit())
-    QTimer.singleShot(60_000, loop.quit)
-    panel._run()
-    panel.method.setCurrentIndex(panel.method.findData(WAVELET))
-    panel._run()
-    if panel.jobs.busy:
-        loop.exec()
-    panel.jobs.wait(60_000)
-
-    assert "A denoising job is already running." in messages
+    session = studio.session
+    assert "A denoising job is already running." in messages()
     assert len(session.history) == 1
     assert "'logmmse'" in session.history[0].code
     assert "wavelet" not in session.history[0].code
 
 
-def learned_denoise(session, run_dir) -> None:
-    """Denoise with a trained model through the panel's own Denoise path, on
-    its worker thread.
-
-    The panel is let go as soon as this returns, with its finished worker
-    still awaiting deletion -- which crashed this process while a finished
-    worker still held what it was handed (see `WorkerHost`).
-    """
-    panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(panel.method.findData(LEARNED))
-    panel.run_dir.edit.setText(str(run_dir))
-    run_and_wait(panel)
-
-
 @requires_enhance
-def test_a_learned_denoise_is_reproduced_by_the_script(session, trained_run,
-                                                       tmp_path):
+def test_a_learned_denoise_is_reproduced_by_the_script(studio, trained_run, tmp_path):
     run_dir, _ = trained_run
+    session = studio.session
     session.set_selection(0.1, 0.3)
     session.delete()
-    learned_denoise(session, run_dir)
+    denoise(studio, LEARNED, run_dir=str(run_dir))
 
     assert "Enhancer.load" in session.history[-1].code
     assert_reproduces(session, tmp_path)
@@ -460,45 +464,53 @@ def test_a_learned_denoise_is_reproduced_by_the_script(session, trained_run,
 
 @requires_enhance
 def test_a_learned_denoise_at_another_rate_records_the_round_trip(
-        qapp, tone, trained_run):
-    """In at the model's rate and back out at the clip's, as the panel did."""
+        studio, tone, trained_run):
+    """In at the model's rate and back out at the clip's, as Denoise did."""
     run_dir, model_sr = trained_run
-    session = AudioSession()
+    session = studio.session
     session.load_file(tone, sr=2 * model_sr)
-    learned_denoise(session, run_dir)
+    denoise(studio, LEARNED, run_dir=str(run_dir))
 
     y, sr = session.original()
     assert np.array_equal(replay(session.history[0], y, sr), session.y)
 
 
-def test_applying_a_compared_result_records_the_call_that_made_it(real_session):
-    panel = ComparePanel(real_session)
-    panel.metrics.setChecked(False)
-    panel.selection_only.setChecked(True)
-    real_session.set_selection(0.5, 1.5)
-    run_and_wait(panel)
+def compare_selection(studio):
+    """Compare every gain rule on the selection; the first row's key."""
+    studio.call("compare.run", kwargs={
+        "reference": compare.REF_NONE, "sweep": compare.SWEEP_METHODS,
+        "metrics": False, "selection_only": True})
+    assert studio.jobs.wait(120)
+    return studio.call("compare.describe")["rows"][0]["key"]
 
-    panel.table.selectRow(0)
-    before = real_session.y.copy()
-    panel._apply()
-    step = real_session.history[-1]
+
+def test_applying_a_compared_result_records_the_call_that_made_it(real_studio):
+    session = real_studio.session
+    session.set_selection(0.5, 1.5)
+    key = compare_selection(real_studio)
+
+    before = session.y.copy()
+    real_studio.call("compare.apply", [key, True])
+    step = session.history[-1]
     assert "kudio.spectral_enhance" in step.code
-    assert np.array_equal(replay(step, before, real_session.sr), real_session.y)
+    assert np.array_equal(replay(step, before, session.sr), session.y)
 
     # The same result put into a range it was not computed from: no code can
-    # say what that was, and the export has to know
-    real_session.undo()
-    real_session.set_selection(0.6, 1.6)
-    panel._apply()
-    assert real_session.history[-1].code is None
-    panel.jobs.wait(5000)
+    # say what that was, and the export has to know. Undo clears the table
+    # along with the audio it described, so the rows are computed again.
+    session.undo()
+    session.set_selection(0.5, 1.5)
+    key = compare_selection(real_studio)
+    session.set_selection(0.6, 1.6)
+    real_studio.call("compare.apply", [key, True])
+    assert [step.code is None for step in session.history] == [True]
 
 
-def test_a_copy_from_an_earlier_take_is_not_read_from_this_one(qapp, tmp_path):
-    """Two takes at one rate used to be the same origin, and a copy made
-    before any edit counted as made earlier in this history: the script
-    pasted this take's own samples where the session pasted the other's,
-    and said nothing."""
+def test_a_copy_from_an_earlier_take_is_not_read_from_this_one():
+    """Two takes at one rate are two origins. As one, a copy made before
+    any edit would count as made earlier in this history, and the script
+    would paste this take's own samples where the session pasted the
+    other's, without a word."""
     t = np.arange(SR) / SR
     first = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
     second = (0.1 * np.random.default_rng(1).standard_normal(2 * SR)
@@ -520,7 +532,7 @@ def test_a_copy_from_an_earlier_take_is_not_read_from_this_one(qapp, tmp_path):
            "recording')" in script
 
 
-def test_a_copy_within_one_take_is_still_taken_where_it_was_made(qapp):
+def test_a_copy_within_one_take_is_still_taken_where_it_was_made():
     session = AudioSession()
     session.set_audio(np.linspace(-0.5, 0.5, 2 * SR, dtype=np.float32), SR,
                       name="recording")
@@ -559,8 +571,7 @@ def _take(tmp_path, name: str = "take.wav"):
     return path
 
 
-def test_saving_over_the_source_stops_the_script_instead_of_editing_twice(
-        qapp, tmp_path):
+def test_saving_over_the_source_stops_the_script_instead_of_editing_twice(tmp_path):
     """Save As suggests the file that was opened. Saved over, SOURCE held the
     edited audio, and the script applied every edit to it a second time: no
     warning, and a shorter file than the one in the window."""
@@ -589,7 +600,7 @@ def test_saving_over_the_source_stops_the_script_instead_of_editing_twice(
     assert not out.exists(), "no file is better than a wrong one"
 
 
-def test_a_script_exported_before_the_save_stops_too(qapp, tmp_path):
+def test_a_script_exported_before_the_save_stops_too(tmp_path):
     """The check is in the script, so it holds whenever the file changes."""
     path = _take(tmp_path)
     session = AudioSession()
@@ -612,8 +623,7 @@ def test_a_script_exported_before_the_save_stops_too(qapp, tmp_path):
     assert "is not the file these edits were made on" in done.stderr
 
 
-def test_a_save_that_leaves_the_size_and_the_time_alone_is_still_caught(
-        qapp, tmp_path):
+def test_a_save_that_leaves_the_size_and_the_time_alone_is_still_caught(tmp_path):
     """A gain keeps the length, so the file keeps its size, and a save in the
     same tick of a coarse clock keeps its time: Save As remembers instead."""
     import os
@@ -630,7 +640,7 @@ def test_a_save_that_leaves_the_size_and_the_time_alone_is_still_caught(
     assert "was saved over" in session.edit_script_warnings()[0]
 
 
-def test_a_source_changed_by_another_program_is_named(qapp, tmp_path):
+def test_a_source_changed_by_another_program_is_named(tmp_path):
     path = _take(tmp_path)
     session = AudioSession()
     session.load_file(path)
@@ -652,8 +662,7 @@ def test_saving_elsewhere_changes_nothing(session, tmp_path):
     assert_reproduces(session, tmp_path)
 
 
-def test_opening_the_saved_file_starts_a_history_on_its_own_bytes(
-        qapp, tmp_path):
+def test_opening_the_saved_file_starts_a_history_on_its_own_bytes(tmp_path):
     """Reopened after the save, the file is a new starting point, and a
     script from there checks for the new bytes."""
     path = _take(tmp_path)
@@ -671,7 +680,7 @@ def test_opening_the_saved_file_starts_a_history_on_its_own_bytes(
 
 @pytest.mark.skipif(sys.platform == "win32",
                     reason="Windows file names cannot hold a newline")
-def test_a_file_name_cannot_put_code_into_the_script(qapp, tmp_path):
+def test_a_file_name_cannot_put_code_into_the_script(tmp_path):
     """The name goes into the header comment. A newline in it ended the
     comment, and what followed ran with the script."""
     name = "take\nprint('INJECTED')\n#\r.wav"
@@ -710,11 +719,12 @@ def test_a_label_cannot_put_code_into_the_script(session, tmp_path):
 
 @requires_enhance
 def test_a_model_trained_again_is_used_and_recorded_as_what_it_is(
-        session, trained_run, tmp_path):
-    """Trained again in the same run directory, the model used to stay cached
-    under the directory's name: Denoise went on with the old weights while
-    the history recorded a load of the new ones. And a script recorded
-    against the first model now stops, rather than denoise with the second."""
+        studio, trained_run, tmp_path):
+    """Trained again in the same run directory, the model is loaded afresh.
+    Cached under the directory's name, Denoise would go on with the old
+    weights while the history recorded a load of the new ones. And a script
+    recorded against the first model stops, rather than denoise with the
+    second."""
     import shutil
 
     from kudioenhance.checkpoint import load_checkpoint, save_checkpoint
@@ -722,10 +732,8 @@ def test_a_model_trained_again_is_used_and_recorded_as_what_it_is(
     trained, _ = trained_run
     run_dir = tmp_path / "exp"
     shutil.copytree(trained, run_dir)          # the shared run stays as it is
-    panel = EnhancePanel(session)
-    panel.method.setCurrentIndex(panel.method.findData(LEARNED))
-    panel.run_dir.edit.setText(str(run_dir))
-    run_and_wait(panel)
+    session = studio.session
+    denoise(studio, LEARNED, run_dir=str(run_dir))
     first = session.y.copy()
 
     checkpoint_path = next(run_dir.glob("*.pt"))
@@ -733,10 +741,9 @@ def test_a_model_trained_again_is_used_and_recorded_as_what_it_is(
     save_checkpoint(checkpoint_path,
                     {k: 0.5 * v for k, v in checkpoint["state_dict"].items()},
                     model=checkpoint["model"], target=checkpoint["target"])
-    run_and_wait(panel)
+    denoise(studio, LEARNED, run_dir=str(run_dir))
 
-    assert np.array_equal(replay(session.history[-1], first, session.sr),
-                          session.y)
+    assert np.array_equal(replay(session.history[-1], first, session.sr), session.y)
     y, sr = session.original()
     with pytest.raises(RuntimeError, match="trained again"):
         replay(session.history[0], y, sr)

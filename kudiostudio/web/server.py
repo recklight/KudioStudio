@@ -14,6 +14,7 @@ Routes:
 
 ``GET /``                 the page, with this run's token in it
 ``GET /static/...``       its scripts and styles
+``GET /plugins/<id>/...`` a plugin panel's page module, from its own package
 ``GET /theme.css``        the colours, from `kudiostudio.theme`
 ``GET /colormap.bin``     the spectrogram's 256 colours, RGB bytes
 ``GET /icons.json``       the line icons, from `kudiostudio.shapes`
@@ -31,6 +32,7 @@ import logging
 import mimetypes
 import queue
 import secrets
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,7 +44,7 @@ import numpy as np
 
 from kudiostudio import theme
 from kudiostudio.shapes import SHAPES
-from kudiostudio.web.studio import COMMANDS, Studio
+from kudiostudio.web.studio import Studio
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +124,14 @@ class LocalServer(ThreadingHTTPServer):
         self.shutdown()
         self.server_close()
 
+    def handle_error(self, request, client_address) -> None:
+        """The page drops a request for peaks or an image as soon as a newer
+        one replaces it, which it does on every zoom; the write to a socket
+        it has closed is not an error worth a traceback."""
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
 
 class Handler(BaseHTTPRequestHandler):
     server: LocalServer
@@ -182,9 +192,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/colormap.bin":
             return self._send(HTTPStatus.OK, self.server.colormap(), "application/octet-stream")
         if path == "/assets/logo.png":
-            return self._file(LOGO)
+            return self._file_under(LOGO.parent, LOGO.name)
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
+        if path.startswith("/plugins/"):
+            return self._plugin_file(path[len("/plugins/"):])
         if not self._token_ok(query):
             return self._refuse(HTTPStatus.FORBIDDEN, "token")
         if path == "/data/peaks":
@@ -204,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
         if not parts.path.startswith("/api/"):
             return self._refuse(HTTPStatus.NOT_FOUND, "no such command")
         name = parts.path[len("/api/"):]
-        if name not in COMMANDS:
+        if name not in self.server.studio.commands:
             return self._refuse(HTTPStatus.NOT_FOUND, f"no command {name!r}")
         length = int(self.headers.get("Content-Length") or 0)
         try:
@@ -234,8 +246,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _static(self, relative: str) -> None:
-        target = (STATIC / relative).resolve()
-        if STATIC not in target.parents or not target.is_file():
+        self._file_under(STATIC, relative)
+
+    def _plugin_file(self, rest: str) -> None:
+        panel_id, _, relative = rest.partition("/")
+        panel = self.server.studio.panel(panel_id)
+        if panel is None or panel.static_dir is None:
+            return self._refuse(HTTPStatus.NOT_FOUND, "no such plugin")
+        self._file_under(Path(panel.static_dir).resolve(), relative)
+
+    def _file_under(self, folder: Path, relative: str) -> None:
+        """A file below *folder*, and nothing a ``..`` reaches outside it."""
+        target = (folder / relative).resolve()
+        if folder not in target.parents or not target.is_file():
             return self._refuse(HTTPStatus.NOT_FOUND, "no such file")
         self._file(target)
 
@@ -277,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
         t1 = self._number(query, "t1", 0.0)
         columns = int(np.clip(self._number(query, "columns", 800), 1, 8192))
         rows = int(np.clip(self._number(query, "rows", 400), 1, 4096))
+        y0 = self._number(query, "y0", 0.0)
+        y1 = self._number(query, "y1", float("inf"))
         try:
             img, version = self.server.studio.image()
         except Exception as e:  # noqa: BLE001 - a view kudio cannot make
@@ -286,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, b"", "application/octet-stream",
                               {"X-Kudio-Version": str(version), "X-Kudio-Kind": "empty"})
         from kudiostudio.web.analysis import image_slice
-        part = image_slice(img, t0, t1, columns, rows)
+        part = image_slice(img, t0, t1, columns, rows, y0, min(y1, img.y_max))
         headers = {
             "X-Kudio-Version": str(version),
             "X-Kudio-Kind": "image",
@@ -294,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
             "X-Kudio-Columns": str(part.pixels.shape[1] if part.pixels.ndim == 2 else 0),
             "X-Kudio-T0": repr(part.t0),
             "X-Kudio-T1": repr(part.t1),
+            "X-Kudio-Y0": repr(part.y0),
+            "X-Kudio-Y1": repr(part.y1),
             "X-Kudio-Ymax": repr(img.y_max),
             "X-Kudio-Label": img.y_label,
             "X-Kudio-Units": img.y_units or "",

@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Playback for the browser window, through `kudio.play_audio`.
+"""Playback for the window, through `kudio.play_audio`.
 
 The audio is played here, by Python, and never sent to the page: a long clip
 would be hundreds of megabytes there, and sounddevice is what the recording
 side uses anyway. Neither backend reports progress, so the playhead is
-estimated from a monotonic clock started when the samples were handed over,
-as in the Qt window; the page runs the same clock to animate it, from the
-start time it is given.
+estimated from a monotonic clock started when the samples were handed over;
+the page runs the same clock to animate it, from the start time it is given.
 """
 from __future__ import annotations
 

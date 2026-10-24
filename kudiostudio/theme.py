@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Colours shared by the views and the panels.
 
-Secondary text uses fixed mid-tones rather than ``palette(mid)``, so it stays
-legible on the dark theme and under ``--no-theme`` alike. The window's own
-surfaces are further down; `kudiostudio.style` builds the stylesheet from them.
+The server writes each one into ``/theme.css`` as a CSS custom property
+(`kudiostudio.web.server.theme_css`): the stylesheets use them from there,
+and the plots read them off the root element as they draw. The window's own
+surfaces are further down.
 """
 
 #: monospace "here is the kudio call you just made" captions, and the
@@ -37,17 +38,11 @@ PITCH_COLOR = "#3ff0ff"
 #: be on screen at once.
 LOUDNESS_COLOR = "#f0d264"
 
-#: Qt has no generic "monospace" family on Windows: ``font-family: monospace``
-#: resolves to Tahoma there, which is proportional. These are tried in order,
-#: so each platform finds its own fixed-pitch font.
-MONO_CSS = ("font-family: 'Cascadia Mono', Consolas, Menlo, "
-            "'DejaVu Sans Mono', monospace;")
-
 # The window itself: blue-black surfaces, hairlines a shade lighter, and one
 # cyan for whatever has focus. The plots carry the rest of the colour on
 # screen (the spectrogram, the blue waveform, the amber selection).
 
-#: behind everything: the window, dock title bars, the toolbar
+#: behind everything: the page, the top bar, the status bar
 BASE_COLOR = "#0b0f15"
 #: cards, lists and tables
 SURFACE_COLOR = "#10161e"
@@ -94,7 +89,7 @@ PRIMARY_TEXT = mix(PRIMARY_COLOR, "#ffffff", 0.45)
 
 __all__ = ["CALL_COLOR", "HINT_COLOR", "WAVE_COLOR", "ACCENT_COLOR",
            "WARN_COLOR", "OK_COLOR", "MARKER_COLOR", "SPECTRUM_MAP",
-           "PITCH_COLOR", "LOUDNESS_COLOR", "MONO_CSS", "BASE_COLOR",
+           "PITCH_COLOR", "LOUDNESS_COLOR", "BASE_COLOR",
            "SURFACE_COLOR", "RAISED_COLOR", "HOVER_COLOR", "BORDER_COLOR",
            "EDGE_COLOR", "CANVAS_COLOR", "TEXT_COLOR", "DISABLED_COLOR",
            "PRIMARY_COLOR", "PRIMARY_SOFT", "PRIMARY_TEXT", "INK_COLOR",

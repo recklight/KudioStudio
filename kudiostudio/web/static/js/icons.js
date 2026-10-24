@@ -1,5 +1,5 @@
-// The line icons, from kudiostudio/shapes.py by way of /icons.json: one set
-// for both windows. Each is drawn in currentColor, so CSS colours it.
+// The line icons, from kudiostudio/shapes.py by way of /icons.json, a plugin
+// panel's rail icon included. Each is drawn in currentColor, so CSS colours it.
 
 let shapes = {};
 
