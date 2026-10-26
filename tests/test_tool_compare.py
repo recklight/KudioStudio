@@ -154,7 +154,8 @@ globalThis.Option = class extends Node {
 const INFO = __INFO__;
 const ACTIONS = __ACTIONS__;
 const ui = await import(__UI__);
-const { t } = await import(__I18N__);
+const { load, t } = await import(__I18N__);
+load(__TABLE__);
 const { mount } = await import(__PANEL__);
 
 const calls = [];
@@ -198,6 +199,7 @@ function control(label) {
 }
 
 const file = control("File");
+const verdict = nodes().find((n) => n.classList.contains("verdict"));
 const look = () => ({
   rows: tbody.children.map((tr) => tr.children.map((td) => td.textContent)),
   selected: tbody.children.map((tr) => tr.classList.contains("selected")),
@@ -209,6 +211,7 @@ const look = () => ({
   browse: !file.button.disabled,
   method: !control("Gain rule").disabled,
   noise: !control("Noise estimate").disabled,
+  verdict: verdict.innerHTML,
   calls: [...calls],
 });
 
@@ -224,6 +227,11 @@ for (const [verb, arg] of ACTIONS) {
     const box = control(arg[0]);
     box.value = arg[1];
     box.dispatch("change");
+  } else if (verb === "tick") {
+    const box = nodes().find((n) => n.classList.contains("check")
+      && n.children.some((c) => c.textContent === t(arg)));
+    box.input.checked = !box.input.checked;
+    box.input.dispatch("change");
   } else if (verb === "show") {
     api.event({ info: arg });
   } else {
@@ -236,15 +244,16 @@ console.log(JSON.stringify(seen));
 """
 
 
-def page(info, *actions) -> list:
+def page(info, *actions, language: str = "en") -> list:
     """What the Compare page shows for *info*, a ``compare.describe`` answer,
-    when it opens and after each of *actions*:
+    when it opens and after each of *actions*, in *language*:
 
     ("click" | "ctrl" | "shift", row) clicks the row the page lists at that
     place, with that key held; ("header", column) clicks a column's header;
     ("press", "audition" | "apply" | "save" | "run") a button;
-    ("choose", (label, value)) picks a value in the form; ("show", info)
-    hands the page a new describe() answer, as a panel event does.
+    ("choose", (label, value)) picks a value in the form; ("tick", text)
+    flips the box labelled *text*; ("show", info) hands the page a new
+    describe() answer, as a panel event does.
     """
     node = shutil.which("node")
     if node is None:
@@ -252,6 +261,7 @@ def page(info, *actions) -> list:
     js = STATIC / "js"
     source = (PAGE.replace("__INFO__", json.dumps(info))
               .replace("__ACTIONS__", json.dumps([list(a) for a in actions]))
+              .replace("__TABLE__", json.dumps(i18n.table(language), ensure_ascii=False))
               .replace("__UI__", json.dumps((js / "ui.js").as_uri()))
               .replace("__I18N__", json.dumps((js / "i18n.js").as_uri()))
               .replace("__PANEL__", json.dumps((js / "panels" / "compare.js").as_uri())))
@@ -307,10 +317,10 @@ def make_it_a_real_experiment(session, amplitude=0.15):
     the opposite — see the not-clean test below.
 
     The noise has to be *heavy* (this lands near 0 dB SNR). Statistical
-    enhancement is for low-SNR audio: above roughly 10 dB the speech distortion
-    it introduces costs more than the noise it removes, and every method
-    measures worse than doing nothing. That is the algorithms behaving
-    correctly, so a fixture at 10 dB would be testing the wrong thing.
+    enhancement is for noisy audio: the cleaner the clip, the more the speech
+    distortion a method introduces weighs against the noise it removes, and
+    on a clean one the weaker methods measure worse than doing nothing. That
+    is the algorithms behaving correctly, and not what this fixture tests.
     """
     clean = np.array(session.y, copy=True)
     session.set_audio(clean, session.sr, name="clean")       # new baseline
@@ -446,6 +456,50 @@ def test_apply_releases_the_audition(studio):
     while not q.empty():
         events.append(q.get_nowait())
     assert {"type": "preview", "owner": "compare", "on": False} in events
+
+
+def replayed(step, before: np.ndarray, sr: int) -> np.ndarray:
+    """What *step*'s code makes of *before*, as an exported script runs it."""
+    namespace = {"np": np, "kudio": kudio, "y": before, "sr": sr}
+    exec(step.code, namespace)
+    return namespace["y"]
+
+
+def test_a_whole_clip_row_replaces_the_whole_clip_whatever_is_selected(studio):
+    """Ticking the box and selecting half a second after the run does not
+    paste two seconds of result over that half second."""
+    session = studio.session
+    info = run(studio)
+    before = session.y.copy()
+    studio.call("set_selection", [0.5, 1.0])
+    view = page(info, ("tick", "compare only the selected range"), ("click", 0),
+                ("press", "apply"))[-1]
+    chosen = by_key(studio, shown_keys(info, view)[0]).audio
+
+    studio.call("compare.apply", asked(view, "apply")[-1])
+    assert len(session.y) == len(before)
+    assert np.array_equal(session.y, chosen)
+    assert np.array_equal(replayed(session.history[-1], before, session.sr), session.y)
+
+
+def test_a_selection_row_goes_back_over_the_range_it_was_computed_on(studio):
+    """Unticking the box after the run does not make half a second of result
+    the whole clip."""
+    session = studio.session
+    sr = session.sr
+    studio.call("set_selection", [0.5, 1.0])
+    info = run(studio, selection_only=True)
+    before = session.y.copy()
+    view = page(info, ("click", 0), ("press", "apply"))[-1]
+    chosen = by_key(studio, shown_keys(info, view)[0]).audio
+
+    studio.call("compare.apply", asked(view, "apply")[-1])
+    a, b = int(0.5 * sr), int(1.0 * sr)
+    assert len(session.y) == len(before)
+    assert np.array_equal(session.y[a:b], chosen)
+    assert np.array_equal(session.y[:a], before[:a])
+    assert np.array_equal(session.y[b:], before[b:])
+    assert np.array_equal(replayed(session.history[-1], before, sr), session.y)
 
 
 def test_new_audio_clears_a_stale_comparison(studio):
@@ -638,6 +692,81 @@ def test_a_custom_row_is_left_out_of_the_axis_comparison():
     assert tools.axis_spread(with_custom) == tools.axis_spread(grid)
 
 
+def rated(scores: dict) -> list:
+    """Rows from {(method, noise): (SI-SDR, ΔSNR)}."""
+    return [kudio.EnhanceResult(
+        method=m, noise=n, audio=np.zeros(0, dtype=np.float32), seconds=0.0,
+        lufs=0.0, noise_floor_db=0.0, si_sdr_db=s, delta_snr_db=d)
+        for (m, n), (s, d) in scores.items()]
+
+
+def test_the_closest_to_beating_leaving_it_alone_is_named_by_its_snr_gain():
+    """The best SI-SDR is not the smallest loss of SNR: named by one and
+    quoted by the other, the sentence picks a row and a number that do not
+    belong together."""
+    text, tone, _ = tools.verdict(rated({("logmmse", "mcra"): (5.0, -2.0),
+                                         ("wiener", "mcra"): (3.0, -0.5)}))
+    assert tone == "warn"
+    assert text.startswith("<b>No method beat leaving it alone</b> — the closest was "
+                           "Wiener (decision-directed) + mcra at -0.50 dB ΔSNR.")
+
+
+def test_a_winner_that_did_not_beat_leaving_it_alone_is_not_called_better():
+    """Ranked by SI-SDR, the best row can still have lost SNR, while another
+    row gained some: its ΔSNR is not "better than leaving it alone"."""
+    text, tone, _ = tools.verdict(rated({("logmmse", "mcra"): (9.0, -0.4),
+                                         ("wiener", "mcra"): (6.0, 1.5)}))
+    assert tone == "ok"
+    assert text == (
+        "Best against the reference: <b>log-MMSE + mcra</b> at +9.00 dB SI-SDR, "
+        "though at -0.40 dB ΔSNR it did not beat leaving it alone.\n"
+        "<b>Wiener (decision-directed) + mcra</b> beat leaving it alone by the most, "
+        "+1.50 dB ΔSNR.")
+
+
+def test_a_winner_that_beat_leaving_it_alone_says_by_how_much():
+    text, _, _ = tools.verdict(rated({("logmmse", "mcra"): (9.0, 2.5),
+                                      ("wiener", "mcra"): (6.0, 3.5)}))
+    assert text == ("Best against the reference: <b>log-MMSE + mcra</b> at +9.00 dB "
+                    "SI-SDR, +2.50 dB better than leaving it alone.")
+
+
+def chinese_verdicts(studio) -> list:
+    """Verdicts of more than one sentence, made the way a comparison makes
+    them: the best row, the axes, and a learned row left out."""
+    grid = rated({("logmmse", "mcra"): (8.0, 3.0), ("logmmse", "quantile"): (12.0, 6.0),
+                  ("wiener", "mcra"): (7.9, 2.9), ("wiener", "quantile"): (11.9, 5.9)})
+    split = rated({("logmmse", "mcra"): (9.0, -0.4), ("wiener", "mcra"): (6.0, 1.5)})
+    return [tools.verdict(grid, tools.no_learned_row("runs/exp9"))[0],
+            tools.verdict(split)[0]]
+
+
+#: what `chinese_verdicts` reads as in Traditional Chinese, sentence by sentence
+CHINESE = [
+    ["相對於參考訊號最佳：<b>log-MMSE + quantile</b>，SI-SDR +12.00 dB，比不處理好 +6.00 dB。",
+     "這段音訊受雜訊估計器的影響比增益規則大（4.0 dB 對 0.1 dB）。",
+     "沒有學習式模型那一列：runs/exp9 不是資料夾。"],
+    ["相對於參考訊號最佳：<b>log-MMSE + mcra</b>，SI-SDR +9.00 dB，但 ΔSNR 為 -0.40 dB，"
+     "沒有勝過不處理。",
+     "勝過不處理最多的是 <b>Wiener (decision-directed) + mcra</b>，ΔSNR +1.50 dB。"],
+]
+
+
+def test_a_verdict_is_translated_sentence_by_sentence(studio):
+    """Glued into one string, a verdict with a second sentence matched no
+    translation and the whole of it stayed English."""
+    texts = chinese_verdicts(studio)
+    i18n.load("zh_TW")
+    assert [i18n.tr(text).split("\n") for text in texts] == CHINESE
+
+
+def test_the_page_shows_a_verdict_in_chinese_sentence_by_sentence(studio):
+    info = studio.call("compare.describe")
+    for text, lines in zip(chinese_verdicts(studio), CHINESE):
+        info["verdict"] = {"text": text, "tone": "ok"}
+        assert page(info, language="zh_TW")[0]["verdict"] == "<br>".join(lines)
+
+
 def test_a_single_axis_sweep_makes_no_claim_about_which_matters(studio):
     """With one estimator there is nothing to compare it against."""
     make_it_a_real_experiment(studio.session)
@@ -666,6 +795,14 @@ def test_no_run_directory_means_no_extra_row(studio):
     assert tools.learned_entry("", LearnedModel(), lambda: True) is None
     run(studio)
     assert len(results(studio)) == len(kudio.METHODS)
+
+
+def test_a_run_directory_that_is_not_a_folder_says_why_there_is_no_row(studio, tmp_path):
+    missing = tmp_path / "runs" / "exp9"
+    info = run(studio, run_dir=str(missing))
+    assert len(results(studio)) == len(kudio.METHODS)
+    assert info["verdict"]["text"].split("\n")[-1] == \
+        f"No learned row: {missing} is not a folder."
 
 
 def test_a_run_directory_adds_one_row(studio, tmp_path, monkeypatch):
@@ -904,23 +1041,24 @@ def test_results_of_audio_edited_while_they_ran_are_dropped(studio, monkeypatch)
 
 def test_rows_on_screen_are_applied_as_the_run_that_made_them(studio, monkeypatch):
     """A second run started while the first one's rows are on screen must not
-    lend them its range: a row computed from a selection would be recorded
-    as whole-clip code, and the script would write twice the audio."""
+    lend them its range: a row computed from a selection would replace the
+    whole clip with one second of audio."""
     session = studio.session
     studio.call("set_selection", [0.5, 1.5])
     info = run(studio, selection_only=True)
     assert len(results(studio)[0].audio) == session.sr
+    before = session.y.copy()
 
     release = hold_comparison(monkeypatch)
     studio.call("compare.run", kwargs={"reference": tools.REF_NONE,
                                        "selection_only": False})
-    studio.call("compare.apply", [info["rows"][0]["key"], False])
+    studio.call("compare.apply", [info["rows"][0]["key"]])
     release.set()
     assert studio.jobs.wait(120)
 
-    assert session.history[-1].code is None
-    assert any("was not recorded as code" in w
-               for w in session.edit_script_warnings())
+    assert len(session.y) == len(before)
+    assert np.array_equal(replayed(session.history[-1], before, session.sr), session.y)
+    assert session.edit_script_warnings() == []
 
 
 #: skipped without kudioenhance and PyTorch -- see conftest.py
@@ -1020,7 +1158,7 @@ def test_apply_takes_the_one_usable_row_when_a_failed_one_sits_above_it(
     below = listed[failed + 1]
     views = page(info, ("click", failed), ("ctrl", failed + 1), ("press", "apply"))
     assert views[2]["apply"]["enabled"] is True
-    assert asked(views[-1], "apply") == [[below, False]]
+    assert asked(views[-1], "apply") == [[below]]
 
     studio.call("compare.apply", [listed[failed]])
     assert studio.session.can_undo() is False

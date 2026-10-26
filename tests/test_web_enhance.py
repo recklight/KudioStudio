@@ -107,7 +107,8 @@ def test_a_denoise_is_committed_with_its_code(studio):
     assert studio.call("enhance.describe")["result"].startswith("SNR ")
 
 
-def test_an_edit_while_it_runs_leaves_the_step_without_code(studio, monkeypatch):
+def test_a_result_made_from_audio_since_edited_is_dropped(studio, monkeypatch):
+    """Committed, it would put back the second the delete took out."""
     gate = threading.Event()
     real = kudio.spectral_enhance
 
@@ -116,12 +117,21 @@ def test_an_edit_while_it_runs_leaves_the_step_without_code(studio, monkeypatch)
         return real(*args, **kwargs)
 
     monkeypatch.setattr(kudio, "spectral_enhance", slow)
+    drain = _said(studio)
     studio.call("enhance.denoise", ["wiener", {}])
-    studio.call("set_selection", [0.0, 0.1])
+    studio.call("set_selection", [0.0, 1.0])
     studio.call("delete")
+    edited = studio.session.y
+    steps = [step.label for step in studio.session.history]
     gate.set()
     assert studio.jobs.wait(60)
-    assert studio.session.history[-1].code is None
+    assert studio.session.y is edited
+    assert len(edited) == studio.session.sr
+    assert [step.label for step in studio.session.history] == steps
+    label = f"{kudio.METHODS['wiener'].label} + {tools.DEFAULT_NOISE}"
+    assert (f"The audio changed while {label} ran, so its result was dropped: it was "
+            f"made from the audio before the change. Run it again.") in drain()
+    assert studio.call("enhance.describe")["result"] == "—"
 
 
 def test_a_second_denoise_is_refused_while_one_runs(studio, monkeypatch):

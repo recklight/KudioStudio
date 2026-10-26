@@ -28,13 +28,15 @@ class SynthPanel(WebPanel):
         self._result: Optional[tools.SynthResult] = None
 
     def _result_line(self) -> str:
-        """The last run's line, translated a piece at a time: the notes
-        after the count are separate sentences in the table."""
+        """The last run's lines, translated a piece at a time: the notes
+        after the count are separate sentences in the table, and so is each
+        of kudio's warnings under it."""
         if self._result is None:
             return "—"
         say = partial(i18n.translate, language=self.studio.language)
         notes = "".join(say(n) for n in tools.result_notes(self._result))
-        return say(f"{self._result.on_disk} file(s) written to {self._result.out}{notes}")
+        count = say(f"{self._result.on_disk} file(s) written to {self._result.out}{notes}")
+        return "\n".join([count, *map(say, tools.result_warnings(self._result))])
 
     def info(self) -> Dict:
         return {"busy": self.busy, "result": self._result_line()}
@@ -47,22 +49,24 @@ class SynthPanel(WebPanel):
                 "tips": {"snr": tools.SNR_TIP, "rt60": tools.RT60_TIP,
                          "drr": tools.DRR_TIP, "subtype": tools.SUBTYPE_TIP,
                          "channel": tools.CHANNEL_TIP, "targets": tools.TARGETS_TIP,
-                         "mode": tools.MODE_TIP},
+                         "mode": tools.MODE_TIP, "overwrite": tools.OVERWRITE_TIP},
                 "seed_note": tools.SEED_NOTE}
 
     @command
     def call_text(self, clean: str, noise: str, out: str, snr: str, rt60: str,
                   drr_db: float, subtype: str, channel: str, write_targets: bool,
-                  mode: str, seed: Optional[int]) -> str:
+                  mode: str, seed: Optional[int], add_clean: bool = False,
+                  overwrite: bool = False) -> str:
         return tools.call_text(clean, noise, out, snr, rt60, float(drr_db), subtype,
-                               channel, bool(write_targets), mode, _seed(seed))
+                               channel, bool(write_targets), mode, _seed(seed),
+                               bool(add_clean), bool(overwrite))
 
     @command
     def run(self, clean: str, noise: str, out: str, snr: str, rt60: str = "",
             drr_db: float = 0.0, subtype: str = "PCM_16", channel: str = "none",
             write_targets: bool = False, mode: str = "regular",
             seed: Optional[int] = None, add_clean: bool = False,
-            overwrite: bool = True) -> Dict:
+            overwrite: bool = False) -> Dict:
         clean, noise, out = (str(p or "").strip() for p in (clean, noise, out))
         why = tools.problem(clean, noise, out, snr, rt60, bool(write_targets))
         if why is not None:

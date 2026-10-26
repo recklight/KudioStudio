@@ -231,6 +231,8 @@ const MENUS = [
     { label: "Zoom &out to whole clip", keys: "Ctrl+F", run: () => view.full(), enabled: has },
   ] },
   { title: "&Help", items: [
+    { label: "&User guide", keys: "F1", run: () => command("open_guide") },
+    "-",
     { label: "&About", run: showAbout },
   ] },
 ];
@@ -412,19 +414,24 @@ function hover(which, time, value) {
 
 /** The plots while a take runs: the last few seconds, right-aligned on
  *  "now", drawn from the server's snapshots. There is no timeline to select
- *  on yet, so the plots stop taking the mouse until the take lands. */
+ *  on yet, so the plots stop taking the mouse until the take is over. */
 function onMonitor(e) {
   if (!e.on) {
     if (live) {
+      const { clip } = live;
       live = null;
-      liveEnded = true;
       app.classList.remove("live");
       if (state) renderAnalysis(state);
+      // a take that lands keeps its last picture until its audio replaces
+      // it; one that lands nothing leaves the clip open, so it comes back
+      if (e.landed) liveEnded = true;
+      else showClipAgain(clip);
     }
     return;
   }
   if (!live) {
-    live = { span: e.span || 3, call: "" };
+    live = { span: e.span || 3, call: "",
+             clip: { version: state?.version, t0: view.t0, t1: view.t1 } };
     app.classList.add("live");
     for (const plot of plots) {
       plot.setMarkers([]);
@@ -448,6 +455,28 @@ function onMonitor(e) {
   }
   if ("wave" in e) wave.live(e.wave);
   if ("image" in e) spec.live(e.image, live.span);
+}
+
+/** The clip after a take that landed nothing: drawn again from the server,
+ *  with the marks the take hid and, if it is still the same audio, the zoom
+ *  it had before. */
+function showClipAgain(clip) {
+  const s = state;
+  if (!s?.has_audio) {
+    wave.clear();
+    spec.clear();
+    overview.clear();
+    return;
+  }
+  view.reset(s.duration, s.sr);
+  if (clip.version === s.version) view.set(clip.t0, clip.t1);
+  for (const plot of plots) plot.setMarkers(s.markers);
+  showSelection(s.selection, null);
+  setPlayhead(playhead);
+  overview.setAudio(s.version, s.duration).then((peak) => wave.setAudio(s.version, peak));
+  spec.setAudio(s.version);
+  levelsVersion = -1;              // the loudness curve came down with the take
+  refreshLevels();
 }
 
 // --------------------------------------------------------------- playback
@@ -634,6 +663,7 @@ function keyDown(e) {
   if (e.repeat && (e.key === " " || ctrl)) { handled(); return; }
   if (e.key === " " && !ctrl) { handled(); togglePlay(); }
   else if (e.key === "Home") { handled(); seekHome(); }
+  else if (e.key === "F1") { handled(); command("open_guide"); }
   else if (e.key === "Escape") { handled(); if (!typing) command("clear_selection"); else e.target.blur(); }
   else if (e.key === "Delete" && !ctrl) { handled(); edit("delete")(); }
   else if (ctrl && e.shiftKey && key === "s") { handled(); saveAs(); }

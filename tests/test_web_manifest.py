@@ -207,6 +207,18 @@ def test_the_summary_follows_the_language(studio, corpus):
                                               f"relative paths found under {corpus.parents[2]}"])
 
 
+def test_the_status_line_after_loading_follows_the_language(studio, corpus):
+    studio.call("set_language", ["zh_TW"])
+    drain = _events(studio)
+    _open(studio, corpus)
+    assert [e["text"] for e in drain("message")][-1] == "manifest.json — 18 列。"
+
+    Path(kudio.load_manifest(corpus)[0].noisy).unlink()
+    studio.call("manifest.reload")
+    assert studio.jobs.wait(30)
+    assert [e["text"] for e in drain("message")][-1] == "manifest.json — 18 列，1 列有檔案遺失。"
+
+
 def test_the_rail_has_manifest_ready(studio):
     entry = next(e for e in studio.call("rail") if e["id"] == "manifest")
     assert entry["script"] == "js/panels/manifest.js"

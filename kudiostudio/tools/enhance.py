@@ -7,9 +7,9 @@ the a priori SNR, turn it into a gain. Their parameters are described by
 `kudio.METHODS`, which ships the range, default, step, unit and a sentence of
 help with each, so the panel restates none of it.
 
-The noise estimator is a separate choice, and usually the bigger of the two:
-the same gain rule can vary by several dB of SI-SDR depending on how the
-noise was measured.
+The noise estimator is a separate choice, and it can move the result as much
+as the gain rule does; which of the two matters more depends on the
+recording, and Compare measures both.
 
 Learned models come from the optional `kudioenhance` package and are loaded
 from a run directory it produced. They are PyTorch networks, and PyTorch is

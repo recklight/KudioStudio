@@ -793,6 +793,18 @@ def test_an_inter_sample_overshoot_is_reported_as_a_problem(studio):
     assert any("dBTP" in p and "clip on conversion" in p for p in levels["problems"])
 
 
+def test_the_true_peak_line_is_left_out_only_when_clipping_is_already_named(studio):
+    """Mostly silence, so the report says "75% of the clip is silence": the
+    word clip in that line is not a clipping finding."""
+    n = np.arange(SR)
+    burst = (0.999 * np.sin(2 * np.pi * (SR / 4) * n / SR + np.pi / 4)).astype(np.float32)
+    y = np.concatenate([burst, np.zeros(SR * 3, np.float32)])
+    studio.session.set_audio(y, SR)
+    problems = studio.call("levels")["problems"]
+    assert any("is silence" in p for p in problems)
+    assert any("dBTP" in p and "clip on conversion" in p for p in problems)
+
+
 def test_a_quiet_take_is_not_accused_of_clipping(studio):
     studio.session.set_audio(varying(amp=0.05), SR)
     levels = studio.call("levels")
@@ -1021,7 +1033,8 @@ def test_a_rate_change_mid_stream_restarts_the_window(studio):
 
 
 def test_stopping_leaves_the_last_picture_up(page, studio):
-    """Blanking it would hide the end of what was just recorded."""
+    """Until the take's audio replaces it: blanking it would hide the end of
+    what was just recorded."""
     with studio.lock:
         studio.monitor.start(SR)
         for _ in range(MONITOR_REDRAW_EVERY):
@@ -1029,7 +1042,7 @@ def test_stopping_leaves_the_last_picture_up(page, studio):
     page.run("await until(() => plots.spec.image && plots.wave.chunk);")
 
     with studio.lock:
-        studio.monitor.stop()
+        studio.monitor.stop(landed=True)
     assert studio.monitor.sr == 0
     assert studio.monitor.stream is None
     page.catch_up(studio)
@@ -1235,6 +1248,53 @@ def test_a_take_the_length_of_the_window_is_not_the_same_clip(page, studio):
     assert image.levels != MONITOR_LEVELS
 
 
+@pytest.mark.parametrize("ending", ["nothing captured", "stop failed"])
+def test_a_take_that_lands_nothing_gives_the_clip_back(page, opened, monkeypatch, ending):
+    """No audio is on its way to replace the live picture, so the clip that
+    is still open comes back as it was: its zoom, its marks, its contour and
+    its own axis, not the take's 0 to 3 s."""
+    opened.session.add_marker(0.3, 0.5, "here")
+    opened.call("set_selection", [0.2, 0.6])
+    with opened.lock:
+        opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
+    page.run("""
+        await until(() => plots.spec.image && plots.wave.chunk && plots.spec.overlay);
+        plots.wave.view.set(0.1, 0.7);""")
+    page.catch_up(opened)
+    chunks = []
+    if ending == "stop failed":
+        def broken(self):
+            raise OSError("the device went away")
+
+        monkeypatch.setattr(FakeRecorder, "stop", broken)
+        chunks = [noise(4096, seed=i) for i in range(MONITOR_REDRAW_EVERY)]
+    _record(opened, chunks)
+    page.catch_up(opened)
+    shown = page.run("""
+        await until(() => !$("app").classList.contains("live"));
+        await until(() => plots.spec.version === version && plots.spec.image
+                          && plots.wave.version === version && plots.wave.chunk, 5000);
+        const view = plots.wave.view;
+        return [view.t0, view.t1, plots.wave.markers.length, plots.spec.markers.length,
+                plots.wave.selection, plots.spec.selection, Boolean(plots.spec.overlay)];""",
+        version=opened.version)
+    assert opened.session.name == "tone.wav"
+    assert shown[:2] == [pytest.approx(0.1), pytest.approx(0.7)]
+    assert shown[2:] == [1, 1, [0.2, 0.6], [0.2, 0.6], True]
+
+
+def test_a_failed_take_with_no_clip_open_leaves_the_plots_empty(page, studio, monkeypatch):
+    def broken(self):
+        raise OSError("the device went away")
+
+    monkeypatch.setattr(FakeRecorder, "stop", broken)
+    _record(studio, [noise(4096, seed=i) for i in range(MONITOR_REDRAW_EVERY)])
+    page.catch_up(studio)
+    assert page.run("""
+        await until(() => !$("app").classList.contains("live"));
+        return [Boolean(plots.spec.image), Boolean(plots.wave.chunk)];""") == [False, False]
+
+
 # ------------------------------------------------------------------ overlay
 
 def test_a_contour_is_drawn_over_the_stft(page, opened):
@@ -1298,12 +1358,34 @@ def test_any_edit_drops_a_curve_whoever_drew_it(opened):
     assert opened.call("overlay") is None
 
 
-def test_switching_to_the_original_drops_the_curve(opened):
+def test_the_original_hides_the_curve_and_the_edit_brings_it_back(opened):
+    """It was measured on the edit, so it has no place over the original. The
+    edit is still there under A/B, and so is what was measured on it."""
+    opened.session.set_audio(opened.session.y * 0.5, SR, undo_label="gain",
+                             keep_original=True)
+    opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
+    curve = opened.call("overlay")
+    drain = _events(opened)
+    opened.call("set_compare", [True])
+    assert opened.call("overlay") is None
+    opened.call("set_compare", [False])
+    assert opened.call("overlay") == curve
+    assert [e["curve"] for e in drain("overlay")] == [None, curve]
+
+
+def test_an_edit_under_a_b_drops_the_curve_for_good(opened):
+    """An edit ends the A/B before it says the audio changed. The curve must
+    not come back in between, over audio it was not measured on."""
     opened.session.set_audio(opened.session.y * 0.5, SR, undo_label="gain",
                              keep_original=True)
     opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
     opened.call("set_compare", [True])
+    drain = _events(opened)
+    opened.session.set_audio(opened.session.y * 0.5, SR, undo_label="gain",
+                             keep_original=True)
+    assert not opened.session.comparing
     assert opened.call("overlay") is None
+    assert drain("overlay") == []
 
 
 def test_a_live_take_hides_the_contour(opened):
@@ -1313,6 +1395,36 @@ def test_a_live_take_hides_the_contour(opened):
     opened.monitor.start(SR)
     assert opened.call("overlay") is None
     assert {"type": "overlay", "curve": None} in drain()
+
+
+def test_a_take_that_captures_nothing_gives_the_contour_back(opened):
+    opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
+    curve = opened.call("overlay")
+    drain = _events(opened)
+    _record(opened, [])
+    assert opened.session.name == "tone.wav"
+    assert opened.call("overlay") == curve
+    assert [e["curve"] for e in drain("overlay")] == [None, curve]
+
+
+def test_a_take_that_fails_gives_the_contour_back(opened, monkeypatch):
+    def broken(self):
+        raise OSError("the device went away")
+
+    monkeypatch.setattr(FakeRecorder, "stop", broken)
+    opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
+    curve = opened.call("overlay")
+    _record(opened, [noise(4096)])
+    assert opened.call("overlay") == curve
+
+
+def test_a_take_that_lands_drops_the_contour_without_showing_it_first(opened):
+    opened.set_overlay(np.linspace(0.0, 1.0, 50), np.full(50, 180.0))
+    drain = _events(opened)
+    _record(opened, [noise(4096)])
+    assert opened.session.name == "recording"
+    assert opened.call("overlay") is None
+    assert [e["curve"] for e in drain("overlay")] == [None]
 
 
 def test_an_empty_contour_is_simply_no_contour(page, opened):

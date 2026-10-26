@@ -132,7 +132,7 @@ PARAMS: Dict[str, Tuple[Param, ...]] = {
     "bit_depth": (
         _i("bits", "bits", 8, 2, 24),
         Param("dither", "", "bool", False, text="dither",
-              tip="Add a triangular dither of one step before rounding. It raises\n"
+              tip="Add triangular dither, two steps wide, before rounding. It raises\n"
                   "the noise floor and decorrelates the error from the signal,\n"
                   "which is what stops quiet passages sounding granular."),
         _i("seed", "seed", 0, -1, 10_000, special="random"),

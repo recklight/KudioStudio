@@ -9,7 +9,7 @@ never does.
 
 PESQ is two scales, not one number. kudio reports MOS-LQO by default;
 enhancement papers mostly quote the raw narrowband P.862 score, and raw 2.03
-is about 1.65 MOS-LQO. The table names which one it shows.
+is about 1.66 MOS-LQO. The table names which one it shows.
 
 Every function here returns rows of (label, value) and the lines to report,
 so the table is worded here and the panel only shows it.
@@ -33,11 +33,13 @@ REFERENCES = ("Original (before edits)", "File…")
 #: to say which one it shows
 PESQ_SCALES = (("MOS-LQO", "lqo"), ("raw P.862", "raw"))
 
+#: 1.66 is what P.862.1 maps raw 2.03 to, the mapping kudio inverts for
+#: its raw score
 PESQ_TIP = ("Which PESQ scale the table reports.\n\n"
-            "MOS-LQO is what kudio has always shown. raw P.862 is the\n"
+            "MOS-LQO is what kudio reports by default. raw P.862 is the\n"
             "narrowband score most speech-enhancement papers quote. They are\n"
             "different scales, not different roundings: raw 2.03 is about\n"
-            "1.65 MOS-LQO.")
+            "1.66 MOS-LQO.")
 
 ALIGN_TIP = ("Every metric here compares sample i of one signal with sample i\n"
              "of the other. A clip scored against itself reads +145 dB; one\n"
@@ -74,8 +76,16 @@ def pesq_scale(label: str) -> str:
 
 def inspect_rows(report) -> Tuple[Rows, List[str]]:
     """The table for an `audio_report`, and its problems."""
-    lufs = ("n/a (shorter than 400 ms)" if not np.isfinite(report.lufs)
-            else f"{report.lufs:+.2f} LUFS")
+    # no figure, and the row says which of the reasons it is: silence has no
+    # level, BS.1770 needs a 400 ms block, and NaN in the clip measures as NaN
+    if np.isfinite(report.lufs):
+        lufs = f"{report.lufs:+.2f} LUFS"
+    elif report.peak_dbfs == float("-inf"):
+        lufs = "silence"
+    elif report.duration < 0.4:
+        lufs = "n/a (shorter than 400 ms)"
+    else:
+        lufs = "n/a"
     rows = [
         ("Peak", "silence" if report.peak_dbfs == float("-inf")
          else f"{report.peak_dbfs:+.2f} dBFS"),
@@ -131,7 +141,9 @@ def line_up(ref: np.ndarray, deg: np.ndarray, sr: int,
                      f"the scores below are mostly measuring it"))
         return rows, ref, deg, []
     ref, deg = found.apply(ref, deg)
-    return rows, ref, deg, [f"Reference {found}; lined up before scoring."]
+    # the delay is how far the clip sits after the reference, so the clip is
+    # what lags or leads
+    return rows, ref, deg, [f"This clip {found}; lined up with the reference before scoring."]
 
 
 def reference_rows(ref: np.ndarray, deg: np.ndarray, sr: int) -> Rows:

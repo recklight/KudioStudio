@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Regenerate every image the README embeds.
+"""Regenerate every screenshot the user guide and the README show.
 
 The screenshots drift out of date silently -- a caption changes, a control
 moves, and nobody notices because nothing fails. Run this after any change to
@@ -37,7 +37,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parent.parent
 IMAGES = ROOT / "docs" / "images"
 
-# the README shows the window a clone of this repository builds, not the
+# the guide shows the window a clone of this repository builds, not the
 # plugins this machine happens to have installed
 os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
 sys.path.insert(0, str(ROOT))
@@ -309,8 +309,8 @@ SECTION_OF = "document.getElementById('{}').closest('section')"
 # ------------------------------------------------------------------- scenes
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Regenerate the README's images.")
-    parser.add_argument("--lang", default="en", help="en, or zh_TW for the Chinese README")
+    parser = argparse.ArgumentParser(description="Regenerate the user guide's screenshots.")
+    parser.add_argument("--lang", default="en", help="en, or zh_TW for the Chinese pages")
     parser.add_argument("--out", type=Path, default=IMAGES,
                         help="where the images go (default: docs/images)")
     args = parser.parse_args(argv)
@@ -368,9 +368,18 @@ def shoot(page: Page, studio: Studio, server: LocalServer, scratch: Path) -> Non
 
     print("tool panels")
     page.size(WINDOW_SIZE[0], PANEL_HEIGHT)
-    for name in ("effects", "enhance", "synthesize"):
+    for name in ("effects", "enhance", "record", "synthesize", "batch"):
         page.tool(name)
         page.save_panel(f"panel_{name}", name)
+    # the reference-free check, which is what the panel is for on a real
+    # recording
+    page.tool("metrics")
+    page.click(page.button("metrics", "Inspect this audio"))
+    page.settle(0.5)
+    if not studio.jobs.wait(120):
+        raise SystemExit("the Metrics panel never finished")
+    page.settle(1.0)
+    page.save_panel("panel_metrics", "metrics")
 
     print("pitch")
     # The demo clip sweeps 300 -> 1700 Hz. Left on the speech preset the top

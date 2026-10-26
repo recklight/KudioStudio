@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 import kudio
+from kudiostudio import i18n
 from kudiostudio.tools import metrics
 from kudiostudio.web.commands import command
 from kudiostudio.web.panels.base import WebPanel
@@ -28,15 +29,31 @@ class MetricsPanel(WebPanel):
     def __init__(self, studio) -> None:
         super().__init__(studio)
         self._rows: List[Tuple[str, str]] = []
-        #: (text, warn) under each of the reference-free buttons
-        self._inspect: Optional[Tuple[str, bool]] = None
+        #: what the last inspection found, in kudio's words; None before one
+        self._problems: Optional[List[str]] = None
+        #: (text, warn) under the DNSMOS button
         self._dnsmos: Optional[Tuple[str, bool]] = None
         self._installed: Dict[str, bool] = {}
 
     def info(self) -> Dict:
         return {"busy": self.busy, "rows": [list(r) for r in self._rows],
-                "inspect": list(self._inspect) if self._inspect else None,
+                "inspect": self._findings(),
                 "dnsmos": list(self._dnsmos) if self._dnsmos else None}
+
+    def _findings(self) -> Optional[List]:
+        """[text, warn] under the Inspect button, in the window's language.
+
+        Each finding is translated on its own, the bullet outside it: handed
+        the whole list, the translation read the bullet as part of the first
+        finding's count. Made on every call, so a change of language lists
+        them again in the new one.
+        """
+        if self._problems is None:
+            return None
+        language = self.studio.language
+        if not self._problems:
+            return [i18n.translate(metrics.NOTHING_WRONG, language), False]
+        return ["\n".join("· " + i18n.translate(p, language) for p in self._problems), True]
 
     @command
     def describe(self) -> Dict:
@@ -64,9 +81,7 @@ class MetricsPanel(WebPanel):
         except Exception as e:  # noqa: BLE001
             self.report(f"Inspection failed — {type(e).__name__}: {e}")
             return self.info()
-        rows, problems = metrics.inspect_rows(report)
-        self._inspect = (("· " + "\n· ".join(problems), True) if problems
-                         else (metrics.NOTHING_WRONG, False))
+        rows, self._problems = metrics.inspect_rows(report)
         self._fill(rows)
         self.report("Inspection complete.")
         return self.info()

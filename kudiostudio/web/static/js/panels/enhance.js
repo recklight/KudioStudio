@@ -1,6 +1,6 @@
-// Enhance: denoise the whole clip -- a statistical method from kudio, the
-// two older filters, or a learned model from kudioenhance -- and say how far
-// that moved it.
+// Enhance: denoise the whole clip -- a statistical method from kudio,
+// trad_enhance or the wavelet filter, or a learned model from kudioenhance --
+// and say how far that moved it.
 
 export async function mount(root, ctx) {
   const { ui, t } = ctx;

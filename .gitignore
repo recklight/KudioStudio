@@ -22,6 +22,9 @@ venv/
 htmlcov/
 .coverage
 
+# the built user guide (mkdocs build)
+site/
+
 # App artifacts
 *.log
 kudiostudio.ini

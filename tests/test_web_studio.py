@@ -141,6 +141,17 @@ def test_elsewhere_the_app_id_is_a_no_op(monkeypatch):
     assert entry.set_windows_app_id() is False
 
 
+def test_the_user_guide_opens_in_the_windows_language(studio, monkeypatch):
+    from kudiostudio.web import studio as studio_module
+    opened = []
+    monkeypatch.setattr(studio_module.webbrowser, "open", opened.append)
+    studio.call("open_guide")
+    studio.call("set_language", ["zh_TW"])
+    studio.call("open_guide")
+    assert opened == ["https://recklight.github.io/KudioStudio/",
+                      "https://recklight.github.io/KudioStudio/zh-TW/"]
+
+
 # ---------------------------------------------------------------------- files
 
 def test_saving_and_undo_wait_for_audio(studio):

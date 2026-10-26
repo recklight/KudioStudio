@@ -21,7 +21,7 @@ export async function mount(root, ctx) {
   const reportCall = ui.callText();
   reportCall.text = "kudio.audio_report(y, sr)";
   const dnsmosCall = ui.callText();
-  dnsmosCall.text = "kudio.dnsmos(y, sr, model_dir=…)";
+  dnsmosCall.text = "kudio.dnsmos(y, sr)";
   free.body.append(
     ui.hint("Clipping, level, DC offset, noise floor and the bandwidth the content really occupies — the questions you can still ask about a recording that has no clean version anywhere."),
     reportCall, ui.buttons(inspect), inspected, dnsmosCall, ui.buttons(dnsmos), scored);
@@ -52,7 +52,9 @@ export async function mount(root, ctx) {
       [reference.value, file.value, align.value, pesq.value])),
   });
   const call = ui.callText();
-  call.text = "kudio.align(ref, deg, sr)  +  kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg, pesq_scale=...)";
+  // find_delay rather than kudio.align: the panel reports the offset even
+  // when it is not taken out, and goes on where kudio.align would refuse
+  call.text = "kudio.find_delay(ref, deg, sr).apply(ref, deg)  +  kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg, pesq_scale=...)";
   against.body.append(form.el, align, ui.buttons(evaluate), call);
 
   const table = ui.table(["Metric", "Value"], { numeric: [1] });
@@ -69,8 +71,9 @@ export async function mount(root, ctx) {
     if (!state) return;
     table.setRows(state.rows.map(([name, value]) => [t(name), t(value)]),
                   state.rows.map(([name]) => (name.startsWith("⚠") ? "warn" : "")));
+    // already in the window's language: each finding was translated on its own
     inspected.hidden = !state.inspect;
-    if (state.inspect) inspected.show(t(state.inspect[0]), state.inspect[1] ? "warn" : "");
+    if (state.inspect) inspected.show(state.inspect[0], state.inspect[1] ? "warn" : "");
     scored.hidden = !state.dnsmos;
     if (state.dnsmos) scored.show(t(state.dnsmos[0]), state.dnsmos[1] ? "warn" : "");
     evaluate.disabled = state.busy;

@@ -21,6 +21,7 @@ import os
 import queue
 import threading
 import weakref
+import webbrowser
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -39,7 +40,7 @@ from kudiostudio.web.editing import Editing
 from kudiostudio.web.jobs import Jobs
 from kudiostudio.web.markers import Markers
 from kudiostudio.web.monitor import LiveMonitor
-from kudiostudio.web.panels import PANEL_CLASSES, rail
+from kudiostudio.web.panels import ORDER, PANEL_CLASSES, rail
 from kudiostudio.web.player import Player
 
 log = logging.getLogger(__name__)
@@ -51,12 +52,16 @@ log = logging.getLogger(__name__)
 #: holds its zoom and amplitude axis by the same rule (main.js, SAME_CLIP_S).
 SAME_CLIP_S = 0.05
 
-#: what the open dialog lists
-AUDIO_TYPES = ("Audio files (*.wav;*.flac;*.ogg;*.mp3;*.m4a;*.aiff;*.aif)",
+#: what the open dialog lists: what `kudio.file_load` reads, which is what
+#: soundfile reads. That has no AAC, so no .m4a
+AUDIO_TYPES = ("Audio files (*.wav;*.flac;*.ogg;*.mp3;*.aiff;*.aif)",
                "All files (*.*)")
 
 #: the dialogs `choose_path` can show
 PATH_KINDS = ("open", "open_many", "save", "folder")
+
+#: the user guide; its Chinese pages are under zh-TW/ (mkdocs.yml)
+GUIDE_URL = "https://recklight.github.io/KudioStudio/"
 
 
 class EventHub:
@@ -170,6 +175,9 @@ class Studio:
         #: a curve a panel drew over the spectrogram, {"times", "hz"}, in
         #: seconds on the clip's timeline and Hz (None where there is none)
         self._overlay: Optional[Dict] = None
+        #: the edit it was measured on, and what the page was last sent
+        self._overlay_on: Optional[weakref.ref] = None
+        self._overlay_sent: Optional[Dict] = None
         #: open and save dialogs, when there is a window to show them
         self.dialogs = None
         #: closes that window; its closing event still waits for jobs
@@ -191,8 +199,16 @@ class Studio:
                 continue
             try:
                 panel = plugin.panel(self)
-                if not panel.id or any(p.id == panel.id for p in self.panels):
-                    raise ValueError(f"its id {panel.id!r} is empty or taken")
+                if not panel.id:
+                    raise ValueError("it has no id")
+                # Inspect is on the rail with no panel behind it, so the
+                # panels built so far do not hold every id the rail uses
+                if panel.id in ORDER or any(p.id == panel.id for p in self.panels):
+                    raise ValueError(f"its id {panel.id!r} is already on the rail")
+                # a panel's commands are named after its id, and markers.*
+                # are the window's own
+                if panel.id == "markers":
+                    raise ValueError(f"its id {panel.id!r} names the window's own commands")
             except Exception as e:  # noqa: BLE001 - one plugin must not stop the window
                 plugin.error = f"{type(e).__name__}: {e}"
                 log.warning("plugin %s left out -- %s", plugin.name, plugin.error)
@@ -267,7 +283,9 @@ class Studio:
         # A/B hard to judge
         if self.player.playing and self._preview is None:
             self._play_range(self.player.position, self.segment[1])
-        self.clear_overlay()        # drawn on the version no longer shown
+        # a curve measured on the edit is off the plots while they show the
+        # original, and back with the edit
+        self.sync_overlay()
         self.say(self._compare_message(on))
         self._push_state()
 
@@ -329,6 +347,8 @@ class Studio:
             "can_copy": s.can_copy(),
             "can_paste": s.can_paste(),
             "has_history": s.has_history(),
+            # replacing the clip would lose audio no file holds
+            "unsaved": s.has_unsaved_audio(),
             "crossfade_ms": s.crossfade_ms,
             "files": [{"path": p, "name": Path(p).name} for p in self.files],
             "markers": [{"start": m.start, "end": m.end, "label": m.label}
@@ -636,24 +656,46 @@ class Studio:
     def set_overlay(self, times, hz) -> None:
         """Draw a curve over the spectrogram: *times* in seconds on the
         clip's timeline, *hz* with NaN where there is nothing, which the
-        page leaves as a gap rather than joining across it."""
+        page leaves as a gap rather than joining across it.
+
+        The curve belongs to the edit as it is now. While the plots show
+        something else -- the original under A/B, a take as it runs -- it is
+        hidden and comes back after; when the audio changes it is dropped.
+        """
         times = np.asarray(times, dtype=np.float64)
         hz = np.asarray(hz, dtype=np.float64)
         self._overlay = {
             "times": [round(float(t), 5) for t in times],
             "hz": [round(float(v), 2) if np.isfinite(v) else None for v in hz],
         }
-        self.events.publish("overlay", curve=self._overlay)
+        self._overlay_on = weakref.ref(self.session.y) if self.session.has_audio else None
+        self.sync_overlay()
 
     def clear_overlay(self) -> None:
-        if self._overlay is not None:
-            self._overlay = None
-            self.events.publish("overlay", curve=None)
+        self._overlay = self._overlay_on = None
+        self.sync_overlay()
+
+    def _overlay_shown(self) -> Optional[Dict]:
+        if self._overlay is None or self.session.comparing or self.monitor.running:
+            return None
+        if self._overlay_on is not None and self._overlay_on() is not self.session.y:
+            # an edit ends the A/B before it says the audio changed, and the
+            # curve must not come back over audio it was not measured on
+            return None
+        return self._overlay
+
+    def sync_overlay(self) -> None:
+        """Send the page the curve to draw now, or None, unless that is what
+        it already has."""
+        shown = self._overlay_shown()
+        if shown is not self._overlay_sent:
+            self._overlay_sent = shown
+            self.events.publish("overlay", curve=shown)
 
     @command
     def overlay(self) -> Optional[Dict]:
         """The curve over the spectrogram, for a page that has just loaded."""
-        return self._overlay
+        return self._overlay_shown()
 
     # ------------------------------------------------------------- the edit
 
@@ -760,7 +802,10 @@ class Studio:
         report = measured.report
         problems = list(report.problems())
         over = measured.true_peak_db >= TRUE_PEAK_WARN_DBTP
-        if over and not any("clip" in p for p in problems):
+        # kudio already names clipped samples, a peak past full scale and one
+        # against it; the true peak is a finding of its own only without them
+        named = report.clipped_samples > 0 or report.peak_dbfs > -0.5
+        if over and not named:
             problems.append(
                 f"true peak {measured.true_peak_db:+.1f} dBTP — the waveform "
                 f"between the samples is at or above the usual -1 dBTP "
@@ -814,6 +859,15 @@ class Studio:
         return {"kudiostudio": __version__, "kudio": kudio.__version__,
                 "plugins": [p.source for p in self.plugins if not p.error],
                 "left_out": [self._say_left_out(p) for p in self.plugins if p.error]}
+
+    @command
+    def open_guide(self) -> Dict:
+        """The user guide, in the default browser and the window's language,
+        beside the window rather than in place of it."""
+        url = GUIDE_URL + ("zh-TW/" if self.language == "zh_TW" else "")
+        webbrowser.open(url)
+        self.say(f"The user guide opens in your browser: {url}")
+        return {"url": url}
 
     def _say_left_out(self, plugin) -> str:
         return i18n.translate(f"Plugin {plugin.name} was left out — {plugin.error}",

@@ -287,6 +287,10 @@ class Coverage(NamedTuple):
     noises: Tuple[str, ...]
     snrs: Tuple[object, ...]
     counts: Dict[Tuple[str, object], int]
+    #: how many rooms the rows were written in, no room counting as one. A run
+    #: writes every output once per room with the same noise and SNR, so the
+    #: rows multiply and the combinations they reach do not.
+    rooms: int = 1
 
     def count(self, noise: str, snr) -> int:
         return self.counts.get((noise, snr), 0)
@@ -322,7 +326,8 @@ def coverage(rows: Sequence[ManifestRow], noises: Optional[Sequence[str]] = None
     snrs = tuple(distinct(rows, "snr_db") if snrs is None else snrs)
     counts: Dict[Tuple[str, object], int] = Counter(
         (row.pair.noise, row.pair.snr_db) for row in rows)
-    return Coverage(noises, snrs, dict(counts))
+    rooms = len({row.pair.rt60 for row in rows})
+    return Coverage(noises, snrs, dict(counts), max(1, rooms))
 
 
 def describe_coverage(cov: Coverage, rows: int) -> Tuple[str, bool]:
@@ -334,16 +339,33 @@ def describe_coverage(cov: Coverage, rows: int) -> Tuple[str, bool]:
     writes: ``reg`` fills every combination once per cycle and ``inc`` fills
     them all. Rows have been lost — a collision, a hand edit — or the manifest
     is two runs with different grids, merged.
+
+    Rows are counted per room. Each room repeats the run, combination for
+    combination, so 3 clean files in 2 rooms are 6 rows that reach 3
+    combinations, not 6. A link does not multiply anything: one run has one.
     """
     total = cov.combinations
     if total == 0:
         return "Nothing to cover.", True
+    rooms = cov.rooms
+    # rounded up, so that one row lost from one room still reads as a lost row
+    per_room = -(-rows // rooms)
     gaps = len(cov.gaps)
     if gaps:
-        if rows < total:
+        if per_room < total and rooms > 1:
+            return (f"{gaps} of {total} noise × SNR combinations have no rows — {rows} "
+                    f"rows in {rooms} rooms are {per_room} per room, and each room "
+                    f"repeats the same combinations, so they cannot cover {total}; in "
+                    f"reg mode that takes at least {total} clean files."), False
+        if per_room < total:
             return (f"{gaps} of {total} noise × SNR combinations have no rows "
                     f"— {rows} row(s) cannot cover {total} combinations; in "
                     f"reg mode that takes at least {total} clean files."), False
+        if rooms > 1:
+            return (f"{gaps} of {total} noise × SNR combinations have no rows, "
+                    f"although {per_room} rows per room are enough to cover every one. "
+                    f"One run never leaves holes like that: rows have gone missing, "
+                    f"or this manifest is more than one run."), False
         return (f"{gaps} of {total} noise × SNR combinations have no rows, "
                 f"although {rows} rows are enough to cover every one. One run "
                 f"never leaves holes like that: rows have gone missing, or "
@@ -353,11 +375,12 @@ def describe_coverage(cov: Coverage, rows: int) -> Tuple[str, bool]:
     if low == high:
         return (f"Every one of the {total} combinations has {low} "
                 f"row(s)."), True
-    if high - low == 1:
+    if high - low == rooms and len(set(counts)) == 2:
         return (f"Every one of the {total} combinations has {low} or {high} "
                 f"rows."), True
-    # reg mode keeps every combination within one row of every other, and
-    # inc mode makes them equal; a wider spread is not a corpus either wrote
+    # reg mode keeps every combination within one clean file of every other,
+    # a row per room, and inc mode makes them equal; a wider spread is not a
+    # corpus either wrote
     return (f"Every one of the {total} combinations has rows, but unevenly — "
             f"{low} to {high} each."), False
 
@@ -477,10 +500,12 @@ def summary_parts(manifest: LoadedManifest) -> Tuple[List[str], str]:
 
 
 def loaded_text(manifest: LoadedManifest) -> str:
-    """The status line once a manifest is read."""
+    """The status line once a manifest is read, a whole sentence either way
+    so the table can hold each."""
     rows, missing = len(manifest.rows), manifest.missing
-    return (f"{manifest.path.name} — {rows} row(s)"
-            + (f", {missing} with a file missing." if missing else "."))
+    if missing:
+        return f"{manifest.path.name} — {rows} row(s), {missing} with a file missing."
+    return f"{manifest.path.name} — {rows} row(s)."
 
 
 def missing_note(rows: int) -> str:

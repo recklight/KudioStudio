@@ -47,6 +47,8 @@ TAKE_NOTE = ("The recording replaces the current audio and becomes the new basel
              "and level as soon as it lands — a clipped take is best redone, since "
              "nothing downstream can undo it.")
 MONITOR_OFF = "off — show what the microphone sends"
+#: the first until-stopped choice when PyAudio names no default input
+NO_DEFAULT_INPUT = "Last input device (PyAudio names no default)"
 
 
 def rms_db(block: np.ndarray, previous: float, smoothing: float = 0.7) -> float:
@@ -73,16 +75,29 @@ def input_devices() -> List[Tuple[str, Optional[int]]]:
 
 
 def stream_devices() -> List[Tuple[str, Optional[int]]]:
-    """PyAudio input devices -- the index space `StreamRecorder` accepts."""
-    devices: List[Tuple[str, Optional[int]]] = [("System default", None)]
+    """PyAudio input devices -- the index space `StreamRecorder` accepts.
+
+    "System default" carries PyAudio's default input by its index. Given
+    None, `StreamRecorder` opens the last input PyAudio lists
+    (`CheckDevice.input_device`), which need not be the one the system
+    records from once a webcam or a line input is attached too. When PyAudio
+    names no default, the first choice says what None opens instead.
+    """
+    default: Optional[int] = None
+    devices: List[Tuple[str, Optional[int]]] = []
     try:
         with kudio.CheckDevice() as check:
             for d in check.system_devices():
                 if d.get("in", 0):
                     devices.append((f"[{d['index']}] {d['Device']}", d["index"]))
+            try:
+                default = int(check.p.get_default_input_device_info()["index"])
+            except Exception as e:  # noqa: BLE001 - PyAudio raises OSError for none
+                log.info("PyAudio names no default input: %s", e)
     except Exception as e:  # noqa: BLE001
         log.warning("PyAudio device enumeration failed: %s", e)
-    return devices
+    first = ("System default", default) if default is not None else (NO_DEFAULT_INPUT, None)
+    return [first] + devices
 
 
 def device_space(streaming: bool) -> str:
@@ -137,6 +152,6 @@ def monitor_text(label: str, raw_db: float, clean_db: float, latency_s: float) -
 
 
 __all__ = ["COMMON_RATES", "METER_FLOOR_DB", "METER_INTERVAL_MS", "MODES", "MODE_FIXED",
-           "MODE_STREAM", "MONITOR_OFF", "MONITOR_TIP", "TAKE_NOTE", "call_text",
-           "check_take", "device_space", "input_devices", "mono", "monitor_text",
-           "rms_db", "stream_devices", "take_text"]
+           "MODE_STREAM", "MONITOR_OFF", "MONITOR_TIP", "NO_DEFAULT_INPUT", "TAKE_NOTE",
+           "call_text", "check_take", "device_space", "input_devices", "mono",
+           "monitor_text", "rms_db", "stream_devices", "take_text"]

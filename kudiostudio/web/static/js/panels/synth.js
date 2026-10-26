@@ -15,7 +15,7 @@ export async function mount(root, ctx) {
   memory.seed ??= -1;
   memory.targets ??= false;
   memory.addClean ??= false;
-  memory.overwrite ??= true;
+  memory.overwrite ??= false;
 
   const box = ui.section("kudio.Synthesizer");
   const form = ui.form();
@@ -36,7 +36,9 @@ export async function mount(root, ctx) {
   const subtype = ui.select(info.subtypes, { value: memory.subtype, onChange: changed });
   const channel = ui.select(info.links, { value: memory.channel, onChange: changed });
   const mode = ui.select(info.modes, { value: memory.mode, onChange: changed });
-  const seed = ui.number({ value: memory.seed, min: -1, max: 99999, special: "None",
+  // up to what kudio draws when the box is left at None: the result names
+  // that seed, and typed back in here it writes the same corpus again
+  const seed = ui.number({ value: memory.seed, min: -1, max: 2 ** 31 - 1, special: "None",
                            onChange: changed });
   form.row("clean", clean);
   form.row("noise", noise);
@@ -54,8 +56,9 @@ export async function mount(root, ctx) {
   targets.title = ctx.t(info.tips.targets);
   const addClean = ui.check("also copy the clean files (is_add_clean)",
                             { checked: memory.addClean, onChange: changed });
-  const overwrite = ui.check("overwrite existing files",
+  const overwrite = ui.check("delete everything in out_path first (overwrite)",
                              { checked: memory.overwrite, onChange: changed });
+  overwrite.title = ctx.t(info.tips.overwrite);
   const call = ui.callText();
   const run = ui.button("Synthesize", { primary: true, onClick: start });
   const result = ui.readout("—");
@@ -64,7 +67,7 @@ export async function mount(root, ctx) {
 
   const values = () => [clean.value, noise.value, out.value, snr.value, rt60.value,
                         drr.value, subtype.value, channel.value, targets.value,
-                        mode.value, seed.value];
+                        mode.value, seed.value, addClean.value, overwrite.value];
 
   async function changed() {
     Object.assign(memory, {
@@ -76,7 +79,7 @@ export async function mount(root, ctx) {
   }
 
   async function start() {
-    show(await ctx.call("run", [...values(), addClean.value, overwrite.value]));
+    show(await ctx.call("run", values()));
   }
 
   function show(state) {

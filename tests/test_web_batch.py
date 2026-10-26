@@ -80,7 +80,8 @@ def test_the_call_lists_every_pass_in_the_order_they_run(studio):
         seed=-1)])
     lines = text.split("\n")
     assert "lufs" not in lines[0], "levelled after the denoise, not by the conversion"
-    assert lines[1].startswith("→ kudio.enhance_folder(out, out, 'wiener'")
+    assert lines[1].startswith("→ kudio.enhance_folder(converted.outputs, <their folder>, "
+                               "'wiener'")
     assert lines[2].startswith("→ per file: kudio.normalize_lufs(y, sr, lufs=-23.0)")
     assert "seed=file_seed(…, path)" in lines[3]
     assert lines[3].endswith(f"→ {str(Path('out_reverberant'))!r}")
@@ -141,6 +142,20 @@ def test_an_unknown_choice_is_an_error_not_a_run(studio, tree, tmp_path):
         studio.panel("batch").call_text(_settings(tree, tmp_path / "out", denoise="magic"))
 
 
+def test_the_misses_and_the_status_line_follow_the_language(studio, tree, tmp_path):
+    """The list of misses is laid out in columns, so it is translated where
+    it is built; the reasons come last on a line and move no column."""
+    studio.call("set_language", ["zh_TW"])
+    said = _said(studio)
+    studio.call("batch.run", [_settings(tree, tmp_path / "out", normalize="LUFS",
+                                        target=-23.0)])
+    assert studio.jobs.wait(60)
+    assert said()[-1] == "批次完成 — 已寫入 2/2 個，0 個失敗，1 個未達響度目標。"
+    misses = studio.call("batch.describe")["misses"]
+    assert misses.startswith("未能達標：\n  out/a/spiky.wav")
+    assert "削波" in misses and "clipped" not in misses
+
+
 def test_the_result_follows_the_language(studio, tree, tmp_path):
     studio.call("batch.run", [_settings(tree, tmp_path / "out")])
     assert studio.jobs.wait(60)
@@ -155,3 +170,13 @@ def test_every_tool_on_the_rail_has_its_page(studio):
     assert [e["id"] for e in rail] == ["inspect", "effects", "enhance", "compare", "record",
                                        "synthesize", "manifest", "pitch", "metrics", "batch"]
     assert all(e["script"] for e in rail[1:])
+
+
+def test_the_seed_box_takes_any_seed_a_run_draws(studio):
+    """A random room seed is drawn below 2**31 and named in the result; typed
+    back in to rebuild the same rooms, it has to fit the box."""
+    from test_batch import mount_page
+    top = mount_page("js/panels/batch.js", studio.call("batch.describe"), """
+console.log(JSON.stringify(row("seed").given.max));
+""")
+    assert top >= 2 ** 31 - 1

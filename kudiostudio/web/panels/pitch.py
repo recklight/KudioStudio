@@ -8,11 +8,12 @@ audio that has been replaced is worse than no curve.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
 import kudio
+from kudiostudio.session import Marker
 from kudiostudio.tools import pitch
 from kudiostudio.web.commands import command
 from kudiostudio.web.panels.base import WebPanel
@@ -32,6 +33,10 @@ class PitchPanel(WebPanel):
         self._scope = ""
         #: what the result line says: (text, ok)
         self._result: Optional[tuple] = None
+        #: the markers "Voiced spans → markers" put in the list last time, as
+        #: they were then; one renamed or moved since is no longer this
+        #: button's
+        self._added: Tuple[Marker, ...] = ()
         self._show_overlay = True
 
     def info(self) -> Dict:
@@ -136,11 +141,21 @@ class PitchPanel(WebPanel):
     def add_markers(self) -> Dict:
         if self._track is None:
             return self.info()
-        added = 0
-        for start, end in pitch.voiced_spans(self._track, self._offset):
-            self.session.add_marker(start, end, f"voiced {added + 1}")
-            added += 1
-        self.report(f"Added {added} marker(s) for the voiced spans.")
+        # pressed again, or after tracking with other settings, the spans
+        # take the place of the ones this button put there, rather than lie
+        # on top of them; every other marker stays
+        kept = [m for m in self.session.markers if m not in self._added]
+        replaced = len(self.session.markers) - len(kept)
+        new = tuple(Marker(start=start, end=end, label=f"voiced {n}")
+                    for n, (start, end) in enumerate(
+                        pitch.voiced_spans(self._track, self._offset), 1))
+        self.session.set_markers(kept + list(new))
+        self._added = new
+        if replaced:
+            self.report(f"Added {len(new)} marker(s) for the voiced spans, in place "
+                        f"of the {replaced} added last time.")
+        else:
+            self.report(f"Added {len(new)} marker(s) for the voiced spans.")
         return self.info()
 
     def on_session_changed(self) -> None:

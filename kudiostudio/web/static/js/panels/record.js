@@ -10,13 +10,16 @@ export async function mount(root, ctx) {
   memory.channels ??= 1;
   memory.seconds ??= 3;
   memory.monitor ??= "";
+  // one per mode: sounddevice and PyAudio number devices independently, so
+  // the same number in the other mode is another device
+  memory.devices ??= {};
 
   const box = ui.section("kudio.record / kudio.StreamRecorder");
   const form = ui.form();
   const mode = ui.select(info.modes, { value: memory.mode, translate: true, onChange: onMode });
   const device = document.createElement("select");
   device.className = "mono";
-  device.addEventListener("change", () => { memory.device = device.value; changed(); });
+  device.addEventListener("change", () => { memory.devices[mode.value] = device.value; changed(); });
   const space = ui.hint("");
   // any rate can be typed; the usual ones are offered
   const rate = document.createElement("input");
@@ -63,6 +66,7 @@ export async function mount(root, ctx) {
   root.append(box.el, ui.hint(info.note));
 
   let streaming = info.streaming;
+  let unsaved = false;          // the window's word: a take would lose audio
   const isStream = () => mode.value === info.modes[1];
 
   function params() {
@@ -79,12 +83,13 @@ export async function mount(root, ctx) {
 
   async function loadDevices() {
     const answer = await ctx.call("devices", [isStream()]);
-    const keep = memory.device ?? "";
+    const keep = memory.devices[mode.value];
     device.replaceChildren();
     for (const [label, index] of answer.devices) {
       device.append(new Option(t(label), index === null ? "" : String(index)));
     }
-    if ([...device.options].some((o) => o.value === keep)) device.value = keep;
+    const options = [...device.options];
+    device.value = options.some((o) => o.value === keep) ? keep : (options[0]?.value ?? "");
     space.textContent = t(answer.space);
     changed();
   }
@@ -116,6 +121,13 @@ export async function mount(root, ctx) {
 
   async function go() {
     const p = params();
+    // a take replaces the open clip, so ask while the microphone is still
+    // idle; Stop on a running take has nothing left to ask
+    if (!streaming && unsaved && !(await ctx.dialogs.confirm({
+      title: t("Record over the open clip?"),
+      text: t("The take replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file."),
+      submit: t("Record"),
+    }))) return;
     show(await ctx.call("record", [p.mode, p.seconds, p.sr, p.channels, p.device, p.monitor]));
   }
 
@@ -142,6 +154,7 @@ export async function mount(root, ctx) {
   await loadDevices();
 
   return {
+    state(s) { unsaved = Boolean(s.unsaved); },
     event(e) {
       if (e.info) show(e.info);
       if ("meter" in e) level(e.meter, e.elapsed);

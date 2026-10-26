@@ -97,12 +97,20 @@ def test_a_row_is_applied_with_the_code_that_makes_it(studio):
                     f"noise={key[1]!r}), dtype=np.float32)")
 
 
-def test_a_row_applied_after_the_selection_moved_has_no_code(studio):
+def test_a_row_applied_after_the_selection_moved_goes_where_it_was_computed(studio):
     studio.call("set_selection", [0.2, 1.0])
     info = _run(studio, selection_only=True)
+    before = studio.session.y.copy()
     studio.call("set_selection", [0.3, 1.1])
-    studio.call("compare.apply", [info["rows"][0]["key"], True])
-    assert studio.session.history[-1].code is None
+    studio.call("compare.apply", [info["rows"][0]["key"]])
+    sr = studio.session.sr
+    after = studio.session.y
+    assert len(after) == len(before)
+    assert np.array_equal(after[:int(0.2 * sr)], before[:int(0.2 * sr)])
+    assert np.array_equal(after[int(1.0 * sr):], before[int(1.0 * sr):])
+    namespace = {"np": np, "kudio": kudio, "y": before, "sr": sr}
+    exec(studio.session.history[-1].code, namespace)
+    assert np.array_equal(namespace["y"], after)
 
 
 def test_results_for_audio_since_edited_are_dropped(studio, monkeypatch):

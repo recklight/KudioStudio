@@ -34,8 +34,9 @@ SNR_TIP = ("Signal-to-noise ratios in dB, one corpus axis per value.\n\n"
            "Fractional values are allowed: 2.5 is written `_2p5dB`, because\n"
            "a decimal point in a file name reads as the start of the suffix.\n"
            "A whole number keeps its plain name, so `0` is still `_0dB`.")
-RT60_TIP = ("Reverberation times in seconds. A fourth axis: in inc mode the\n"
-            "output count multiplies by however many you give.\n\n"
+RT60_TIP = ("Reverberation times in seconds. A fourth axis: every output the\n"
+            "mode writes is written once per room, so the count multiplies by\n"
+            "however many you give, in regular mode as in inc.\n\n"
             "The room acts on the speech before the noise is mixed in, which\n"
             "is the order a microphone meets them — so the SNR is measured\n"
             "against the reverberant speech. The clean file stays the target,\n"
@@ -65,8 +66,21 @@ TARGETS_TIP = ("Write the reverberant-but-clean signal beside each mixture.\n\n"
                "the noise and leave the room — a different and easier problem.\n\n"
                "Needs rt60: with no room the clean file already is that signal.")
 MODE_TIP = "regular: one output per clean file\ninc: every clean × noise × SNR combination"
+OVERWRITE_TIP = ("syn(overwrite=True): if out_path holds anything at all, the whole\n"
+                 "folder is deleted before the run, files that have nothing to do\n"
+                 "with the corpus included. One folder holds one run, and the\n"
+                 "manifest beside it describes every file in it.\n\n"
+                 "Off, a folder that is not empty is left as it is and nothing is\n"
+                 "written. kudio will not empty a drive's root, or a folder that\n"
+                 "holds the working directory, your home folder or an input.")
 SEED_NOTE = ("Set a seed to make the mixture reproducible — the same seed gives the "
-             "same noise offsets and file pairings.")
+             "same noise offsets, rooms and lost packets. Which noise and SNR each "
+             "clean file gets follows the file order, not the seed. Left at None, a "
+             "seed is drawn and the result names it.")
+
+#: How kudio words its clipping warning. The window says the same from
+#: `SynthResult.clipped`, with what to do about it, so kudio's is not repeated.
+_CLIPPED = "went past full scale"
 
 
 def parse_snr(text: str) -> List[Union[int, float]]:
@@ -132,7 +146,8 @@ class SynthPlan:
     subtype: str = "PCM_16"
     mode: str = "regular"
     add_clean: bool = False
-    overwrite: bool = True
+    # off unless asked: kudio's own default empties out_path, whatever is in it
+    overwrite: bool = False
     seed: Optional[int] = None
 
 
@@ -152,10 +167,16 @@ class SynthResult(NamedTuple):
     # Optional[...] = None rather than {} / (): a NamedTuple evaluates its
     # defaults once, so a mutable one is shared by every instance that omits it.
     clipped: Optional[dict] = None
+    #: what kudio warned about, as it said it; a run kudio refused has
+    #: nothing else to say why
     notices: Sequence[str] = ()
     subtype: str = "PCM_16"
     #: the folder the run wrote to, as it was when the run started
     out: str = ""
+    #: the seed the run used, `Synthesizer.seed`; None when nothing ran
+    seed: Optional[int] = None
+    #: whether that seed was drawn for the run rather than given
+    drawn: bool = False
 
 
 def synthesize(plan: SynthPlan) -> SynthResult:
@@ -164,19 +185,21 @@ def synthesize(plan: SynthPlan) -> SynthResult:
     Given only the plan, so the job never touches a control -- nor holds a
     panel, which it would through a method of one.
     """
-    syx = kudio.Synthesizer(plan.clean, plan.noise, out_path=plan.out,
-                            snr_ratio=list(plan.snr),
-                            rt60=list(plan.rooms) if plan.rooms else None,
-                            drr_db=plan.drr_db, channel=plan.channel,
-                            write_targets=plan.write_targets, subtype=plan.subtype)
-    # kudio warns about clipping and about names that overwrite each other.
+    # kudio warns about clipping, about names that overwrite each other, about
+    # inputs it skipped, and about an output folder it would not empty, in
+    # which case it writes nothing and the warning is the only word of why.
     # Nothing else in KudioStudio routes warnings anywhere, so without this they
-    # reach stderr and the person never learns their corpus was clipped.
+    # reach stderr and the person never hears any of it.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
+        syx = kudio.Synthesizer(plan.clean, plan.noise, out_path=plan.out,
+                                snr_ratio=list(plan.snr),
+                                rt60=list(plan.rooms) if plan.rooms else None,
+                                drr_db=plan.drr_db, channel=plan.channel,
+                                write_targets=plan.write_targets, subtype=plan.subtype)
         produced = syx.syn(mode=plan.mode, is_add_clean=plan.add_clean,
                            overwrite=plan.overwrite, seed=plan.seed)
-        notices = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+    notices = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
     # the manifest carries the room, the link and the target, none of which
     # the four-tuples can; written beside the mixture so a training run can
     # read what it was given
@@ -193,7 +216,8 @@ def synthesize(plan: SynthPlan) -> SynthResult:
                        targets=len(syx.targets), wanted=wanted,
                        on_disk=sum(1 for p in paths if p.is_file()),
                        clipped=dict(syx.clipped), notices=notices,
-                       subtype=plan.subtype, out=plan.out)
+                       subtype=plan.subtype, out=plan.out,
+                       seed=syx.seed, drawn=plan.seed is None and syx.seed is not None)
 
 
 def link(name: str) -> Optional[str]:
@@ -204,7 +228,8 @@ def link(name: str) -> Optional[str]:
 
 def call_text(clean: str, noise: str, out: str, snr_text: str, rt60_text: str,
               drr_db: float, subtype: str, channel: str, write_targets: bool,
-              mode: str, seed: Optional[int]) -> str:
+              mode: str, seed: Optional[int], add_clean: bool = False,
+              overwrite: bool = False) -> str:
     try:
         snr = parse_snr(snr_text)
     except ValueError:
@@ -220,8 +245,13 @@ def call_text(clean: str, noise: str, out: str, snr_text: str, rt60_text: str,
         extra += ", write_targets=True"
     if subtype != "PCM_16":
         extra += f", subtype={subtype!r}"
+    run = f"mode={mode!r}"
+    if add_clean:
+        run += ", is_add_clean=True"
+    if not overwrite:
+        run += ", overwrite=False"
     return (f"kudio.Synthesizer({clean!r}, {noise!r}, out_path={out!r}, "
-            f"snr_ratio={snr}{extra}).syn(mode={mode!r}, seed={seed})")
+            f"snr_ratio={snr}{extra}).syn({run}, seed={seed})")
 
 
 def problem(clean: str, noise: str, out: str, snr_text: str, rt60_text: str,
@@ -257,13 +287,33 @@ def result_notes(result: SynthResult) -> List[str]:
     if result.clipped:
         worst = max(result.clipped.values())
         notes.append(f"  ·  {len(result.clipped)} clipped (worst peak {worst:.2f})")
+    if result.seed is not None:
+        # named whether it was given or drawn, as Batch names its rooms' seed:
+        # the result says what made the corpus beside it
+        notes.append(f"  ·  seed {result.seed}")
     return notes
 
 
-def result_text(result: SynthResult) -> Tuple[str, str]:
-    """``(line under the form, line for the status bar)``."""
-    line = f"{result.on_disk} file(s) written to {result.out}{''.join(result_notes(result))}"
+def result_warnings(result: SynthResult) -> List[str]:
+    """kudio's warnings as the result lists them, a line each: all but the
+    one about clipping, which the window gives from `clipped` already."""
+    return [n for n in result.notices if _CLIPPED not in n]
 
+
+def result_text(result: SynthResult) -> Tuple[str, str]:
+    """``(lines under the form, line for the status bar)``.
+
+    kudio's warnings follow the count. The status line is made of them when
+    kudio wrote nothing, since that is all there is to say.
+    """
+    told = result_warnings(result)
+    line = "\n".join([f"{result.on_disk} file(s) written to {result.out}"
+                      f"{''.join(result_notes(result))}", *told])
+
+    if not result.produced and told:
+        # one line in the status bar, which shows a line break as a space;
+        # kept as lines so that each is translated on its own
+        return line, "\n".join(told)
     if result.clipped:
         worst = max(result.clipped.values())
         over_db = 20 * math.log10(worst) if worst > 0 else 0.0
@@ -279,8 +329,15 @@ def result_text(result: SynthResult) -> Tuple[str, str]:
                       f"for: {wanted - on_disk} output(s) shared a name and overwrote each "
                       f"other. Give the clashing files distinct names, or keep "
                       f"mkdir_parents on so the folder layout separates them.")
+    if told:
+        return line, (f"Synthesis complete — {on_disk} file(s), and {len(told)} "
+                      f"warning(s) from kudio, listed under the form.")
+    if result.drawn:
+        return line, (f"Synthesis complete — {on_disk} file(s) from seed {result.seed}; "
+                      f"the same seed writes the same corpus again.")
     return line, f"Synthesis complete — {on_disk} file(s)."
 
 
 __all__ = ["LINKS", "MODES", "SUBTYPES", "SynthPlan", "SynthResult", "call_text", "link",
-           "parse_rt60", "parse_snr", "problem", "result_notes", "result_text", "synthesize"]
+           "parse_rt60", "parse_snr", "problem", "result_notes", "result_text",
+           "result_warnings", "synthesize"]

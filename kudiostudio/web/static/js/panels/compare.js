@@ -1,11 +1,12 @@
 // Compare: every enhancement method on the same clip, ranked, with any row
 // (or two, back to back) to hear before one is applied.
 
-/** The verdict holds <b> and <br> and nothing else; everything in it is
- *  escaped first, then those two are let back in. */
+/** The verdict holds <b> and line breaks and nothing else; everything in it
+ *  is escaped first, then <b> is let back in and each line break becomes a
+ *  <br>. A line is one sentence, so `t` translates them one at a time. */
 function markup(text) {
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return escaped.replace(/&lt;(\/?b|br)&gt;/g, "<$1>");
+  return escaped.replace(/&lt;(\/?b)&gt;/g, "<$1>").replace(/\n/g, "<br>");
 }
 
 export async function mount(root, ctx) {
@@ -190,7 +191,9 @@ export async function mount(root, ctx) {
     if (keys.length !== 1) return;
     auditioning = false;
     audition.on = false;
-    show(await ctx.call("apply", [keys[0], selectionOnly.value]));
+    // the row goes back over the range it was computed on, so neither the
+    // box nor the selection as they are now has a say
+    show(await ctx.call("apply", [keys[0]]));
   }
 
   async function start() {

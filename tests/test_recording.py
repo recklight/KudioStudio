@@ -4,7 +4,8 @@ browser, and a check on the real `StreamRecorder.drain()`.
 
 `FakeRecorder` takes the place of `kudio.StreamRecorder` in the Record tests
 (test_web_record.py). It hands over whatever the test feeds it, through the
-same methods the Record panel reads on every tick.
+same methods the Record panel reads on every tick. `FakeCheckDevice` takes
+the place of `kudio.CheckDevice`, and lists the inputs a test gives it.
 
 `run_page` mounts a panel's page module in node, for the part of a panel
 that only the page decides: which box is locked, what a button says, how a
@@ -69,6 +70,32 @@ class FakeRecorder:
         self._audio = np.concatenate([self._audio,
                                       np.asarray(y, dtype=np.float32)])
         self._level = level
+
+
+class FakeCheckDevice:
+    """PyAudio's inputs as `CheckDevice` lists them: *inputs* is (index,
+    name) pairs, and *default* the index PyAudio calls its default input, or
+    None for a machine that has none."""
+    inputs = []
+    default = None
+
+    def __init__(self, frame_size=1024):
+        self.p = self               # one object plays CheckDevice and its PyAudio
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def system_devices(self):
+        return [{"Device": name, "index": index, "fs": 48000.0, "out": 0, "in": 2}
+                for index, name in self.inputs]
+
+    def get_default_input_device_info(self):
+        if self.default is None:
+            raise OSError("No Default Input Device Available")     # as PyAudio says it
+        return {"index": self.default, "name": dict(self.inputs).get(self.default, "")}
 
 
 #: Just enough of a document for a page module, and the ui.js it builds its

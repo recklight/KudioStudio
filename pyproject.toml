@@ -57,6 +57,8 @@ dnsmos = ["kudio[dnsmos]>=3.7.1"]
 enhance = ["kudioenhance>=1.0"]
 all = ["kudiostudio[audio,eval,dnsmos,enhance]"]
 dev = ["kudiostudio[eval]", "pytest>=7.0"]
+# the user guide at recklight.github.io/KudioStudio: mkdocs build --strict
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2", "jieba"]
 
 [project.scripts]
 kudiostudio = "kudiostudio.__main__:main"

@@ -546,5 +546,6 @@ input[type=range]::-webkit-slider-thumb {
   gap: 12px;
 }
 .prompt h3 { margin: 0; font-size: 14px; }
+.prompt p { margin: 0; color: var(--hint); line-height: 1.5; }
 .prompt input { height: 32px; padding: 0 10px; border: 1px solid var(--edge); border-radius: var(--radius-s); background: var(--canvas); color: var(--text); font: inherit; }
 .prompt .button-row { justify-content: flex-end; }

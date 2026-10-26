@@ -74,7 +74,7 @@ class BatchPanel(WebPanel):
         say = partial(i18n.translate, language=self.studio.language)
         lines = tools.result_lines(self._outcome, dst)
         return {"busy": self.busy, "result": "\n".join(say(line) for line in lines),
-                "misses": tools.misses_text(self._outcome.loudness, dst, src)}
+                "misses": tools.misses_text(self._outcome.loudness, dst, src, say)}
 
     @command
     def describe(self) -> Dict:

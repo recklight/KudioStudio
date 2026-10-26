@@ -137,6 +137,7 @@ def by_name(check) -> dict:
 #: Just enough of a page for a panel module to mount in node. Every ui.*
 #: call and every element is one stand-in that keeps what it was given, and a
 #: form keeps its rows by label, so a step finds a control by the row it is on.
+#: A control made with a label of its own, a check box or a button, keeps it.
 PAGE = """\
 const made = [];
 class Fake {
@@ -165,6 +166,7 @@ globalThis.Option = class extends Fake {
 const ui = new Proxy({}, { get: (_, kind) => (...args) => {
   const fake = new Fake(kind, args.find((a) => a?.constructor === Object));
   if (Array.isArray(args[0])) fake.options = args[0].map(() => ({}));
+  if (typeof args[0] === "string") fake.label = args[0];
   return fake;
 } });
 const formWith = (label) => made.find((el) => label in el.rows);
@@ -312,6 +314,45 @@ def test_without_a_denoise_pass_the_conversion_levels(studio, tree, tmp_path):
     assert plan.level_last is False
     assert plan.conversion()["lufs"] == -23.0
     assert run_batch(plan).levelled is None
+
+
+def test_with_a_denoise_pass_a_peak_target_is_applied_last(studio, pair, tmp_path):
+    """The same reason as for loudness: peak-normalised and then denoised, a
+    tree ends under the peak it was asked for."""
+    settings = form(pair, tmp_path / "out", normalize="peak", denoise="logmmse")
+    convert, denoise, level = call(studio, settings).splitlines()
+    assert "peak" not in convert
+    assert "enhance_folder" in denoise
+    assert level == "→ per file: kudio.normalize(y, peak=0.99), after the denoise"
+
+    outcome = run(studio, settings)
+    assert len(outcome.converted.outputs) == 2
+    for path in outcome.converted.outputs:
+        assert np.max(np.abs(kudio.file_load(path)[0])) == pytest.approx(0.99, abs=1e-3)
+    assert ("Peak-normalised to 0.99 after the denoise pass, which takes level out with "
+            "the noise.") in shown(studio)["result"].splitlines()
+
+
+def test_the_denoise_pass_takes_this_runs_files_and_no_others(studio, tmp_path):
+    """The output can hold what an earlier Run wrote, which this Run's
+    denoise pass must neither denoise a second time nor count. One input
+    folder deep, too: a list of files is laid out from the folder they
+    share, and denoised into the output's root they would land a level up."""
+    src, out = tmp_path / "in", tmp_path / "out"
+    (src / "a").mkdir(parents=True)
+    kudio.save_wave(src / "a" / "take.wav", tone(), SR)
+    (out / "old").mkdir(parents=True)
+    kudio.save_wave(out / "old" / "take.wav", tone(), SR)
+    earlier = (out / "old" / "take.wav").read_bytes()
+
+    outcome = run(studio, form(src, out, denoise="logmmse"))
+    assert (out / "old" / "take.wav").read_bytes() == earlier
+    assert (outcome.result.written, outcome.result.total) == (1, 1)
+    assert sorted(p.relative_to(out).as_posix() for p in out.rglob("*.wav")) == [
+        "a/take.wav", "old/take.wav"]
+    denoised = kudio.file_load(out / "a" / "take.wav")[0]
+    assert not np.array_equal(denoised, kudio.file_load(src / "a" / "take.wav")[0])
+    assert shown(studio)["result"].startswith(f"1/1 file(s) written to {out}")
 
 
 def test_the_denoise_pass_keeps_the_subtype_the_conversion_wrote(studio, tree, tmp_path):

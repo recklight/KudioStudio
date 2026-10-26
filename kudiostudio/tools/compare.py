@@ -57,8 +57,9 @@ DEFAULT_METHOD = "logmmse"
 AXIS_TIE = 0.20
 
 SWEEP_TIP = ("Which axis to vary. Enhancement is two choices — a gain rule and a "
-             "noise estimator — and the estimator is usually the wider of the two, "
-             "so 'gain rules only' is the narrower experiment.")
+             "noise estimator — and which of them moves the result more depends on "
+             "the recording; the full grid measures both and says which it was for "
+             "this clip.")
 RUN_DIR_TIP = ("Rank a trained model in the same table as the statistical methods. "
                "'Is the model actually better than log-MMSE' is not a question two "
                "separate printouts answer.")
@@ -68,27 +69,32 @@ METRICS_TEXT = "PESQ / STOI (slow; STOI needs kudio[eval], PESQ needs kudio[pesq
 RUN_NOTE = ("Every method sees identical audio and identical framing, so the "
             "differences are the methods. Click a row to hear it — a low noise floor "
             "is easiest to reach by deleting the speech too.\n\n"
-            "These are for noisy audio. Above roughly 10 dB SNR they all measure worse "
-            "than doing nothing, because the distortion they add costs more than the "
-            "noise they remove. They also need to hear the noise on its own: a clip "
-            "with no pauses gives the noise estimator almost nothing to work from.")
+            "These are for noisy audio. The cleaner the recording, the less noise "
+            "there is to take out and the more the distortion a method adds can cost: "
+            "on a clean one the weaker methods measure worse than doing nothing, and "
+            "with a clean reference the ΔSNR column shows which. They also need to hear "
+            "the noise on its own: a clip with no pauses gives the noise estimator "
+            "almost nothing to work from.")
 
 
 @dataclass(frozen=True, eq=False)
 class RunContext:
     """What one comparison ran on, kept with the results it produced.
 
-    Apply writes a row into the history as the code that computes it again,
-    and that code is only true of the audio, the range and the model the row
-    came from. Kept per run rather than in the panel's last settings, so a
-    run started while another's rows are on screen cannot lend those rows
-    its range, and a result that lands after the audio was edited is not
-    recorded as if made from the edit.
+    Apply puts a row back over the range it was computed from and writes it
+    into the history as the code that computes it again, and that code is
+    only true of the audio, the range and the model the row came from. Kept
+    per run rather than in the panel's last settings, so a run started while
+    another's rows are on screen cannot lend those rows its range, and a
+    result that lands after the audio was edited is not recorded as if made
+    from the edit.
     """
     #: the session's audio array itself, compared by identity
     y: object
-    #: the samples compared, ``None`` for the whole clip
-    ran_on: Optional[Tuple[int, int]]
+    #: the selection compared, in seconds as the session held it, ``None``
+    #: for the whole clip. Seconds rather than samples: selecting them again
+    #: on the same audio gives back exactly the samples that were compared
+    ran_on: Optional[Tuple[float, float]]
     #: the learned row's run directory, and its model files as they were
     learned_dir: Optional[str] = None
     model: Optional[ModelState] = None
@@ -113,6 +119,15 @@ def learned_entry(run_dir: str, model: LearnedModel, available: Callable[[], boo
         return model.enhance(y, sr, run_dir)
 
     return (Path(run_dir).name, enhance)
+
+
+def no_learned_row(run_dir: str) -> str:
+    """Why *run_dir* adds no row to the table, or "" when it adds one or
+    none was asked for. A path that is not a folder is most often a typo,
+    and a table that is one row short says nothing about it."""
+    if run_dir and not Path(run_dir).is_dir():
+        return f"No learned row: {run_dir} is not a folder."
+    return ""
 
 
 def sweep_arguments(sweep: str, method: str, noise: str, learned) -> Dict:
@@ -253,18 +268,52 @@ def axis_spread(scored: Sequence) -> str:
     wider = max(across_rules, across_noise)
     narrower = min(across_rules, across_noise)
     if wider - narrower <= AXIS_TIE * max(wider, 1e-9):
-        return (f"<br>The gain rule and the noise estimator moved this clip about "
+        return (f"The gain rule and the noise estimator moved this clip about "
                 f"equally ({across_rules:.1f} dB against {across_noise:.1f} dB), so "
                 f"neither is the one to spend the effort on.")
     name = "noise estimator" if across_noise > across_rules else "gain rule"
     other = "gain rule" if name == "noise estimator" else "noise estimator"
-    return (f"<br>The {name} moved this clip more than the {other} did "
+    return (f"The {name} moved this clip more than the {other} did "
             f"({wider:.1f} dB against {narrower:.1f} dB).")
 
 
-def verdict(results: Sequence) -> Tuple[str, str, str]:
-    """``(text, tone, line for the status bar)``. The text may hold <b> and
-    <br> and nothing else; tone is ok, warn or hint."""
+def _named(result) -> str:
+    return f"<b>{label(result.method)} + {result.noise}</b>"
+
+
+def _best(scored: Sequence) -> List[str]:
+    """The sentences naming the best rows, each quoting the measure it was
+    ranked by: SI-SDR for the best against the reference, ΔSNR for how far
+    a row beat leaving it alone. The two need not be the same row, since
+    SI-SDR ignores level and SNR does not."""
+    best = max(scored, key=lambda r: r.si_sdr_db)
+    lead = f"Best against the reference: {_named(best)} at {best.si_sdr_db:+.2f} dB SI-SDR"
+    gain = best.delta_snr_db
+    if gain is None:
+        return [lead + "."]
+    if gain > 0:
+        return [f"{lead}, {gain:+.2f} dB better than leaving it alone."]
+    most = max((r for r in scored if r.delta_snr_db is not None),
+               key=lambda r: r.delta_snr_db)
+    return [f"{lead}, though at {gain:+.2f} dB ΔSNR it did not beat leaving it alone.",
+            f"{_named(most)} beat leaving it alone by the most, "
+            f"{most.delta_snr_db:+.2f} dB ΔSNR."]
+
+
+def verdict(results: Sequence, note: str = "") -> Tuple[str, str, str]:
+    """``(text, tone, line for the status bar)``, with *note*, if any, as
+    the last line of the text.
+
+    The text may hold <b> and line breaks and nothing else; tone is ok, warn
+    or hint. Each sentence is a line of its own, so each is translated on
+    its own: two run together match no entry in the table, and the whole
+    paragraph would stay in English.
+    """
+    text, tone, said = _verdict(results)
+    return "\n".join(line for line in (text, note) if line), tone, said
+
+
+def _verdict(results: Sequence) -> Tuple[str, str, str]:
     usable = [r for r in results if r.error is None]
     if not usable:
         return "Every method failed.", "hint", "Comparison finished — nothing succeeded."
@@ -272,26 +321,26 @@ def verdict(results: Sequence) -> Tuple[str, str, str]:
             f"combination(s) succeeded.")
     scored = [r for r in usable if r.si_sdr_db is not None]
     if scored:
-        best = max(scored, key=lambda r: r.si_sdr_db)
-        improved = [r for r in scored if r.delta_snr_db is not None and r.delta_snr_db > 0]
-        if not improved:
+        measured = [r for r in scored if r.delta_snr_db is not None]
+        closest = max(measured, key=lambda r: r.delta_snr_db) if measured else None
+        if closest is not None and closest.delta_snr_db <= 0:
             # Every method moved the audio *away* from the reference. The usual
             # cause is that the reference is the noisy recording itself, which
             # is the one thing it must not be: scoring against it measures how
             # much the audio changed, not whether it improved.
             return (f"<b>No method beat leaving it alone</b> — the closest was "
-                    f"{label(best.method)} at {best.delta_snr_db:+.2f} dB. That "
-                    f"usually means the reference is not clean: scoring against the "
-                    f"noisy recording measures how much you changed it, not whether "
-                    f"you improved it.", "warn", said)
-        return (f"Best against the reference: <b>{label(best.method)} + {best.noise}</b> "
-                f"at {best.si_sdr_db:+.2f} dB SI-SDR, {best.delta_snr_db:+.2f} dB better "
-                f"than leaving it alone." + axis_spread(scored), "ok", said)
+                    f"{label(closest.method)} + {closest.noise} at "
+                    f"{closest.delta_snr_db:+.2f} dB ΔSNR. That usually means the "
+                    f"reference is not clean: scoring against the noisy recording "
+                    f"measures how much you changed it, not whether you improved it.",
+                    "warn", said)
+        lines = _best(scored) + [axis_spread(scored)]
+        return "\n".join(line for line in lines if line), "ok", said
     quietest = min(usable, key=lambda r: r.noise_floor_db)
     return (f"No reference, so there is no quality score. The quietest residue is "
-            f"<b>{label(quietest.method)} + {quietest.noise}</b> at "
-            f"{quietest.noise_floor_db:+.1f} dBFS — which is also what you get by "
-            f"deleting the speech. Audition before believing it.", "hint", said)
+            f"{_named(quietest)} at {quietest.noise_floor_db:+.1f} dBFS — which is also "
+            f"what you get by deleting the speech. Audition before believing it.",
+            "hint", said)
 
 
 def audition(results: Sequence, sr: int) -> Tuple[np.ndarray, str]:
@@ -338,5 +387,5 @@ __all__ = ["AB_GAP_SECONDS", "AXIS_TIE", "COLUMNS", "REFERENCES", "REFERENCE_COL
            "REF_FILE", "REF_NONE", "REF_ORIGINAL", "RunContext", "SWEEPS", "SWEEP_GRID",
            "SWEEP_METHODS", "SWEEP_NOISES", "as_number", "audition", "axis_spread",
            "call_text", "cells", "compare_with_model", "count_runs", "file_name",
-           "has_reference", "label", "learned_entry", "reference_audio", "script",
-           "sweep_arguments", "verdict"]
+           "has_reference", "label", "learned_entry", "no_learned_row", "reference_audio",
+           "script", "sweep_arguments", "verdict"]

@@ -1,0 +1,147 @@
+site_name: KudioStudio
+site_url: https://recklight.github.io/KudioStudio/
+site_description: A desktop workbench for the kudio audio toolkit
+site_author: RL
+repo_url: https://github.com/recklight/KudioStudio
+repo_name: recklight/KudioStudio
+edit_uri: edit/master/docs/
+copyright: Copyright &copy; 2026 RL &middot; MIT licence
+
+theme:
+  name: material
+  language: en
+  favicon: assets/favicon.svg
+  logo: assets/logo.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    # follow the reader's system setting until they pick one
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to system preference
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - content.action.edit
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/recklight/KudioStudio
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/kudiostudio/
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  # ++ctrl+o++ draws a key, so the shortcuts read the way the keyboard does
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search:
+      # jieba splits the Chinese pages into words for the index
+      lang: [en, zh]
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: false
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh-TW
+          name: 繁體中文
+          build: true
+          site_description: kudio 音訊工具組的桌面工作台
+          nav_translations:
+            Home: 首頁
+            Getting started: 入門
+            The window: 視窗導覽
+            Editing and markers: 編輯與標記
+            Panels: 面板
+            Inspect: 檢視
+            Effects: 效果
+            Enhance: 增強
+            Compare: 比較
+            Record: 錄音
+            Synthesize: 合成
+            Manifest: Manifest
+            Pitch: 音高
+            Metrics: 指標
+            Batch: 批次
+            Writing a panel: 撰寫面板
+            Troubleshooting: 疑難排解
+
+hooks:
+  - tools/docs/hooks.py
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - The window: window.md
+  - Editing and markers: editing.md
+  - Panels:
+      - Inspect: panels/inspect.md
+      - Effects: panels/effects.md
+      - Enhance: panels/enhance.md
+      - Compare: panels/compare.md
+      - Record: panels/record.md
+      - Synthesize: panels/synthesize.md
+      - Manifest: panels/manifest.md
+      - Pitch: panels/pitch.md
+      - Metrics: panels/metrics.md
+      - Batch: panels/batch.md
+  - Writing a panel: plugins.md
+  - Troubleshooting: troubleshooting.md
+
+# The toolchain is the [docs] extra:
+#   pip install -e ".[docs]"
+#   mkdocs serve

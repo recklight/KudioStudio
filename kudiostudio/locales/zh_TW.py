@@ -118,6 +118,20 @@ MESSAGES = {
         '外掛：{}',
     'Plugin {} was left out — {}':
         '外掛 {} 未載入 — {}',
+    'ValueError: it has no id':
+        'ValueError: 它沒有 id',
+    'ValueError: its id {} is already on the rail':
+        'ValueError: 它的 id {} 已經在工具列上',
+    "ValueError: its id {} names the window's own commands":
+        'ValueError: 它的 id {} 是視窗本身指令的名稱',
+    'Record over the open clip?':
+        '要錄音取代目前開啟的音訊嗎？',
+    'The take replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file.':
+        '新的錄音會取代目前開啟的音訊，沒有任何檔案保存的部分會跟著不見：上次儲存之後的編輯，或從沒寫成檔案的整段錄音。',
+    '&User guide':
+        '使用說明(&U)',
+    'The user guide opens in your browser: {}':
+        '使用說明會在瀏覽器開啟：{}',
     '&About':
         '關於(&A)',
     'Nothing to save.':
@@ -148,18 +162,20 @@ MESSAGES = {
         '接合處現在是硬切 — 每個接點都可能出現喀聲。',
     '{}  ·  {}s  ·  {} Hz  ·  {} samples':
         '{}  ·  {} 秒  ·  {} Hz  ·  {} 個樣本',
-    'Quitting when {} — a running job cannot be stopped half-way.':
-        '將在{}後結束 — 執行中的工作無法中途停止。',
+    'Quitting when {} finishes — a running job cannot be stopped half-way.':
+        '將在{}完成後結束 — 執行中的工作無法中途停止。',
+    'Quitting when {} and {} finish — a running job cannot be stopped half-way.':
+        '將在{}與{}完成後結束 — 執行中的工作無法中途停止。',
+    'Stopping when {} finishes — a running job cannot be stopped half-way. Ctrl+C again stops now, with the job unfinished.':
+        '將在{}完成後停止 — 執行中的工作無法中途停止。再按一次 Ctrl+C 會立刻停止，工作做到哪裡就停在哪裡。',
+    'Stopping when {} and {} finish — a running job cannot be stopped half-way. Ctrl+C again stops now, with the jobs unfinished.':
+        '將在{}與{}完成後停止 — 執行中的工作無法中途停止。再按一次 Ctrl+C 會立刻停止，工作做到哪裡就停在哪裡。',
     'Could not open {} — {}: {}':
         '無法開啟 {} — {}: {}',
     'Save failed — {}: {}':
         '儲存失敗 — {}: {}',
     'Export failed — {}: {}':
         '匯出失敗 — {}: {}',
-    ' finishes':
-        '完成',
-    ' and {} finish':
-        '與 {} 完成',
     'Load an audio file first.':
         '請先載入音訊檔。',
     'Batch':
@@ -168,6 +184,14 @@ MESSAGES = {
         '已將 {}/{} 個檔案寫入 {}',
     'Batch complete — {}/{} written, {} failed':
         '批次完成 — 已寫入 {}/{} 個，{} 個失敗',
+    'Batch complete — {}/{} written, {} failed.':
+        '批次完成 — 已寫入 {}/{} 個，{} 個失敗。',
+    'Batch complete — {}/{} written, {} failed, {} missed the loudness target.':
+        '批次完成 — 已寫入 {}/{} 個，{} 個失敗，{} 個未達響度目標。',
+    '{} LU over':
+        '高了 {} LU',
+    '{} LU under':
+        '低了 {} LU',
     'Reverberant copies: {}/{} written to {} — each file its own room, from seed {}; the same seed makes the same rooms again.':
         '殘響副本：已將 {}/{} 個寫入 {} — 每個檔案各有自己的房間，seed 為 {}；相同的 seed 會再產生相同的房間。',
     'within ±{} LU of {} LUFS, true peak at or under {} dBTP':
@@ -226,6 +250,8 @@ MESSAGES = {
         '底噪平均降低 {} dB — 這是量測去除了多少，不代表聽起來更好。請開一個來聽聽看。',
     'Levelled to {} LUFS after the denoise pass, which takes level out with the noise.':
         '已在降噪之後調整到 {} LUFS，因為降噪會連同雜訊拿掉一些音量。',
+    'Peak-normalised to {} after the denoise pass, which takes level out with the noise.':
+        '已在降噪之後把峰值正規化到 {}，因為降噪會連同雜訊拿掉一些音量。',
     ', {} missed the loudness target':
         '，{} 個未達響度目標',
     'Loudness, read back from disk: all {} file(s) {}.':
@@ -238,6 +264,18 @@ MESSAGES = {
         '無法讀回 — {}',
     'true peak ≤':
         'true peak ≤',
+    # the Batch form's own labels; sr, subtype, top_db and the rest are
+    # kudio's names and stay as they are
+    'input':
+        '輸入',
+    'output':
+        '輸出',
+    'check':
+        '檢查',
+    'within':
+        '容許',
+    'to':
+        '存到',
     "Output mirrors the input's folder structure, so two files with the same name in different subfolders do not collide. Existing files are renamed rather than overwritten (kudio.check_file).":
         '輸出會保留輸入的資料夾結構，所以不同子資料夾中的同名檔案不會互相衝突。既有檔案會被重新命名而不是覆寫（kudio.check_file）。',
     'With a LUFS target every written file is read back and measured, and the ones that did not get there are listed with the reason.':
@@ -266,6 +304,10 @@ MESSAGES = {
         '未能達標',
     'on target, too little headroom':
         '已達標，但餘裕不足',
+    'could not get there:':
+        '未能達標：',
+    'on target, too little headroom:':
+        '已達標，但餘裕不足：',
     '\n\n{} failed:\n':
         '\n\n{} 個失敗：\n',
     ' and ':
@@ -294,14 +336,14 @@ MESSAGES = {
         '底噪 dBFS',
     'Compare':
         '比較',
-    '<br>The {} moved this clip more than the {} did ({} dB against {} dB).':
-        '<br>這段音訊受{}的影響比{}大（{} dB 對 {} dB）。',
+    'The {} moved this clip more than the {} did ({} dB against {} dB).':
+        '這段音訊受{}的影響比{}大（{} dB 對 {} dB）。',
     'no reference file selected':
         '未選擇參考檔案',
     'Browse…':
         '瀏覽…',
-    "Which axis to vary. Enhancement is two choices — a gain rule and a noise estimator — and the estimator is usually the wider of the two, so 'gain rules only' is the narrower experiment.":
-        '要變動哪一個軸。增強包含兩個選擇 — 增益規則與雜訊估計器 — 而估計器的影響通常較大，所以「只比增益規則」是較窄的實驗。',
+    'Which axis to vary. Enhancement is two choices — a gain rule and a noise estimator — and which of them moves the result more depends on the recording; the full grid measures both and says which it was for this clip.':
+        '要變動哪一個軸。增強包含兩個選擇 — 增益規則與雜訊估計器 — 哪一個對結果影響較大要看錄音；完整網格兩者都會量，並說明這一段是哪一個。',
     'optional: a kudioenhance run directory':
         '選用：kudioenhance 的執行目錄',
     "Rank a trained model in the same table as the statistical methods. 'Is the model actually better than log-MMSE' is not a question two separate printouts answer.":
@@ -338,8 +380,8 @@ MESSAGES = {
         '比較失敗 — {}',
     'Comparison finished — {}/{} combination(s) succeeded.':
         '比較完成 — {}/{} 種組合成功。',
-    '<br>The gain rule and the noise estimator moved this clip about equally ({} dB against {} dB), so neither is the one to spend the effort on.':
-        '<br>增益規則與雜訊估計器對這段音訊的影響差不多（{} dB 對 {} dB），所以兩者都不特別值得花力氣。',
+    'The gain rule and the noise estimator moved this clip about equally ({} dB against {} dB), so neither is the one to spend the effort on.':
+        '增益規則與雜訊估計器對這段音訊的影響差不多（{} dB 對 {} dB），所以兩者都不特別值得花力氣。',
     'noise estimator':
         '雜訊估計器',
     'gain rule':
@@ -352,8 +394,8 @@ MESSAGES = {
         '已將 {} 個檔案寫入 {}',
     'Select a kudioenhance run directory':
         '選擇 kudioenhance 執行目錄',
-    'Every method sees identical audio and identical framing, so the differences are the methods. Click a row to hear it — a low noise floor is easiest to reach by deleting the speech too.\n\nThese are for noisy audio. Above roughly 10 dB SNR they all measure worse than doing nothing, because the distortion they add costs more than the noise they remove. They also need to hear the noise on its own: a clip with no pauses gives the noise estimator almost nothing to work from.':
-        '每種方法看到的音訊與分幀完全相同，所以差異都來自方法本身。點一列即可試聽 — 要達到很低的底噪，最簡單的方式就是連語音一起刪掉。\n\n這些方法適用於含噪音訊。大約超過 10 dB SNR 時，它們的量測結果都比不處理還差，因為帶來的失真代價高於去除的雜訊。它們也需要聽到單獨的雜訊：沒有停頓的音訊幾乎無法讓雜訊估計器發揮。',
+    'Every method sees identical audio and identical framing, so the differences are the methods. Click a row to hear it — a low noise floor is easiest to reach by deleting the speech too.\n\nThese are for noisy audio. The cleaner the recording, the less noise there is to take out and the more the distortion a method adds can cost: on a clean one the weaker methods measure worse than doing nothing, and with a clean reference the ΔSNR column shows which. They also need to hear the noise on its own: a clip with no pauses gives the noise estimator almost nothing to work from.':
+        '每種方法看到的音訊與分幀完全相同，所以差異都來自方法本身。點一列即可試聽 — 要達到很低的底噪，最簡單的方式就是連語音一起刪掉。\n\n這些方法適用於含噪音訊。錄音越乾淨，可去除的雜訊越少，方法本身帶來的失真代價就越明顯：在乾淨的錄音上，較弱的方法量起來會比不處理還差；有乾淨的參考訊號時，ΔSNR 那一欄會顯示是哪幾個。它們也需要聽到單獨的雜訊：沒有停頓的音訊幾乎無法讓雜訊估計器發揮。',
     'Comparing…':
         '比較中…',
     'This session has no original to compare against.':
@@ -378,18 +420,28 @@ MESSAGES = {
         '試聽中：{} — 尚未提交任何變更。',
     'Select a reference file first.':
         '請先選擇參考檔案。',
-    '<b>No method beat leaving it alone</b> — the closest was {} at {} dB. That usually means the reference is not clean: scoring against the noisy recording measures how much you changed it, not whether you improved it.':
-        '<b>沒有任何方法勝過不處理</b> — 最接近的是 {}，為 {} dB。這通常表示參考訊號不乾淨：拿含噪錄音評分，量到的是你改動了多少，而不是有沒有改善。',
+    '<b>No method beat leaving it alone</b> — the closest was {} + {} at {} dB ΔSNR. That usually means the reference is not clean: scoring against the noisy recording measures how much you changed it, not whether you improved it.':
+        '<b>沒有任何方法勝過不處理</b> — 最接近的是 {} + {}，ΔSNR 為 {} dB。這通常表示參考訊號不乾淨：拿含噪錄音評分，量到的是你改動了多少，而不是有沒有改善。',
     ' — nothing has been committed.':
         ' — 尚未提交任何變更。',
     'Saved {} of {} — {}: {}':
         '已儲存 {} / {} — {}: {}',
     'Best against the reference: <b>{} + {}</b> at {} dB SI-SDR, {} dB better than leaving it alone.':
         '相對於參考訊號最佳：<b>{} + {}</b>，SI-SDR {} dB，比不處理好 {} dB。',
+    'Best against the reference: <b>{} + {}</b> at {} dB SI-SDR, though at {} dB ΔSNR it did not beat leaving it alone.':
+        '相對於參考訊號最佳：<b>{} + {}</b>，SI-SDR {} dB，但 ΔSNR 為 {} dB，沒有勝過不處理。',
+    'Best against the reference: <b>{} + {}</b> at {} dB SI-SDR.':
+        '相對於參考訊號最佳：<b>{} + {}</b>，SI-SDR {} dB。',
+    '<b>{} + {}</b> beat leaving it alone by the most, {} dB ΔSNR.':
+        '勝過不處理最多的是 <b>{} + {}</b>，ΔSNR {} dB。',
+    'No learned row: {} is not a folder.':
+        '沒有學習式模型那一列：{} 不是資料夾。',
     'Auditioning ':
         '試聽中：',
     'Effects':
         '效果',
+    '{} s at {} Hz, direct sound at {} ms — applied from there':
+        '{} 秒，{} Hz，直達聲在 {} ms — 從那裡開始套用',
     '{} s at {} Hz, direct sound at {} ms':
         '{} 秒，{} Hz，直達聲在 {} ms',
     '♪  Preview':
@@ -418,8 +470,8 @@ MESSAGES = {
         '量測到的響應開頭是聲音傳到麥克風所花的時間。\n若保留，音訊會被延遲同樣的時間，處理過的選取範圍會比前後晚出現。\n這個選項讓響應從最大的樣本開始，在一般房間中那就是直達聲\n — 也就是 kudio.rir 放置它的位置。',
     'G.711 companding. `none` band-limits and resamples without it,\nwhich separates what the line did from what the codec did.':
         'G.711 壓擴。`none` 只做頻帶限制與重新取樣而不壓擴，\n可以把線路造成的影響與編解碼器造成的影響分開。',
-    'Add a triangular dither of one step before rounding. It raises\nthe noise floor and decorrelates the error from the signal,\nwhich is what stops quiet passages sounding granular.':
-        '在量化前加入一個步階的三角形抖動。它會提高底噪，\n並讓誤差與訊號去相關，這能避免安靜段落聽起來有顆粒感。',
+    'Add triangular dither, two steps wide, before rounding. It raises\nthe noise floor and decorrelates the error from the signal,\nwhich is what stops quiet passages sounding granular.':
+        '在量化前加入兩個步階寬的三角形抖動。它會提高底噪，\n並讓誤差與訊號去相關，這能避免安靜段落聽起來有顆粒感。',
     'Fraction of packets to drop. Achieved exactly, so a corpus\nlabelled 5% carries 5%.':
         '要丟棄的封包比例。會精確達成，所以標示 5% 的語料庫\n就真的有 5%。',
     'Packet length. 20 ms is G.711 over RTP. The loss rate is a\nfraction of packets, so this changes whether the damage arrives\nas many short holes or a few long ones — not how much of it.':
@@ -517,13 +569,15 @@ MESSAGES = {
     'Running {} …':
         '正在執行 {}…',
     'SNR {} dB   ·   SI-SDR {} dB   ·   segSNR {} dB\nThese measure the distance from the audio as it was before this run — they are not quality scores, and a good denoise moves them away from zero. For quality, use the Metrics panel with a clean reference.':
-        'SNR {} dB   ·   SI-SDR {} dB   ·   segSNR {} dB\n這些量的是與本次執行前音訊的差距 — 它們不是品質分數，好的降噪會讓它們遠離零。要評估品質，請在 Metrics 面板搭配乾淨的參考訊號使用。',
+        'SNR {} dB   ·   SI-SDR {} dB   ·   segSNR {} dB\n這些量的是與本次執行前音訊的差距 — 它們不是品質分數，好的降噪會讓它們遠離零。要評估品質，請在「指標」面板搭配乾淨的參考訊號使用。',
     '{} finished.':
         '{} 完成。',
+    'The audio changed while {} ran, so its result was dropped: it was made from the audio before the change. Run it again.':
+        '{} 執行期間音訊被改動了，所以結果已捨棄：它是從改動之前的音訊算出來的。請重新執行。',
     '{} failed — {}':
         '{} 失敗 — {}',
     'this model was trained at {} Hz but the clip is {} Hz — enable resampling, or convert it in the Batch panel':
-        '此模型以 {} Hz 訓練，但音訊為 {} Hz — 請啟用重新取樣，或在 Batch 面板轉換',
+        '此模型以 {} Hz 訓練，但音訊為 {} Hz — 請啟用重新取樣，或在「批次」面板轉換',
     'Denoising always processes the whole clip — noise estimation needs the full signal. Preview does the same, then loops whatever is selected, and commits nothing.':
         '降噪一律處理整段音訊 — 雜訊估計需要完整的訊號。預覽也一樣，之後循環播放選取的部分，且不提交任何變更。',
     "kudioenhance is installed — point 'run_dir' at a directory it produced (it holds the model, its normalisation statistics and the STFT geometry they were trained with).":
@@ -550,6 +604,10 @@ MESSAGES = {
         '沒有可涵蓋的內容。',
     '{} of {} noise × SNR combinations have no rows, although {} rows are enough to cover every one. One run never leaves holes like that: rows have gone missing, or this manifest is more than one run.':
         '{} / {} 種 雜訊 × SNR 組合沒有資料列，雖然 {} 列已足以涵蓋全部。單次執行不會留下這種缺口：有資料列遺失了，或這份 manifest 不只一次執行。',
+    '{} of {} noise × SNR combinations have no rows, although {} rows per room are enough to cover every one. One run never leaves holes like that: rows have gone missing, or this manifest is more than one run.':
+        '{} / {} 種 雜訊 × SNR 組合沒有資料列，雖然每個房間 {} 列已足以涵蓋全部。單次執行不會留下這種缺口：有資料列遺失了，或這份 manifest 不只一次執行。',
+    '{} of {} noise × SNR combinations have no rows — {} rows in {} rooms are {} per room, and each room repeats the same combinations, so they cannot cover {}; in reg mode that takes at least {} clean files.':
+        '{} / {} 種 雜訊 × SNR 組合沒有資料列 — {} 列分在 {} 個房間，每個房間 {} 列，而每個房間重複的是同樣的組合，所以涵蓋不了 {} 種；在 reg 模式下至少需要 {} 個乾淨檔案。',
     'Every one of the {} combinations has {} row(s).':
         '全部 {} 種組合都有 {} 列。',
     'Every one of the {} combinations has {} or {} rows.':
@@ -565,7 +623,7 @@ MESSAGES = {
     'Read the manifest again and look for every file again — after a synthesis run has rewritten it, or a folder has been moved back.':
         '重新讀取 manifest 並再次尋找每個檔案 — 用於合成執行改寫了它之後，或資料夾被移回原位之後。',
     'Open a manifest.json — the Synthesize panel writes one beside every corpus.':
-        '開啟 manifest.json — Synthesize 面板會在每個語料庫旁寫出一份。',
+        '開啟 manifest.json — 「合成」面板會在每個語料庫旁寫出一份。',
     'only rows with a file missing':
         '只顯示有檔案遺失的列',
     'Open':
@@ -606,8 +664,10 @@ MESSAGES = {
         '{} 列有檔案遺失',
     'relative paths found under {}':
         '相對路徑在 {} 下找到',
-    '{} — {} row(s)':
-        '{} — {} 列',
+    '{} — {} row(s).':
+        '{} — {} 列。',
+    '{} — {} row(s), {} with a file missing.':
+        '{} — {} 列，{} 列有檔案遺失。',
     'showing {} of {}':
         '顯示 {} / {}',
     "Rows with a file missing, per noise × SNR: {} in all. Untick 'only rows with a file missing' for the corpus's own coverage.":
@@ -624,8 +684,6 @@ MESSAGES = {
         '第 {} 列：{} 是 {}，應為數字或 null',
     'every file on disk':
         '每個檔案都在磁碟上',
-    ', {} with a file missing.':
-        '，{} 列有檔案遺失。',
     'Could not play {} — {}: {}':
         '無法播放 {} — {}: {}',
     'Metrics':
@@ -646,8 +704,8 @@ MESSAGES = {
         '評估',
     'Against a clean reference':
         '與乾淨參考訊號比較',
-    'Which PESQ scale the table reports.\n\nMOS-LQO is what kudio has always shown. raw P.862 is the\nnarrowband score most speech-enhancement papers quote. They are\ndifferent scales, not different roundings: raw 2.03 is about\n1.65 MOS-LQO.':
-        '表格回報的 PESQ 尺度。\n\nMOS-LQO 是 kudio 一直以來顯示的。raw P.862 是\n多數語音增強論文引用的窄頻分數。兩者是不同的尺度，\n不是不同的捨入方式：raw 2.03 大約等於 1.65 MOS-LQO。',
+    'Which PESQ scale the table reports.\n\nMOS-LQO is what kudio reports by default. raw P.862 is the\nnarrowband score most speech-enhancement papers quote. They are\ndifferent scales, not different roundings: raw 2.03 is about\n1.66 MOS-LQO.':
+        '表格回報的 PESQ 尺度。\n\nMOS-LQO 是 kudio 預設回報的分數。raw P.862 是\n多數語音增強論文引用的窄頻分數。兩者是不同的尺度，\n不是不同的捨入方式：raw 2.03 大約等於 1.66 MOS-LQO。',
     'PESQ scale':
         'PESQ 尺度',
     'Inspect this audio':
@@ -674,8 +732,8 @@ MESSAGES = {
         '在 {} Hz 下沒有定義（PESQ 僅支援 8 或 16 kHz）',
     'Computing PESQ / STOI / SDR …':
         '正在計算 PESQ / STOI / SDR…',
-    'Reference {}; lined up before scoring.':
-        '參考訊號{}；評分前已對齊。',
+    'This clip {}; lined up with the reference before scoring.':
+        '這段音訊比參考訊號{}；評分前已對齊。',
     'Evaluation complete.':
         '評估完成。',
     'Evaluation failed — {}':
@@ -780,6 +838,8 @@ MESSAGES = {
         '音高：{}',
     'Added {} marker(s) for the voiced spans.':
         '已為有聲區段新增 {} 個標記。',
+    'Added {} marker(s) for the voiced spans, in place of the {} added last time.':
+        '已為有聲區段新增 {} 個標記，取代上次加入的 {} 個。',
     'Pitch tracking failed — {}':
         '音高追蹤失敗 — {}',
     'A selection is tracked on its own if there is one, so you can ask about one phrase rather than the whole take. The contour is measured from the audio as it is now — any edit drops it, because a curve left on screen describing audio that has been replaced is worse than no curve.':
@@ -806,10 +866,12 @@ MESSAGES = {
         '錄音',
     'System default':
         '系統預設',
+    'Last input device (PyAudio names no default)':
+        '最後一個輸入裝置（PyAudio 沒有指定預設輸入）',
     'off — show what the microphone sends':
         '關閉 — 顯示麥克風送來的原始訊號',
     'Denoise the rolling display as it arrives (kudio.StreamEnhancer).\nMonitoring only — the take is committed exactly as recorded.\nOnly the per-frame methods can stream; the rest need the whole\nspectrogram and are in the Enhance panel.':
-        '在滾動畫面收到音訊時即時降噪（kudio.StreamEnhancer）。\n僅供監聽 — 錄音會完全照錄製時的樣子提交。\n只有逐幀方法能串流處理；其他方法需要整張頻譜圖，\n請在 Enhance 面板使用。',
+        '在滾動畫面收到音訊時即時降噪（kudio.StreamEnhancer）。\n僅供監聽 — 錄音會完全照錄製時的樣子提交。\n只有逐幀方法能串流處理；其他方法需要整張頻譜圖，\n請在「增強」面板使用。',
     '● Record':
         '● 錄音',
     'Refresh devices':
@@ -836,6 +898,8 @@ MESSAGES = {
         '峰值 {} dBFS',
     'Recording failed — {}':
         '錄音失敗 — {}',
+    'Playback failed — {}':
+        '播放失敗 — {}',
     'The recording replaces the current audio and becomes the new baseline for Undo and Metrics. Needs kudio[audio]. Every take is checked for clipping and level as soon as it lands — a clipped take is best redone, since nothing downstream can undo it.':
         '錄音會取代目前的音訊，並成為復原與指標的新基準。需要 kudio[audio]。每次錄音一完成就會檢查削波與音量 — 削波的錄音最好重錄，因為後續任何處理都無法挽回。',
     'PyAudio device indices (CheckDevice)':
@@ -876,8 +940,8 @@ MESSAGES = {
         '以 dB 為單位的訊雜比，每個值是語料庫的一個軸。\n\n可以使用小數：2.5 會寫成 `_2p5dB`，因為\n檔名中的小數點會被當成副檔名的開頭。\n整數則保留原本的名稱，所以 `0` 仍是 `_0dB`。',
     'no rooms — e.g. 0.3, 0.6, 0.9':
         '無房間 — 例如 0.3, 0.6, 0.9',
-    'Reverberation times in seconds. A fourth axis: in inc mode the\noutput count multiplies by however many you give.\n\nThe room acts on the speech before the noise is mixed in, which\nis the order a microphone meets them — so the SNR is measured\nagainst the reverberant speech. The clean file stays the target,\nso a model trained on this is asked to undo both.':
-        '以秒為單位的殘響時間。這是第四個軸：在 inc 模式下，\n輸出數量會乘上你給的數量。\n\n房間作用在混入雜訊之前的語音上，這正是麥克風\n接收到它們的順序 — 所以 SNR 是相對於含殘響的語音量測的。\n乾淨檔案仍是目標，所以用這個訓練的模型要同時去除兩者。',
+    'Reverberation times in seconds. A fourth axis: every output the\nmode writes is written once per room, so the count multiplies by\nhowever many you give, in regular mode as in inc.\n\nThe room acts on the speech before the noise is mixed in, which\nis the order a microphone meets them — so the SNR is measured\nagainst the reverberant speech. The clean file stays the target,\nso a model trained on this is asked to undo both.':
+        '以秒為單位的殘響時間。這是第四個軸：該模式寫出的每個輸出\n都會在每個房間各寫一次，所以輸出數量會乘上你給的數量，\nregular 與 inc 模式都一樣。\n\n房間作用在混入雜訊之前的語音上，這正是麥克風\n接收到它們的順序 — 所以 SNR 是相對於含殘響的語音量測的。\n乾淨檔案仍是目標，所以用這個訓練的模型要同時去除兩者。',
     'Direct-to-reverberant ratio — distance, in a readable unit.\n+10 and above is a close microphone; 0 is a metre or two;\nnegative is the far end of a hall.':
         '直達聲與殘響比 — 以容易理解的單位表示距離。\n+10 以上是近距離麥克風；0 是一兩公尺外；\n負值是音樂廳的遠端。',
     'What the mixtures are written as.\n\nPCM_16 is the usual choice and clips anything past full scale —\nkudio says how many files and how far over, and they are listed\nunder the result.\n\nFLOAT keeps values past 1.0 instead of clipping them, which is\nwhat you want when a loud talker at a low SNR would otherwise\nlose its peaks. PCM_24 still clips, with a finer step.':
@@ -892,8 +956,10 @@ MESSAGES = {
         'regular：每個乾淨檔案輸出一份\ninc：每一種 乾淨 × 雜訊 × SNR 的組合',
     'also copy the clean files (is_add_clean)':
         '同時複製乾淨檔案（is_add_clean）',
-    'overwrite existing files':
-        '覆寫既有檔案',
+    'delete everything in out_path first (overwrite)':
+        '先刪除 out_path 裡的所有東西（overwrite）',
+    "syn(overwrite=True): if out_path holds anything at all, the whole\nfolder is deleted before the run, files that have nothing to do\nwith the corpus included. One folder holds one run, and the\nmanifest beside it describes every file in it.\n\nOff, a folder that is not empty is left as it is and nothing is\nwritten. kudio will not empty a drive's root, or a folder that\nholds the working directory, your home folder or an input.":
+        'syn(overwrite=True)：只要 out_path 裡有任何東西，執行前整個\n資料夾都會被刪除，與語料庫無關的檔案也一樣。一個資料夾\n只裝一次執行，旁邊的 manifest 描述的就是裡面的每一個檔案。\n\n取消勾選時，不是空的資料夾會原封不動，什麼都不寫。\nkudio 不會清空磁碟根目錄，也不會清空包含工作目錄、\n你的家目錄或任何輸入檔的資料夾。',
     'Synthesizing …':
         '合成中…',
     '  ·  manifest.json beside them':
@@ -904,14 +970,16 @@ MESSAGES = {
         '  ·  {} 個殘響目標音在 TARGETS/',
     '  ·  {} clipped (worst peak {})':
         '  ·  {} 個削波（最大峰值 {}）',
+    '  ·  seed {}':
+        '  ·  seed 為 {}',
     '{} file(s) written to {}{}':
         '已將 {} 個檔案寫入 {}{}',
     'Synthesis failed — {}':
         '合成失敗 — {}',
     '{} is not a usable SNR':
         '{} 不是可用的 SNR',
-    'Set a seed to make the mixture reproducible — the same seed gives the same noise offsets and file pairings.':
-        '設定 seed 讓混合音可以重現 — 相同的 seed 會得到相同的雜訊偏移與檔案配對。',
+    'Set a seed to make the mixture reproducible — the same seed gives the same noise offsets, rooms and lost packets. Which noise and SNR each clean file gets follows the file order, not the seed. Left at None, a seed is drawn and the result names it.':
+        '設定 seed 讓混合音可以重現 — 相同的 seed 會得到相同的雜訊偏移、房間與遺失的封包。每個乾淨檔案配到哪種雜訊與 SNR，依檔案的順序決定，與 seed 無關。保持 None 時會抽一個 seed，結果會寫出是哪一個。',
     'Synthesizing…':
         '合成中…',
     'Reverberant targets need rt60 — with no room the clean file already is that signal.':
@@ -924,6 +992,16 @@ MESSAGES = {
         '合成完成 — {} 個檔案，但要求的是 {} 個：有 {} 個輸出同名而互相覆寫。請給衝突的檔案不同的名稱，或保持 mkdir_parents 開啟，讓資料夾結構把它們分開。',
     'Synthesis complete — {} file(s).':
         '合成完成 — {} 個檔案。',
+    'Synthesis complete — {} file(s) from seed {}; the same seed writes the same corpus again.':
+        '合成完成 — {} 個檔案，seed 為 {}；相同的 seed 會再寫出相同的語料庫。',
+    'Synthesis complete — {} file(s), and {} warning(s) from kudio, listed under the form.':
+        '合成完成 — {} 個檔案，另有 {} 個 kudio 的警告，列在表單下方。',
+    '{} is not empty, so nothing was synthesised. Pass overwrite=True to replace it, or point out_path= somewhere else.':
+        '{} 不是空的，所以什麼都沒有合成。傳入 overwrite=True 以清空它，或把 out_path= 指到別的地方。',
+    '{} output(s) share a name with another and will overwrite it, e.g. {}':
+        '有 {} 個輸出與另一個同名，會覆寫它，例如 {}',
+    'Synthesizer skipped {} input(s) that are not existing .wav files, e.g. {}':
+        'Synthesizer 略過了 {} 個不是既有 .wav 檔的輸入，例如 {}',
     'reverberation times must be positive, got {}':
         '殘響時間必須為正值，收到的是 {}',
     'Bad SNR list — {}':
@@ -931,7 +1009,7 @@ MESSAGES = {
     'Bad rt60 list — {}':
         'rt60 清單有誤 — {}',
     'Select a valid {} folder.':
-        '請選擇有效的{}。',
+        '請選擇有效的 {} 資料夾。',
     '{} has changed on disk since it was opened, so the script stops rather than edit another file; point it at a copy of the original':
         '{} 在開啟之後已在磁碟上變更，所以腳本會停止而不去編輯另一個檔案；請指向原始檔案的副本',
     'Loaded {} — {}s @ {} Hz{}':
@@ -1102,7 +1180,6 @@ MESSAGES = {
         '起點',
     'end':
         '終點',
-    # the browser window, python -m kudiostudio.web
     'Inspect':
         '檢視',
     'Waveform':
@@ -1159,4 +1236,75 @@ MESSAGES = {
         '正在產生試聽…',
     'silent':
         '無聲',
+    # kudio's own sentences, which the window shows as they come: the
+    # report's findings, the alignment, a room's measurement, DNSMOS and a
+    # pitch track.
+    # tests/test_i18n.py makes each one from the installed kudio, so a
+    # rewording there fails a test here instead of showing English.
+    '{} samples are not finite (NaN or inf) — the clip is corrupt, not quiet, and every measurement here is meaningless. Repair it or drop it from the set':
+        '有 {} 個樣本不是有限值（NaN 或 inf）— 這段音訊是壞的，不是安靜，這裡的每一項量測都沒有意義。請修好它，或把它從資料集中拿掉',
+    'the clip is digital silence':
+        '這段音訊是數位靜音',
+    '{} samples clipped ({}% of the clip) — the recording was already too hot; no processing gets that back':
+        '有 {} 個樣本削波（佔整段的 {}%）— 錄音時就已經太大聲，任何處理都救不回來',
+    'peaks at {} dBFS, past full scale — it will clip the moment it is written to an integer format':
+        '峰值 {} dBFS，超過滿刻度 — 一寫成整數格式就會削波',
+    'peaks at {} dBFS, right against the ceiling — one more gain stage will clip it':
+        '峰值 {} dBFS，緊貼上限 — 再多一級增益就會削波',
+    'peaks at only {} dBFS — very quiet, so the usable bit depth is small':
+        '峰值只有 {} dBFS — 非常小聲，能用到的位元深度很少',
+    'DC offset of {} — the waveform is not centred on zero, which wastes headroom':
+        'DC 偏移 {} — 波形沒有以零為中心，浪費了動態餘裕',
+    'content stops at {} Hz although the file claims {} Hz — it was very likely {}, and the extra rate is empty':
+        '內容到 {} Hz 就沒了，檔案卻標示 {} Hz — 很可能是{}，多出來的取樣率是空的',
+    'upsampled from {} Hz':
+        '從 {} Hz 升頻而來',
+    'band-limited to about {} Hz':
+        '被限頻在約 {} Hz',
+    '{}% of the clip is silence':
+        '整段有 {}% 是靜音',
+    'estimated SNR around {} dB — the noise floor is close to the content':
+        '估計 SNR 約 {} dB — 底噪很接近內容',
+    '{}, correlation {}':
+        '{}，相關係數 {}',
+    '{}, correlation {}, polarity inverted':
+        '{}，相關係數 {}，極性相反',
+    'already aligned':
+        '已經對齊',
+    'lags by {} samples ({} ms)':
+        '落後 {} 個樣本（{} ms）',
+    'lags by {} sample ({} ms)':
+        '落後 {} 個樣本（{} ms）',
+    'leads by {} samples ({} ms)':
+        '超前 {} 個樣本（{} ms）',
+    'leads by {} sample ({} ms)':
+        '超前 {} 個樣本（{} ms）',
+    'no usable decay (fit {}) — the tail never falls 35 dB, so there is nothing to extrapolate':
+        '沒有可用的衰減（fit {}）— 殘響尾巴從來沒有衰減到 35 dB，沒有東西可以外推',
+    'T30 {} s ({})  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}  — but EDT and T30 disagree, so this may not be an impulse response':
+        'T30 {} s（{}）  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}  — 但 EDT 與 T30 不一致，這可能不是脈衝響應',
+    'T30 {} s ({})  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}  — but the decay is not straight, so read it with care':
+        'T30 {} s（{}）  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}  — 但衰減不是一條直線，讀的時候要小心',
+    'T30 {} s ({})  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}':
+        'T30 {} s（{}）  ·  C50 {} dB  ·  DRR {} dB  ·  fit {}',
+    'no EDT: the direct sound alone falls 10 dB':
+        '沒有 EDT：光是直達聲就衰減了 10 dB',
+    'median {} Hz  ·  {}-{} Hz ({} semitones)  ·  {} voiced':
+        '中位數 {} Hz  ·  {}-{} Hz（{} 個半音）  ·  {} 的幀為有聲',
+    'no voiced frames in {} ({}-{} Hz)':
+        '{} 幀當中找不到有聲的幀（{}-{} Hz）',
+    'SIG {} · BAK {} · OVRL {}  ({} window(s))':
+        'SIG {} · BAK {} · OVRL {}（{} 個視窗）',
+    'clean (OVRL {})':
+        '乾淨（OVRL {}）',
+    'usable (OVRL {})':
+        '可用（OVRL {}）',
+    'poor (OVRL {})':
+        '差（OVRL {}）',
+    'bad (OVRL {})':
+        '很差（OVRL {}）',
+    '{} — the background is cleaner than the speech, which is what over-aggressive denoising looks like':
+        '{} — 背景比語音還乾淨，這正是降噪下手太重的樣子',
+    '{} — the speech survived but the background is still intrusive':
+        '{} — 語音保住了，但背景仍然干擾',
 }

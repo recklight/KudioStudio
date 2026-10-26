@@ -75,15 +75,20 @@ class EnhancePanel(WebPanel):
         ran_on = self.session.y
 
         def finished(out) -> None:
+            if self.session.y is not ran_on:
+                # made from the audio before the edit: committed, it would put
+                # that audio back over the edit
+                self._result = "—"
+                self.report(f"The audio changed while {label} ran, so its result was "
+                            f"dropped: it was made from the audio before the change. "
+                            f"Run it again.")
+                self.publish(info=self.info())
+                return
             out = np.asarray(out, dtype=np.float32)
             # wavelet reconstruction can return one extra sample on odd lengths
             n = min(len(out), len(before))
-            # the code repeats this run on the audio the history has reached;
-            # if that audio was edited meanwhile, no code says what this was
-            # made from
-            same = self.session.y is ran_on
             self.session.set_audio(out[:n], self.session.sr, undo_label=label,
-                                   keep_original=True, code=code if same else None)
+                                   keep_original=True, code=code)
             self._result = tools.distance(before[:n], out[:n])
             self.report(f"{label} finished.")
             self.publish(info=self.info())

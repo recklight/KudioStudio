@@ -167,6 +167,11 @@ def _comment_safe(text) -> str:
                    else c for c in str(text))
 
 
+def _resolved(path) -> str:
+    """*path* as one spelling, so two ways of naming a file compare equal."""
+    return os.path.normcase(str(Path(path).resolve()))
+
+
 def file_digest(path) -> str:
     """The SHA-256 of the file at *path*, read in blocks."""
     digest = hashlib.sha256()
@@ -243,6 +248,10 @@ class AudioSession:
         self._takes = itertools.count(1)
         #: every file Save As has written in this session, resolved
         self._written: Set[str] = set()
+        #: the files that hold this audio at some point of its history: the
+        #: one it was read from, and each one saved since, by resolved path,
+        #: with the history's length then and its last step
+        self._held: Dict[str, Tuple[int, Optional[EditStep]]] = {}
 
     # ---------------------------------------------------------------- state
 
@@ -281,6 +290,21 @@ class AudioSession:
     def has_history(self) -> bool:
         return bool(self._history)
 
+    def _point(self) -> Tuple[int, Optional[EditStep]]:
+        return len(self._history), (self._history[-1] if self._history else None)
+
+    def has_unsaved_audio(self) -> bool:
+        """Whether replacing the clip loses audio no file holds: edits since
+        it was opened or last saved, or a take never written anywhere.
+
+        Undo back to a point a file holds counts as saved, and a file saved
+        over stops holding what it held before.
+        """
+        if not self.has_audio:
+            return False
+        depth, last = self._point()
+        return not any(d == depth and step is last for d, step in self._held.values())
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         if not self.has_audio:
             return "<AudioSession empty>"
@@ -296,6 +320,7 @@ class AudioSession:
         self._original = (np.array(y, copy=True), int(rate))
         self._undo.clear()
         self._history.clear()
+        self._held = {_resolved(path): (0, None)}
         # what the script repeats to get the same samples back, so it records
         # the arguments that were passed rather than what they produced --
         # and which bytes they were applied to
@@ -334,6 +359,7 @@ class AudioSession:
             self._history.clear()
             self._origin = _Origin(None, int(sr), take=next(self._takes))
             self._path = None
+            self._held = {}
             # different audio entirely: markers placed on the old clip would
             # point at moments that no longer exist
             self._set_markers(())
@@ -980,6 +1006,7 @@ class AudioSession:
         path = Path(path)
         kudio.save_wave(path, self._y, self._sr, subtype=subtype)
         self._wrote(path)
+        self._held[_resolved(path)] = self._point()
         self.message.emit(f"Saved {path.name}")
         return path
 
@@ -991,6 +1018,8 @@ class AudioSession:
         selected = self.selected_audio()
         kudio.save_wave(path, selected, self._sr, subtype=subtype)
         self._wrote(path)
+        # part of the clip: whatever that file held of it, it holds no longer
+        self._held.pop(_resolved(path), None)
         self.message.emit(
             f"Saved {len(selected) / self._sr:.3f}s to {path.name}")
         return path
@@ -1003,7 +1032,7 @@ class AudioSession:
         edited audio. A changed modification time usually gives that away;
         this is for the save that lands in the same tick at the same size.
         """
-        self._written.add(os.path.normcase(str(path.resolve())))
+        self._written.add(_resolved(path))
 
     # --------------------------------------------------------------- script
 

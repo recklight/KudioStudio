@@ -440,7 +440,8 @@ def test_two_fractional_snrs_reach_the_disk_as_two_files(open_studio, tmp_path):
 
     # six asked for and six on disk, or the status line would say otherwise
     assert line.startswith("6 file(s) written")
-    assert said()[-1] == "Synthesis complete — 6 file(s)."
+    # the seed was left random, and the line goes on to name the one drawn
+    assert said()[-1].startswith("Synthesis complete — 6 file(s) from seed ")
 
     names = sorted(p.name for p in out.glob("*.wav"))
     assert names == ["c0_n0_2p5dB.wav", "c0_n0_2p7dB.wav",

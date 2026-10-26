@@ -421,9 +421,9 @@ def test_a_denoise_records_the_call_the_job_ran(studio, method):
     assert np.array_equal(replay(session.history[0], before, session.sr), session.y)
 
 
-def test_a_denoise_of_audio_edited_while_it_ran_is_not_given_code(studio):
-    """It was computed from audio the history no longer holds, so any code
-    would repeat it on different audio."""
+def test_a_denoise_of_audio_edited_while_it_ran_is_dropped(studio):
+    """It was computed from audio the history no longer holds: committed, it
+    would undo the edit, with no code to say what it was made from."""
     # the result is handed back under the window's lock, so holding it makes
     # the gain land first however fast the denoise is
     with studio.lock:
@@ -431,8 +431,8 @@ def test_a_denoise_of_audio_edited_while_it_ran_is_not_given_code(studio):
         gain(studio.session, -3.0)
     assert studio.jobs.wait(60)
 
-    assert [step.code is None for step in studio.session.history] == [False, True]
-    assert studio.session.edit_script_warnings()
+    assert [step.label for step in studio.session.history] == ["gain"]
+    assert studio.session.edit_script_warnings() == []
 
 
 def test_pressing_denoise_again_mid_run_leaves_the_running_jobs_code_alone(studio):
@@ -490,20 +490,22 @@ def test_applying_a_compared_result_records_the_call_that_made_it(real_studio):
     key = compare_selection(real_studio)
 
     before = session.y.copy()
-    real_studio.call("compare.apply", [key, True])
+    real_studio.call("compare.apply", [key])
     step = session.history[-1]
     assert "kudio.spectral_enhance" in step.code
     assert np.array_equal(replay(step, before, session.sr), session.y)
 
-    # The same result put into a range it was not computed from: no code can
-    # say what that was, and the export has to know. Undo clears the table
-    # along with the audio it described, so the rows are computed again.
+    # With the selection moved since the run, the result still goes back
+    # over the range it was computed from, so the same code makes it. Undo
+    # clears the table along with the audio it described, so the rows are
+    # computed again.
     session.undo()
     session.set_selection(0.5, 1.5)
     key = compare_selection(real_studio)
     session.set_selection(0.6, 1.6)
-    real_studio.call("compare.apply", [key, True])
-    assert [step.code is None for step in session.history] == [True]
+    real_studio.call("compare.apply", [key])
+    step = session.history[-1]
+    assert np.array_equal(replay(step, before, session.sr), session.y)
 
 
 def test_a_copy_from_an_earlier_take_is_not_read_from_this_one():

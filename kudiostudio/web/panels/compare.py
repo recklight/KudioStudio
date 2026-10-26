@@ -112,8 +112,9 @@ class ComparePanel(WebPanel):
         entries = methods or list(kudio.METHODS)
         learned_dir = run_dir if any(not isinstance(m, str) for m in entries) else None
         context = tools.RunContext(
-            y=self.session.y, ran_on=(sl.start, sl.stop) if sl is not None else None,
-            learned_dir=learned_dir, model=model_state(learned_dir) if learned_dir else None)
+            y=self.session.y, ran_on=sel, learned_dir=learned_dir,
+            model=model_state(learned_dir) if learned_dir else None)
+        missing = tools.no_learned_row(run_dir)
 
         def finished(results) -> None:
             if self.session.y is not context.y:
@@ -125,7 +126,7 @@ class ComparePanel(WebPanel):
                 return
             self._shown = context
             self._results = list(results)
-            text, tone, said = tools.verdict(self._results)
+            text, tone, said = tools.verdict(self._results, missing)
             self._verdict = (text, tone)
             self.report(said)
             self.publish(info=self.info())
@@ -160,30 +161,31 @@ class ComparePanel(WebPanel):
         return {"on": self.studio.start_preview(self.id, audio, self.session.sr)}
 
     @command
-    def apply(self, key: List, selection_only: bool = False) -> Dict:
+    def apply(self, key: List) -> Dict:
+        """Put the row *key* back over the range it was computed from.
+
+        That range is the run's, not the selection or the selection box as
+        they are now: a whole-clip row pasted into a selection would lengthen
+        the clip by the rest of itself, and a selection's row put over the
+        whole clip would throw the rest away. Put back where it came from,
+        the step's code computes it again from the audio it replaces.
+        """
         rows = self._rows([key])
-        if not rows:
+        shown = self._shown
+        # any edit clears the rows, so they always belong to the audio held;
+        # checked anyway, since over other audio the code would be untrue
+        if not rows or shown is None or self.session.y is not shown.y:
             return self.info()
         result = rows[0]
         self.studio.stop_preview()
         audio = np.asarray(result.audio, dtype=np.float32)
-        into_selection = bool(selection_only) and self.session.selection() is not None
-        target = None
-        if into_selection:
-            sl = self.session.selected_slice()
-            target = (sl.start, sl.stop)
-        # The code recomputes the result from the audio it replaces. Put
-        # somewhere other than where it was computed -- the selection moved
-        # after the run -- it came from audio the step's code never sees.
-        shown = self._shown
-        code = (tools.script(result, shown)
-                if shown is not None and self.session.y is shown.y
-                and target == shown.ran_on else None)
-        if into_selection:
-            self.session.replace_selection(audio, undo_label=result.label, code=code)
-        else:
+        code = tools.script(result, shown)
+        if shown.ran_on is None:
             self.session.set_audio(audio, self.session.sr, undo_label=result.label,
                                    keep_original=True, code=code)
+        else:
+            self.session.set_selection(*shown.ran_on)
+            self.session.replace_selection(audio, undo_label=result.label, code=code)
         self.report(f"Applied {result.label}. A/B it against the original with Ctrl+B.")
         return self.info()
 

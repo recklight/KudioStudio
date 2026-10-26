@@ -773,7 +773,7 @@ def test_float_keeps_what_pcm16_would_have_clipped(blank, tmp_path):
 # --------------------------------------------- the PESQ scale, and why
 
 def test_metrics_names_which_pesq_scale_it_shows(studio, monkeypatch):
-    """Raw P.862 and MOS-LQO are different scales -- raw 2.03 is about 1.65
+    """Raw P.862 and MOS-LQO are different scales -- raw 2.03 is about 1.66
     MOS-LQO -- so a bare 'PESQ' row does not say what the number is."""
     asked = []
 

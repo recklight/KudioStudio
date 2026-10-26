@@ -47,6 +47,28 @@ class Squatter(WebPanel):
     id = "effects"
 
 
+class Inspector(WebPanel):
+    """Wants the place of Inspect, which the page draws with no panel behind it."""
+    id = "inspect"
+    title = "Inspector"
+    script = "notes.js"
+
+    @command
+    def hello(self) -> str:
+        return "hello"
+
+
+class MarkerTaker(WebPanel):
+    """Its commands would be markers.*, which are the window's own."""
+    id = "markers"
+    title = "Marker taker"
+    script = "notes.js"
+
+    @command
+    def add(self) -> str:
+        return "taken"
+
+
 class Lookalike:
     """A panel's attributes, without being a WebPanel."""
     id = "lookalike"
@@ -69,7 +91,8 @@ def plugin(tmp_path, monkeypatch):
     (tmp_path / "secret.txt").write_text("not for the page", encoding="utf-8")
     monkeypatch.setattr(NotesPanel, "static_dir", static)
     module = types.ModuleType(MODULE)
-    for target in (NotesPanel, Unbuildable, Squatter, Lookalike, not_a_panel):
+    for target in (NotesPanel, Unbuildable, Squatter, Inspector, MarkerTaker, Lookalike,
+                   not_a_panel):
         setattr(module, target.__name__, target)
     monkeypatch.setitem(sys.modules, MODULE, module)
     monkeypatch.delenv(plugins.DISABLE_ENV, raising=False)
@@ -196,6 +219,35 @@ def test_a_plugin_that_cannot_be_built_is_left_out_and_named(plugin, monkeypatch
                for s in left_out)
     assert any(s.startswith("Plugin missing was left out — AttributeError") for s in left_out)
     assert studio.panel("effects").__class__.__name__ == "EffectsPanel"
+
+
+def test_a_plugin_with_the_id_of_inspect_is_left_out_and_named(plugin, monkeypatch,
+                                                               studio_with):
+    """Inspect has no panel object, so it is not among the ids already
+    built; the rail would skip the plugin and say nothing."""
+    entry_points(monkeypatch, inspector="Inspector", notes="NotesPanel")
+    studio = studio_with()
+    assert not any(isinstance(p, Inspector) for p in studio.panels)
+    assert "inspect.hello" not in studio.commands
+    assert [e["id"] for e in studio.call("rail") if e.get("extra")] == ["notes"]
+    assert studio.call("about")["left_out"] == [
+        "Plugin inspector was left out — ValueError: its id 'inspect' is already on the rail"]
+    chinese = studio_with("zh_TW").call("about")["left_out"]
+    assert chinese == ["外掛 inspector 未載入 — ValueError: 它的 id 'inspect' 已經在工具列上"]
+
+
+def test_a_plugin_with_the_id_of_the_marker_commands_is_left_out(plugin, monkeypatch,
+                                                                 studio_with):
+    """Built, it would take over markers.add and the rest from the window."""
+    entry_points(monkeypatch, taker="MarkerTaker")
+    studio = studio_with()
+    assert not any(isinstance(p, MarkerTaker) for p in studio.panels)
+    assert studio.commands["markers.add"].__self__ is studio.markers
+    assert studio.call("about")["left_out"] == [
+        "Plugin taker was left out — ValueError: its id 'markers' names the window's own "
+        "commands"]
+    chinese = studio_with("zh_TW").call("about")["left_out"]
+    assert chinese == ["外掛 taker 未載入 — ValueError: 它的 id 'markers' 是視窗本身指令的名稱"]
 
 
 def test_a_built_in_icon_cannot_be_redrawn():

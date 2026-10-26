@@ -95,7 +95,9 @@ export async function mount(root, ctx) {
                            suffix: " s", onChange: changed });
   const drr = ui.number({ value: memory.drr, min: -20, max: 30, step: 1, decimals: 1,
                           suffix: " dB", onChange: changed });
-  const seed = ui.number({ value: memory.seed, min: -1, max: 99999, special: "random",
+  // a random seed is drawn below 2**31 and named in the result; typed back
+  // in here, it rebuilds the same rooms
+  const seed = ui.number({ value: memory.seed, min: -1, max: 2 ** 31 - 1, special: "random",
                            onChange: changed });
   const roomDst = folder(`beside the output: <output>${info.suffix}`, "roomDst");
   roomForm.row("rt60", rt60, { tip: info.tips.rt60 });

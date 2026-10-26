@@ -15,9 +15,10 @@ import pytest
 
 import kudio
 from kudiostudio.tools import pitch
+from kudiostudio.tools import record as record_tools
 from kudiostudio.web.studio import Prefs, Studio
 
-from test_recording import run_page
+from test_recording import FakeRecorder, run_page
 
 SPEECH = (65, 400, 2048, 10)
 
@@ -279,6 +280,35 @@ def test_markers_land_on_the_voiced_spans(studio):
     assert markers[0].label == "voiced 1"
 
 
+def test_pressed_again_the_spans_replace_their_own_markers_only(studio):
+    """A second press, or one after tracking with other settings, gives the
+    list one set of voiced spans, not two laid on top of each other. A
+    marker from anywhere else stays, and so does one renamed since."""
+    studio.session.add_marker(0.05, label="mine")
+    _track(studio)
+    studio.call("pitch.add_markers")
+    spans = len(track_of(studio).voiced_segments())
+
+    def labels():
+        return [m.label for m in studio.session.markers]
+
+    said = _events(studio)
+    studio.call("pitch.add_markers")
+    assert labels().count("mine") == 1
+    assert sum(label.startswith("voiced") for label in labels()) == spans
+    assert said("message")[-1]["text"] == (
+        f"Added {spans} marker(s) for the voiced spans, in place of the {spans} "
+        f"added last time.")
+
+    first = next(i for i, m in enumerate(studio.session.markers)
+                 if m.label.startswith("voiced"))
+    studio.session.rename_marker(first, "kept")
+    studio.call("pitch.add_markers")
+    assert labels().count("mine") == 1 and labels().count("kept") == 1
+    assert sum(label.startswith("voiced") for label in labels()) == spans
+    assert said("message")[-1]["text"] == f"Added {spans} marker(s) for the voiced spans."
+
+
 # ------------------------------------------------------- the audio changed
 
 def test_an_edit_drops_the_contour_and_the_result(studio):
@@ -293,6 +323,34 @@ def test_an_edit_drops_the_contour_and_the_result(studio):
     assert info["has_track"] is False
     assert info["result"] == ""
     assert _shown(studio) == {"result": None, "markers": False}
+
+
+def test_the_contour_comes_back_after_a_b(studio):
+    """The panel keeps its track and its ticked box through an A/B, so the
+    contour has to come back with the edit, not wait for a box nobody unticked."""
+    s = studio.session
+    s.set_audio(s.y * 0.5, s.sr, undo_label="gain", keep_original=True)
+    _track(studio)
+    curve = studio.call("overlay")
+    studio.call("set_compare", [True])
+    assert studio.call("overlay") is None
+    assert studio.call("pitch.describe")["has_track"]
+    studio.call("set_compare", [False])
+    assert studio.call("overlay") == curve
+
+
+def test_a_take_that_lands_nothing_leaves_the_contour_where_it_was(studio, monkeypatch):
+    monkeypatch.setattr(kudio, "StreamRecorder", FakeRecorder)
+    _track(studio)
+    curve = studio.call("overlay")
+    panel = studio.panel("record")
+    panel._tick_loop = lambda: None
+    take = [record_tools.MODE_STREAM, 3, 16000, 1, None, ""]
+    studio.call("record.record", take)
+    assert studio.call("overlay") is None
+    studio.call("record.record", take)          # Stop, with nothing captured
+    assert studio.call("overlay") == curve
+    assert studio.call("pitch.describe")["has_track"]
 
 
 def test_nothing_is_dropped_when_there_was_no_contour(studio):

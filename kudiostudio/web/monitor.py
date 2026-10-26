@@ -6,8 +6,9 @@ Audio arrives about twenty times a second. Every sample goes through a
 once; only the picture is sent less often, as a ``monitor`` event the page
 draws in place of the clip. The time axis then reads 0 to the window's
 length, right-aligned on "now", because while recording there is no timeline
-yet. When the take ends, the last picture stays until the recorded audio
-replaces it -- blanking it would hide the end of what was just recorded.
+yet. When a take lands, the last picture stays until the recorded audio
+replaces it -- blanking it would hide the end of what was just recorded. A
+take that lands nothing gives the clip back.
 """
 from __future__ import annotations
 
@@ -68,7 +69,9 @@ class LiveMonitor:
         except Exception as e:  # noqa: BLE001
             log.warning("live spectrogram unavailable: %s", e)
             self.stream = None
-        self.studio.clear_overlay()
+        # a curve drawn on the clip has no place over the take; it is hidden
+        # rather than dropped, for a take that lands nothing
+        self.studio.sync_overlay()
         self.studio.events.publish("monitor", on=True, sr=self.sr,
                                    span=self._span(), call=self.call())
 
@@ -137,14 +140,19 @@ class LiveMonitor:
                             "y_max": y_max, "label": label, "units": units}
         return out
 
-    def stop(self) -> None:
-        """The take is over; the last picture stays on screen."""
+    def stop(self, landed: bool = False) -> None:
+        """The take is over. *landed* when its audio is about to replace the
+        clip: the last picture then stays on screen until it does. Otherwise
+        nothing is coming, and the page goes back to the clip and to the
+        curve drawn over it."""
         if not self.running:
             return
         self.sr = 0
         self.stream = None
         self.wave = np.zeros(0, dtype=np.float32)
-        self.studio.events.publish("monitor", on=False)
+        self.studio.events.publish("monitor", on=False, landed=bool(landed))
+        if not landed:
+            self.studio.sync_overlay()
 
 
 __all__ = ["LiveMonitor", "MONITOR_LEVELS", "MONITOR_REDRAW_EVERY", "MONITOR_SECONDS"]

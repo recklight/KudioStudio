@@ -347,6 +347,38 @@ def test_a_reg_corpus_smaller_than_its_grid_shows_the_holes(studio, tmp_path,
     assert "at least 6 clean files" in note
 
 
+def test_one_reg_run_in_two_rooms_is_too_few_clean_files_not_lost_rows(
+        studio, tmp_path, monkeypatch):
+    """A room repeats what the run writes, combination and all: 3 clean files
+    in 2 rooms are 6 rows that reach the same 3 of 6 combinations twice."""
+    monkeypatch.chdir(tmp_path)
+    _sources(tmp_path)
+    path = _synthesize(Path("mixed/manifest.json"), "clean", "noise", out_path="mixed",
+                       snr_ratio=[-5, 0, 5], rt60=[0.3, 0.8], mode="reg")
+    view = _open(studio, path)
+    assert view["total"] == 6
+    note, tone = view["coverage"]["note"]
+    assert tone == "warn"
+    assert "gone missing" not in note and "more than one run" not in note
+    assert "6 rows in 2 rooms are 3 per room" in note
+    assert "at least 6 clean files" in note
+
+    # one room is one pass over the clean files, and reads as before
+    note, _ = _pick(studio, view, "rt60", "0.3 s")["coverage"]["note"]
+    assert "3 row(s) cannot cover 6" in note
+
+
+def test_one_reg_run_in_two_rooms_is_as_even_as_one_room(studio, tmp_path, monkeypatch):
+    """8 clean files over 6 combinations give 2 or 1 rows each, and two rooms
+    double that to 4 or 2: one clean file apart, which is even for reg."""
+    monkeypatch.chdir(tmp_path)
+    _sources(tmp_path, n_clean=8)
+    path = _synthesize(Path("mixed/manifest.json"), "clean", "noise", out_path="mixed",
+                       snr_ratio=[-5, 0, 5], rt60=[0.3, 0.8], mode="reg")
+    assert _open(studio, path)["coverage"]["note"] == [
+        "Every one of the 6 combinations has 2 or 4 rows.", "ok"]
+
+
 def test_holes_in_a_corpus_big_enough_to_fill_them_are_lost_rows():
     def row(noise, snr):
         return tools.ManifestRow(kudio.Pair(noisy=f"{noise}{snr}.wav", clean="c.wav",

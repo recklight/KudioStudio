@@ -194,19 +194,22 @@ class RecordPanel(WebPanel):
         recorder, self._recorder = self._recorder, None
         self._enhancer = None
         self._stopping.set()
-        self.studio.monitor.stop()
+        y, failed = np.zeros(0, dtype=np.float32), ""
+        if recorder is not None:
+            try:
+                y = recorder.stop()
+            except Exception as e:  # noqa: BLE001
+                failed = f"{type(e).__name__}: {e}"
+        # the device before the plots: whether audio is about to land decides
+        # if the page keeps the last live picture for it or goes back to the clip
+        self.studio.monitor.stop(landed=y.size > 0)
         self.publish(info=self.info(), meter=tools.METER_FLOOR_DB, elapsed=0.0)
-        if recorder is None:
-            return
-        try:
-            y = recorder.stop()
-        except Exception as e:  # noqa: BLE001
-            self._failed(f"{type(e).__name__}: {e}")
-            return
-        if y.size == 0:
+        if failed:
+            self._failed(failed)
+        elif y.size:
+            self._finished(y, recorder.sr)
+        elif recorder is not None:
             self.report("Nothing was captured — check the input device.")
-            return
-        self._finished(y, recorder.sr)
 
     def _finished(self, y: np.ndarray, sr: int) -> None:
         y = tools.mono(y)                   # keep the session mono
@@ -219,7 +222,11 @@ class RecordPanel(WebPanel):
             summary, problems = checked
             self._take = ((summary, problems), "warn" if problems else "ok")
             if problems:
-                self.report(f"Recorded, but: {problems[0]}")
+                # the finding goes into the window's language on its own: it
+                # starts with a figure, and looked up inside the whole line
+                # its template takes "Recorded, but:" for that figure
+                first = i18n.translate(problems[0], self.studio.language)
+                self.report(f"Recorded, but: {first}")
         self.publish(info=self.info())
 
     def _failed(self, message: str) -> None:

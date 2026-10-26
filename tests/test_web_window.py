@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import threading
 import time
+import types
 
 import numpy as np
 import pytest
@@ -374,6 +375,75 @@ def test_closing_waits_for_a_running_job(studio):
     assert not window.destroyed.is_set()
     gate.set()
     assert window.destroyed.wait(5)
+
+
+class FakeServer:
+    def __init__(self, studio, port):
+        self.url = "http://127.0.0.1:0/?token=test"
+        self.closed = False
+
+    def start(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+def _browser(monkeypatch, studio, sleep):
+    """``kudiostudio --browser`` on *studio*, with *sleep* for every sleep
+    in web.app, and no browser and no port; returns the server it made."""
+    made = []
+
+    def server(s, port):
+        made.append(FakeServer(s, port))
+        return made[-1]
+
+    monkeypatch.setattr(web_app, "Prefs", lambda: studio.prefs)
+    monkeypatch.setattr(web_app, "Studio", lambda prefs, language: studio)
+    monkeypatch.setattr(web_app, "LocalServer", server)
+    monkeypatch.setattr(web_app, "set_windows_app_id", lambda: None)
+    monkeypatch.setattr(web_app, "webbrowser", types.SimpleNamespace(open=lambda url: True))
+    monkeypatch.setattr(web_app, "time", types.SimpleNamespace(sleep=sleep))
+    assert web_app.main(["--browser"]) == 0
+    return made[0]
+
+
+def test_ctrl_c_in_the_browser_waits_for_a_running_job(studio, monkeypatch):
+    """As closing the window does: stopped half-way, a Batch run leaves its
+    output tree half-written."""
+    gate = threading.Event()
+    studio.jobs.run("batch", "converting", gate.wait, 5)
+    drain = _listen(studio)
+    asleep = []
+
+    def sleep(seconds):
+        asleep.append(studio.jobs.busy("batch"))
+        if len(asleep) == 1:
+            raise KeyboardInterrupt         # the page is up; Ctrl+C
+        gate.set()
+        time.sleep(0.01)
+
+    server = _browser(monkeypatch, studio, sleep)
+    assert asleep[:2] == [True, True]       # it slept on with the job running
+    assert not studio.jobs.running() and server.closed
+    said = [m for m in _messages(drain()) if m.startswith("Stopping when")]
+    assert said == ["Stopping when Batch finishes — a running job cannot be stopped "
+                    "half-way. Ctrl+C again stops now, with the job unfinished."]
+    assert i18n.translate(said[0], "zh_TW").startswith("將在批次完成後停止 — ")
+
+
+def test_a_second_ctrl_c_stops_at_once(studio, monkeypatch):
+    gate = threading.Event()
+    studio.jobs.run("batch", "converting", gate.wait, 5)
+
+    def sleep(seconds):
+        raise KeyboardInterrupt
+
+    try:
+        server = _browser(monkeypatch, studio, sleep)
+        assert studio.jobs.busy("batch") and server.closed
+    finally:
+        gate.set()
 
 
 def test_the_rail_lists_every_tool_in_order(studio):

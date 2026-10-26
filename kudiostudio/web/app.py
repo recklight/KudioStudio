@@ -24,7 +24,7 @@ import webbrowser
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from kudiostudio import __version__, plugins, theme
+from kudiostudio import __version__, i18n, plugins, theme
 from kudiostudio.desktop import set_windows_app_id
 from kudiostudio.web.server import LocalServer
 from kudiostudio.web.studio import Prefs, Studio
@@ -79,6 +79,25 @@ class WindowDialogs:
             _dialog_kind("FOLDER"), directory=directory or ""))
 
 
+def _waiting_for(studio: Studio) -> List[str]:
+    """The titles of the panels whose jobs are running, in the window's
+    language: ``[]``, ``[one]``, or ``[all but the last joined, the last]``.
+
+    Each title is translated on its own: the table holds the sentence
+    around the names, and a list of them joined here is nothing it could
+    hold. Chinese lists its names with 、, not a comma.
+    """
+    names = []
+    for owner, _ in studio.jobs.running():
+        panel = studio.panel(owner)
+        names.append(i18n.translate(panel.title if panel is not None else owner,
+                                    studio.language))
+    if len(names) < 2:
+        return names
+    comma = "、" if studio.language == "zh_TW" else ", "
+    return [comma.join(names[:-1]), names[-1]]
+
+
 def close_when_idle(studio: Studio, window) -> bool:
     """For the window's ``closing`` event: False keeps it open.
 
@@ -87,16 +106,15 @@ def close_when_idle(studio: Studio, window) -> bool:
     the window stays, says what it is waiting for, and closes itself when
     the last job ends.
     """
-    running = studio.jobs.running()
-    if not running:
+    names = _waiting_for(studio)
+    if not names:
         return True
-    names = []
-    for owner, _ in running:
-        panel = studio.panel(owner)
-        names.append(panel.title if panel is not None else owner)
-    waiting = (names[0] + " finishes" if len(names) == 1 else
-               ", ".join(names[:-1]) + f" and {names[-1]} finish")
-    studio.say(f"Quitting when {waiting} — a running job cannot be stopped half-way.")
+    if len(names) == 1:
+        studio.say(f"Quitting when {names[0]} finishes — a running job cannot be "
+                   f"stopped half-way.")
+    else:
+        studio.say(f"Quitting when {names[0]} and {names[1]} finish — a "
+                   f"running job cannot be stopped half-way.")
 
     def later() -> None:
         studio.jobs.wait()
@@ -135,13 +153,40 @@ def dress_native_window(window) -> None:
         log.debug("window dressing skipped: %s", e)
 
 
-def serve_in_browser(server: LocalServer) -> None:
-    """The page in the default browser, until Ctrl+C."""
+def serve_in_browser(server: LocalServer, studio: Studio) -> None:
+    """The page in the default browser, until Ctrl+C -- which waits for a
+    running job, as closing the window does (`stop_when_idle`)."""
     print(f"KudioStudio {__version__} on {server.url}")
     print("Ctrl+C to stop.")
     webbrowser.open(server.url)
-    while True:
-        time.sleep(3600)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        stop_when_idle(studio)
+
+
+def stop_when_idle(studio: Studio) -> None:
+    """After the first Ctrl+C in a browser: return when no job runs.
+
+    For the reason `close_when_idle` gives. A second Ctrl+C is the way out
+    when waiting is worse than a job left unfinished; it is not caught here,
+    so the process stops at once.
+    """
+    names = _waiting_for(studio)
+    if not names:
+        return
+    if len(names) == 1:
+        studio.say(f"Stopping when {names[0]} finishes — a running job cannot be "
+                   f"stopped half-way. Ctrl+C again stops now, with the job unfinished.")
+    else:
+        studio.say(f"Stopping when {names[0]} and {names[1]} finish — a "
+                   f"running job cannot be stopped half-way. Ctrl+C again stops now, "
+                   f"with the jobs unfinished.")
+    # in short sleeps rather than one wait on the jobs: on Windows a Ctrl+C
+    # interrupts a sleep at once, and a wait on a lock only when it times out
+    while studio.jobs.running():
+        time.sleep(0.2)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -188,7 +233,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         studio.call("open_files", [list(args.files)])
     try:
         if args.browser:
-            serve_in_browser(server)
+            serve_in_browser(server, studio)
+            return 0
         try:
             import webview
             window = webview.create_window(
@@ -206,7 +252,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             log.warning("no window to draw in (%s: %s); opening the browser instead",
                         type(e).__name__, e)
             studio.dialogs = studio.close_window = None
-            serve_in_browser(server)
+            serve_in_browser(server, studio)
     except KeyboardInterrupt:
         pass
     finally:
@@ -216,4 +262,4 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 __all__ = ["main", "WindowDialogs", "close_when_idle", "dress_native_window",
-           "serve_in_browser"]
+           "serve_in_browser", "stop_when_idle"]

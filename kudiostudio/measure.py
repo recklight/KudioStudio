@@ -20,11 +20,12 @@ TRUE_PEAK_WARN_DBTP = -1.0
 
 
 class Measurement(NamedTuple):
-    """One pass over the audio, answering everything the readout shows.
+    """Everything the readout shows, measured together from one array.
 
-    All four come from one call because they walk the same signal: running
-    them separately would filter it four times and, worse, let the Levels
-    box show numbers measured from four different moments of an edit.
+    Three kudio calls, made one after the other on the same samples and
+    kept together per version of the audio, so the Levels box never shows
+    figures from two different moments of an edit. The range is read off
+    the curve rather than measured again.
     """
 
     report: object                       # kudio.AudioReport

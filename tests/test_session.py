@@ -188,3 +188,29 @@ def test_save_round_trips(session, tmp_path):
     y, sr = kudio.file_load(out)
     assert sr == session.sr
     assert len(y) == len(session.y)
+
+
+def test_replacing_the_clip_loses_nothing_only_when_a_file_holds_it(tone, tmp_path):
+    """What a new take would throw away. The file opened holds the audio;
+    an edit is held by nothing until it is saved; a take is held by nothing
+    until it is written; and a file saved over no longer holds what it did."""
+    from kudiostudio.session import AudioSession
+    s = AudioSession()
+    assert s.has_unsaved_audio() is False                    # nothing open
+    s.load_file(tone)
+    assert s.has_unsaved_audio() is False
+    s.set_audio(s.y * 0.5, s.sr, undo_label="gain", keep_original=True)
+    assert s.has_unsaved_audio() is True
+    s.save(tmp_path / "half.wav")
+    assert s.has_unsaved_audio() is False
+    s.undo()
+    assert s.has_unsaved_audio() is False                    # tone.wav holds it
+    s.set_audio(s.y * 0.25, s.sr, undo_label="gain", keep_original=True)
+    assert s.has_unsaved_audio() is True                     # one step, other audio
+    s.save(tone)                                             # over the original
+    s.revert()
+    assert s.has_unsaved_audio() is True                     # nothing holds it now
+    s.set_audio(np.zeros(1600, np.float32), s.sr, name="recording")
+    assert s.has_unsaved_audio() is True                     # a take is on no disk
+    s.save(tmp_path / "take.wav")
+    assert s.has_unsaved_audio() is False

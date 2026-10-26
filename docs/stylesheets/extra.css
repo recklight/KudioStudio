@@ -1,0 +1,46 @@
+/* The logo's colours, as on kudio's site: deep navy for the header, its teal
+   for accents. The teal is darkened on the light scheme, where the bright one
+   is unreadable as link text on white. */
+:root {
+  --md-primary-fg-color: #0b1530;
+  --md-primary-fg-color--light: #1a2a55;
+  --md-primary-fg-color--dark: #060c1d;
+  --md-accent-fg-color: #0f9c87;
+  --md-accent-fg-color--transparent: rgba(15, 156, 135, 0.1);
+}
+
+/* Links take the primary colour by default, and the navy one vanishes on the
+   dark background: they get the logo's teal there instead. */
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: #2ef2d0;
+  --md-accent-fg-color--transparent: rgba(46, 242, 208, 0.1);
+  --md-typeset-a-color: #5ce1c8;
+}
+
+.md-header__button.md-logo img {
+  height: 1.8rem;
+}
+
+/* The screenshots are of a dark window: a hairline keeps their edge on the
+   dark scheme, and corners like the window's own. */
+.md-typeset img.shot {
+  border-radius: 0.3rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* A panel's screenshot beside the text that describes it, on a screen wide
+   enough for both; under it on a phone. */
+@media screen and (min-width: 60em) {
+  .md-typeset img.shot.side {
+    float: right;
+    margin: 0 0 1em 1.5em;
+  }
+}
+
+.md-typeset img.shot.side {
+  max-width: 20rem;
+}
+
+.md-typeset h2 {
+  clear: both;
+}

@@ -14,9 +14,10 @@ from public `kudio` calls rather than added to the library:
   there". Every written file is read back and measured, and the ones that
   missed -- clipped at full scale on the way up, over the true-peak ceiling,
   too short for BS.1770 to measure at all -- are listed with the reason.
-  With a denoise pass as well, the levelling waits for it: denoising takes
-  level out with the noise, so a tree levelled first and denoised after
-  would land under the target it was asked for.
+  With a denoise pass as well, the levelling waits for it, a peak target as
+  much as a loudness one: denoising takes level out with the noise, so a tree
+  levelled first and denoised after would land under the target it was
+  asked for.
 * **A reverberant copy.** "Re-room this tree and keep both": each written file
   is put in a room of its own (`kudio.rir`, `kudio.apply_rir`) and written to
   a second tree with the same layout, so a dry file and its wet copy pair by
@@ -25,10 +26,11 @@ from public `kudio` calls rather than added to the library:
 
 from __future__ import annotations
 
+import os
 import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -103,16 +105,21 @@ class BatchPlan:
         return self.convert.get("lufs")
 
     @property
+    def peak(self) -> Optional[float]:
+        """The peak target, or ``None``."""
+        return self.convert.get("peak")
+
+    @property
     def level_last(self) -> bool:
-        """Whether the loudness target is applied after the denoise pass
-        rather than by the conversion. Denoising removes energy, so levelled
-        first, a file comes out of the denoise under the target."""
-        return self.denoise is not None and self.lufs is not None
+        """Whether the level target, loudness or peak, is applied after the
+        denoise pass rather than by the conversion. Denoising removes energy,
+        so levelled first, a file comes out of the denoise under the target."""
+        return self.denoise is not None and (self.lufs is not None or self.peak is not None)
 
     def conversion(self) -> Dict[str, Any]:
         """The keyword arguments `kudio.convert_folder` is actually given."""
         if self.level_last:
-            return {k: v for k, v in self.convert.items() if k != "lufs"}
+            return {k: v for k, v in self.convert.items() if k not in ("lufs", "peak")}
         return dict(self.convert)
 
 
@@ -157,10 +164,12 @@ class LoudnessCheck:
 
 @dataclass(frozen=True)
 class Levelling:
-    """What the levelling pass after a denoise did, file by file."""
+    """What the levelling pass after a denoise did, file by file. *mode* is
+    ``"LUFS"`` or ``"peak"``, as the form names them."""
     target: float
     written: Tuple[Path, ...] = ()
     failed: Tuple[Tuple[Path, str], ...] = ()
+    mode: str = "LUFS"
 
 
 @dataclass(frozen=True)
@@ -279,26 +288,38 @@ def write_reverberant(dry: Sequence[Path], root, room: RoomPlan, *,
                       written=tuple(written), failed=tuple(failed))
 
 
-def level_files(files: Sequence[Path], target: float, *,
+def level_files(files: Sequence[Path], target: float, *, mode: str = "LUFS",
                 subtype: str = "PCM_16") -> Levelling:
-    """Level each of *files* to *target* LUFS, in place.
+    """Level each of *files* to *target*, in place: LUFS, or with *mode*
+    ``"peak"`` a fraction of full scale.
 
-    The same `kudio.normalize_lufs` the conversion applies, for a pass that
-    has to come after another one: a file that cannot be levelled -- too short
-    for BS.1770 -- is left as it is and listed, as the conversion lists it.
+    The same `kudio.normalize_lufs` or `kudio.normalize` the conversion
+    applies, for a pass that has to come after another one: a file that cannot
+    be levelled -- too short for BS.1770 -- is left as it is and listed, as
+    the conversion lists it.
     """
     written: List[Path] = []
     failed: List[Tuple[Path, str]] = []
     for path in map(Path, files):
         try:
             y, sr = kudio.file_load(path, sr=None, mono=False)
-            kudio.save_wave(path, kudio.normalize_lufs(y, sr, lufs=target), sr,
-                            subtype=subtype)
+            y = (kudio.normalize(y, peak=target) if mode == "peak"
+                 else kudio.normalize_lufs(y, sr, lufs=target))
+            kudio.save_wave(path, y, sr, subtype=subtype)
             written.append(path)
         except Exception as e:                                  # noqa: BLE001
             failed.append((path, f"{type(e).__name__}: {e}"))
     return Levelling(target=float(target), written=tuple(written),
-                     failed=tuple(failed))
+                     failed=tuple(failed), mode=mode)
+
+
+def shared_folder(files: Sequence[Path]) -> Path:
+    """The deepest folder holding every one of *files*.
+
+    `kudio.enhance_folder` lays a list of files out from that folder, so given
+    as its destination too, it writes each file back where it was.
+    """
+    return Path(os.path.commonpath([os.path.dirname(os.path.abspath(f)) for f in files]))
 
 
 def check_loudness(files: Sequence[Path], target: float, *,
@@ -383,30 +404,38 @@ def _loudness_miss(path: Path, target: float, tolerance: float,
 def run_batch(plan: BatchPlan) -> BatchOutcome:
     """Do everything *plan* asks, in order, and report what came of it.
 
-    Convert; denoise the output in place; level it, when a denoise pass means
-    the conversion could not; write the reverberant copies; then read back
-    what is on disk. The loudness check comes last so that it measures the
-    files as the other passes left them.
+    Convert; denoise what it wrote, in place; level it, when a denoise pass
+    means the conversion could not; write the reverberant copies; then read
+    back what is on disk. The loudness check comes last so that it measures
+    the files as the other passes left them.
     """
     # the loop lives in kudio, where the CLI (`kudio convert --recursive`)
     # reaches it too
     converted = kudio.convert_folder(plan.src, plan.dst, **plan.conversion())
     subtype = plan.convert.get("subtype", "PCM_16")
     result = converted
-    if plan.denoise is not None and converted.written:
+    if plan.denoise is not None and converted.outputs:
         # a second pass over what the first one wrote, in place: denoising has
         # to read whole files to estimate the noise, so it cannot ride along.
+        # This Run's files and not the output folder, which can hold an
+        # earlier Run's: the conversion renames rather than overwrites, and a
+        # pass over the folder would denoise those again and count them.
         # The subtype is passed on, or a FLOAT tree comes back 16-bit.
+        written = list(converted.outputs)
         result = kudio.enhance_folder(
-            plan.dst, plan.dst, plan.denoise, noise=plan.noise,
+            written, shared_folder(written), plan.denoise, noise=plan.noise,
             subtype=subtype, overwrite=True, report=True)
 
     lufs = plan.lufs
     levelled = None
     if plan.level_last and converted.outputs:
         # every file the conversion wrote, denoised or not: whatever the
-        # denoise pass could not do, the tree is still asked to be at -23
-        levelled = level_files(converted.outputs, lufs, subtype=subtype)
+        # denoise pass could not do, the tree is still asked to be at its target
+        if lufs is not None:
+            levelled = level_files(converted.outputs, lufs, subtype=subtype)
+        else:
+            levelled = level_files(converted.outputs, plan.peak, mode="peak",
+                                   subtype=subtype)
 
     rooms = None
     if plan.room is not None and converted.outputs:
@@ -505,15 +534,17 @@ def call_text(src: str, dst: str, convert: Dict[str, Any], denoise: Optional[str
     lines = [f"kudio.convert_folder({src!r}, {dst!r}, {arguments})"]
     if denoise is not None:
         # two passes, and the caption says so -- the denoise reads whole
-        # files to estimate the noise, which the conversion does not
-        lines.append(f"→ kudio.enhance_folder(out, out, {denoise!r}, "
-                     f"noise={noise!r}, subtype={conversion['subtype']!r}, "
+        # files to estimate the noise, which the conversion does not. It is
+        # given the files the conversion wrote, in the folder they share.
+        lines.append(f"→ kudio.enhance_folder(converted.outputs, <their folder>, "
+                     f"{denoise!r}, noise={noise!r}, subtype={conversion['subtype']!r}, "
                      f"overwrite=True, report=True)")
     lufs = plan.lufs
     if plan.level_last:
         # levelled after the denoise, which takes level out with the noise
-        lines.append(f"→ per file: kudio.normalize_lufs(y, sr, lufs={lufs}), "
-                     f"after the denoise")
+        level = (f"kudio.normalize_lufs(y, sr, lufs={lufs})" if lufs is not None
+                 else f"kudio.normalize(y, peak={plan.peak})")
+        lines.append(f"→ per file: {level}, after the denoise")
     if room is not None:
         seed = "…" if room.seed is None else room.seed
         line = (f"→ per file: kudio.apply_rir(y, kudio.rir(sr, rt60={room.rt60}, "
@@ -577,9 +608,12 @@ def shown_path(path, dst: str, src: str) -> str:
     return str(path)
 
 
-def misses_text(check: Optional[LoudnessCheck], dst: str, src: str) -> str:
+def misses_text(check: Optional[LoudnessCheck], dst: str, src: str,
+                say: Callable[[str], str] = str) -> str:
     """Every file that missed, one line each, grouped by how it missed; ""
-    when none did. Plain text, so the list can be copied out."""
+    when none did. Plain text, so the list can be copied out. *say*
+    translates the headings and the reasons, which come last on a line so
+    that their length moves no column."""
     if check is None or not check.misses:
         return ""
     names = {miss.path: shown_path(miss.path, dst, src) for miss in check.misses}
@@ -589,10 +623,10 @@ def misses_text(check: Optional[LoudnessCheck], dst: str, src: str) -> str:
                            ("on target, too little headroom", check.over_ceiling)):
         if not group:
             continue
-        lines.append(f"{heading}:")
+        lines.append(say(f"{heading}:"))
         for miss in group:
             level = "—" if miss.lufs is None else f"{miss.lufs:+.1f} LUFS"
-            lines.append(f"  {names[miss.path]:<{width}}  {level:>11}  {miss.reason}")
+            lines.append(f"  {names[miss.path]:<{width}}  {level:>11}  {say(miss.reason)}")
     return "\n".join(lines)
 
 
@@ -608,8 +642,12 @@ def result_lines(outcome: BatchOutcome, dst: str) -> List[str]:
                      f"listen.")
     if outcome.rooms is not None:
         lines += ["", describe_rooms(outcome.rooms)]
-    if outcome.levelled is not None:
-        lines.append(f"Levelled to {outcome.levelled.target:g} LUFS after the denoise "
+    levelled = outcome.levelled
+    if levelled is not None and levelled.mode == "peak":
+        lines.append(f"Peak-normalised to {levelled.target:g} after the denoise pass, "
+                     f"which takes level out with the noise.")
+    elif levelled is not None:
+        lines.append(f"Levelled to {levelled.target:g} LUFS after the denoise "
                      f"pass, which takes level out with the noise.")
     check = outcome.loudness
     listed: set = set()

@@ -1,6 +1,7 @@
 // The interface language, with the same rules as kudiostudio/i18n.py:
 // the English is the key; "{}" in a key stands for a value, and a value
-// that is itself a phrase with a translation is translated too.
+// that is itself a phrase with a translation, or a sentence built from a
+// template of its own, is translated too.
 
 let exact = new Map();
 let templates = [];
@@ -33,7 +34,8 @@ export function t(text) {
   for (const { pattern, value } of templates) {
     const m = text.match(pattern);
     if (m) {
-      const values = m.slice(1).map((v) => exact.get(v) ?? v);
+      // each value is shorter than the text it came from, so this ends
+      const values = m.slice(1).map((v) => (v ? t(v) : v));
       // "{}" takes the values in order; "{1}" names one, where the
       // translation needs them in another order than the English
       let i = 0;

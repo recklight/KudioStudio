@@ -15,7 +15,7 @@ from kudiostudio.tools import record as tools
 from kudiostudio.web.monitor import MONITOR_REDRAW_EVERY
 from kudiostudio.web.studio import Prefs, Studio
 
-from test_recording import FakeRecorder, run_page
+from test_recording import FakeCheckDevice, FakeRecorder, run_page
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +28,12 @@ def english_afterwards():
 def studio(tmp_path, monkeypatch):
     FakeRecorder.instances = []
     monkeypatch.setattr(kudio, "StreamRecorder", FakeRecorder)
+    # no inputs unless a test lists some, as on CI, so the page tests read
+    # the same lists on a machine with a microphone
+    monkeypatch.setattr(kudio, "list_devices", lambda kind=None: [])
+    monkeypatch.setattr(kudio, "CheckDevice", FakeCheckDevice)
+    monkeypatch.setattr(FakeCheckDevice, "inputs", [])
+    monkeypatch.setattr(FakeCheckDevice, "default", None)
     monkeypatch.setattr(kudio, "play_audio", lambda y, rate=None, **_: None)
     s = Studio(prefs=Prefs(tmp_path / "window.json"), language="en")
     yield s
@@ -91,6 +97,25 @@ def test_the_device_list_says_which_index_space_it_is_in(studio):
     assert "sounddevice" in studio.call("record.devices", [False])["space"]
 
 
+def test_system_default_opens_the_input_pyaudio_calls_its_default(studio, panel,
+                                                                   monkeypatch):
+    """Given no index, StreamRecorder opens the last input PyAudio lists --
+    here the line input, not the microphone the system records from."""
+    monkeypatch.setattr(FakeCheckDevice, "inputs", [(1, "Microphone Array"), (4, "Line In")])
+    monkeypatch.setattr(FakeCheckDevice, "default", 1)
+    devices = studio.call("record.devices", [True])["devices"]
+    assert devices == [["System default", 1], ["[1] Microphone Array", 1],
+                       ["[4] Line In", 4]]
+    studio.call("record.record", [tools.MODE_STREAM, 3, 16000, 1, devices[0][1], ""])
+    assert FakeRecorder.instances[-1].device == 1
+
+
+def test_with_no_default_input_the_first_choice_says_what_it_opens(studio, monkeypatch):
+    monkeypatch.setattr(FakeCheckDevice, "inputs", [(1, "Microphone Array"), (4, "Line In")])
+    label, index = studio.call("record.devices", [True])["devices"][0]
+    assert index is None and label == tools.NO_DEFAULT_INPUT
+
+
 def test_the_page_opens_on_a_fixed_length_take(studio):
     seen = _page(studio, """
         seen.mode = box("Mode").value;
@@ -116,6 +141,29 @@ def test_switching_to_stream_mode_changes_the_call_and_the_index_space(studio):
     assert "PyAudio" in stream["space"]
     assert fixed["seconds_locked"] is False and fixed["streaming"] is False
     assert "sounddevice" in fixed["space"]
+
+
+def test_each_mode_remembers_its_own_device(studio, monkeypatch):
+    """The two backends number devices independently: here 3 is the USB
+    microphone to sounddevice and the line input to PyAudio. A choice must
+    not follow the mode across just because its number exists on the other
+    side."""
+    monkeypatch.setattr(kudio, "list_devices",
+                        lambda kind=None: [{"index": 3, "name": "USB microphone"}])
+    monkeypatch.setattr(FakeCheckDevice, "inputs", [(3, "Line In"), (5, "USB microphone")])
+    monkeypatch.setattr(FakeCheckDevice, "default", 5)
+    seen = _page(studio, """
+        await choose("Device", "3");
+        await choose("Mode", modes[1]);
+        seen.stream = { device: box("Device").value, call: lastCall()[4] };
+        await choose("Device", "3");
+        await choose("Mode", modes[0]);
+        seen.fixed = box("Device").value;
+        await choose("Mode", modes[1]);
+        seen.stream_again = box("Device").value;
+    """)
+    assert seen["stream"] == {"device": "5", "call": 5}       # the system default
+    assert seen["fixed"] == "3" and seen["stream_again"] == "3"
 
 
 def test_the_record_button_becomes_stop_and_the_mode_locks_while_a_take_runs(studio, panel):
@@ -160,7 +208,30 @@ def test_the_take_is_described_in_the_windows_language(studio, monkeypatch):
     studio.call("set_language", ["zh_TW"])
     chinese = studio.call("record.describe")["take"][0]
     assert english.startswith("peak ") and not chinese.startswith("peak ")
-    assert chinese.split("  ·  ")[1] == english.split("  ·  ")[1]    # "-13.3 LUFS"
+    figures_en, figures_zh = english.split("\n")[0], chinese.split("\n")[0]
+    assert figures_zh.split("  ·  ")[1] == figures_en.split("  ·  ")[1]    # "-13.3 LUFS"
+    # and kudio's findings under the figures, one line each
+    assert english.count("\n") == chinese.count("\n") > 0
+    assert "content stops" in english and "content stops" not in chinese
+
+
+def test_a_clipped_take_is_named_in_the_status_bar_in_the_windows_language(studio,
+                                                                           monkeypatch):
+    """kudio's finding starts with a figure. Looked up together with the
+    "Recorded, but:" in front of it, its own template took that prefix for
+    the figure, and the line read "有 已錄音，但：8600 個樣本削波…"."""
+    t = np.arange(16000) / 16000
+    hot = np.clip(1.5 * np.sin(2 * np.pi * 220 * t), -1.0, 1.0).astype(np.float32)
+    monkeypatch.setattr(kudio, "record", lambda seconds, sr, channels, device: hot)
+    studio.call("set_language", ["zh_TW"])
+    drain = _events(studio)
+    studio.call("record.record", [tools.MODE_FIXED, 1, 16000, 1, None])
+    assert studio.jobs.wait(10)
+    first = kudio.audio_report(hot, 16000).problems()[0]
+    assert "samples clipped" in first
+    said = [e["text"] for e in drain("message")]
+    assert said[-1] == "已錄音，但：" + i18n.translate(first, "zh_TW")
+    assert said[-1].startswith("已錄音，但：有 ")
 
 
 def test_an_open_take_starts_the_monitor_and_stop_commits_it(studio, panel):
@@ -174,7 +245,7 @@ def test_an_open_take_starts_the_monitor_and_stop_commits_it(studio, panel):
     info = _start(studio)                    # the same button, now Stop
     assert not info["streaming"]
     assert len(studio.session.y) == 8000
-    assert {"type": "monitor", "on": False} in drain("monitor")
+    assert {"type": "monitor", "on": False, "landed": True} in drain("monitor")
 
 
 def test_a_take_announces_its_rate_before_any_audio(studio, panel):
@@ -183,7 +254,7 @@ def test_a_take_announces_its_rate_before_any_audio(studio, panel):
     assert [(e["on"], e["sr"]) for e in drain("monitor")] == [(True, 16000)]
     FakeRecorder.instances[-1].feed(np.full(1600, 0.2, np.float32))
     _start(studio)                            # stop
-    assert drain("monitor") == [{"type": "monitor", "on": False}]
+    assert drain("monitor") == [{"type": "monitor", "on": False, "landed": True}]
 
 
 def test_an_empty_take_is_not_committed(studio, panel):
@@ -192,6 +263,27 @@ def test_an_empty_take_is_not_committed(studio, panel):
     _start(studio)                            # stop, with nothing captured
     assert studio.session.has_audio is False
     assert "Nothing was captured" in drain("message")[-1]["text"]
+
+
+def test_the_page_is_told_whether_a_take_is_about_to_land(studio, panel, monkeypatch):
+    """It keeps the last live picture for a take that lands, and goes back
+    to the clip for one that does not."""
+    drain = _events(studio)
+    _start(studio)
+    FakeRecorder.instances[-1].feed(np.full(1600, 0.2, np.float32))
+    _start(studio)
+    _start(studio)
+    _start(studio)                            # nothing this time
+
+    def broken(self):
+        raise OSError("the device went away")
+
+    monkeypatch.setattr(FakeRecorder, "stop", broken)
+    _start(studio)
+    FakeRecorder.instances[-1].feed(np.full(1600, 0.2, np.float32))
+    _start(studio)
+    ended = [e["landed"] for e in drain("monitor") if not e["on"]]
+    assert ended == [True, False, False]
 
 
 def test_the_meter_reads_the_level_and_the_time(studio, panel):
@@ -463,3 +555,32 @@ def test_a_second_take_of_the_same_length_gets_a_scale_of_its_own(studio, panel)
         scales.append(studio.image()[0].levels)
     assert scales[1] != scales[0]
     assert scales[1] == analysis.image(studio.session.y, 16000, studio.settings).levels
+
+
+def test_the_window_says_when_replacing_the_clip_would_lose_audio(studio, tone):
+    studio.call("open_files", [[str(tone)]])
+    assert studio.call("state")["unsaved"] is False
+    studio.session.set_audio(studio.session.y * 0.5, 16000, undo_label="gain",
+                             keep_original=True)
+    assert studio.call("state")["unsaved"] is True
+
+
+def test_a_take_asks_before_it_replaces_audio_no_file_holds(studio):
+    """A take replaces the open clip, and edits not saved since, or a take
+    never written, would go with it. Nothing to lose, nothing to ask."""
+    info = studio.call("record.describe")
+    seen = _page(studio, """
+        let answer = false;
+        const titles = [];
+        ctx.dialogs = { confirm: async (q) => { titles.push(q.title); return answer; } };
+        const record = primary();
+        mounted.state({ unsaved: false });
+        await click(record);
+        mounted.state({ unsaved: true });
+        await click(record);                            // declined
+        answer = true;
+        await click(record);                            // agreed
+        seen.asked = titles.length;
+        seen.records = asked.filter(([name]) => name === "record").length;
+    """, record=[info, info])
+    assert seen == {"asked": 2, "records": 2}

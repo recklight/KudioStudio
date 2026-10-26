@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 import kudio
 from kudiostudio import i18n
@@ -22,7 +23,7 @@ from kudiostudio.shapes import SHAPES
 from kudiostudio.web import analysis
 from kudiostudio.web.player import Player
 from kudiostudio.web.server import STATIC, LocalServer, colormap_bytes, theme_css
-from kudiostudio.web.studio import Prefs, Studio
+from kudiostudio.web.studio import AUDIO_TYPES, Prefs, Studio
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -214,6 +215,19 @@ def test_a_backend_that_raises_is_reported_not_raised(monkeypatch):
     assert not player.playing
 
 
+def test_a_playback_failure_reads_in_chinese(tmp_path):
+    studio = Studio(prefs=Prefs(tmp_path / "window.json"), language="zh_TW")
+    try:
+        drain = _events(studio)
+        studio._on_play_failed("DependencyError: 'PyAudio' is required for this feature. "
+                               "Install it with: pip install kudio[audio]")
+        said = [e["text"] for e in drain() if e["type"] == "message"]
+        assert said == ["播放失敗 — DependencyError: 'PyAudio' is required for this "
+                        "feature. Install it with: pip install kudio[audio]"]
+    finally:
+        studio.shutdown()
+
+
 def test_gain_is_applied_and_clipped(quiet, monkeypatch):
     got = []
     monkeypatch.setattr(kudio, "play_audio", lambda y, rate=None: got.append(np.array(y)))
@@ -273,6 +287,21 @@ def test_a_file_that_will_not_open_is_reported(studio, tmp_path):
     state = studio.call("open_files", [[str(bad)]])
     assert not state["has_audio"]
     assert any(e["type"] == "message" and "not-audio.wav" in e["text"] for e in drain())
+
+
+def test_every_kind_of_file_the_open_dialog_offers_opens(studio, tmp_path):
+    """kudio reads through soundfile, so the dialog offers what soundfile
+    reads; a pattern it has no format for only ever gets "Could not open"."""
+    y = (0.3 * np.sin(2 * np.pi * 440 * np.arange(16000) / 16000)).astype(np.float32)
+    extensions = re.findall(r"\*\.(\w+)", AUDIO_TYPES[0])
+    assert "wav" in extensions
+    for ext in extensions:
+        container = {"aif": "AIFF"}.get(ext, ext.upper())
+        assert container in sf.available_formats(), f"soundfile reads no .{ext}"
+        path = tmp_path / f"clip.{ext}"
+        sf.write(str(path), y, 16000, format=container)
+        state = studio.call("load", [str(path)])
+        assert state["name"] == path.name and state["sr"] == 16000, ext
 
 
 def test_analysis_settings_are_checked_and_kept(studio, tmp_path):

@@ -69,6 +69,26 @@ export function ask({ title, value = "", placeholder = "", submit = t("OK") }) {
   });
 }
 
+/** A question; resolves to true when it is answered with *submit*. */
+export async function confirm({ title, text = "", submit = t("OK") }) {
+  const answer = await modal((form, done) => {
+    const h = document.createElement("h3");
+    h.textContent = title;
+    form.append(h);
+    if (text) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      form.append(p);
+    }
+    buttons(form, done, submit);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      done(true);
+    });
+  });
+  return answer === true;
+}
+
 /** A number within bounds; resolves to it, or null. */
 export function askNumber({ title, label = "", value = 0, min = 0, max = 1e9,
                             step = 1, unit = "", submit = t("OK") }) {
