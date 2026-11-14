@@ -6,7 +6,8 @@
 pip install kudiostudio
 ```
 
-KudioStudio 需要 Python 3.9 以上。視窗是程式自己提供的一個網頁，透過
+KudioStudio 需要 Python 3.9 以上，以及 kudio 4.0.0 以上，這是第一個具備
+[指標](panels/metrics.md)面板所有指標的版本，pip 會一起裝好。視窗是程式自己提供的一個網頁，透過
 [pywebview](https://pywebview.flowrl.com/) 用系統本來就有的網頁元件畫出來：Windows 10 與 11
 是 WebView2，macOS 是 WebKit。這兩個系統都不必另外安裝 GUI 工具組。
 
@@ -26,7 +27,7 @@ Linux 另外需要兩樣 pip 裝不了的東西：
 | Extra | 加入的功能 |
 |---|---|
 | `pip install "kudiostudio[eval]"` | 「指標」面板的 STOI 與 SDR |
-| `pip install "kudio[pesq]"` | PESQ（ITU-T P.862）。它要從原始碼編譯，需要 C 編譯器，Windows 上則是 MSVC Build Tools，所以我把它排除在 `[eval]` 與 `[all]` 之外，否則沒有編譯器的機器連那兩組都裝不起來 |
+| `pip install "kudio[pesq]"` | PESQ（ITU-T P.862），以及建立在它之上的 CSIG、CBAK 與 COVL。它要從原始碼編譯，需要 C 編譯器，Windows 上則是 MSVC Build Tools，所以我把它排除在 `[eval]` 與 `[all]` 之外，否則沒有編譯器的機器連那兩組都裝不起來 |
 | `pip install "kudiostudio[dnsmos]"` | DNSMOS 主觀分數預測。這只會裝 onnxruntime，模型權重沒有隨附，「指標」面板會告訴你去哪裡取得 |
 | `pip install "kudiostudio[enhance]"` | 學習式降噪，基於 PyTorch，透過 [kudioenhance](https://pypi.org/project/kudioenhance/)。沒有 NVIDIA GPU 的 Linux 請先裝 CPU 版 PyTorch，做法見 kudioenhance 的 README |
 | `pip install "kudiostudio[audio]"` | 在 Linux 與 macOS 上錄到按停止為止。它需要 PyAudio，而 PyPI 只有 Windows 的預先編譯版，其他系統要由 pip 現場編譯：請先裝 PortAudio 的標頭檔（`sudo apt install portaudio19-dev`，或 `brew install portaudio`）。Windows 的基本安裝就已經包含 |
@@ -81,7 +82,7 @@ kudiostudio --reset            # 清掉儲存的設定
 ## 第一次操作 {#a-first-session}
 
 1. 開啟檔案：把它拖進視窗、按上方的「開啟」，或用「檔案 → 開啟…」（++ctrl+o++）。
-   WAV、FLAC、OGG 與 MP3 都能開。一次開多個檔案時，它們會列在左側的「檔案」，
+   WAV、FLAC、OGG、MP3 與 AIFF 都能開。一次開多個檔案時，它們會列在左側的「檔案」，
    點一下就能切換。
 2. 上方是波形，下方是 STFT，兩者上面那一條是整段音訊的總覽。滾輪以游標為中心縮放，
    ++shift++ + 滾輪則是捲動。其餘操作見[視窗導覽](window.md)。

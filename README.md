@@ -29,7 +29,8 @@ pip install kudiostudio
 kudiostudio
 ```
 
-KudioStudio needs Python 3.9 or newer. The window is drawn by the web view the
+KudioStudio needs Python 3.9 or newer and kudio 4.0.0 or newer, which pip
+installs with it. The window is drawn by the web view the
 system already has, through [pywebview](https://pywebview.flowrl.com/):
 WebView2 on Windows 10 and 11, WebKit on macOS. Linux needs GTK or Qt for
 pywebview and PortAudio's library for sound; without a web view, the same page
@@ -41,7 +42,7 @@ The heavy parts are extras:
 | Extra | Adds |
 |---|---|
 | `pip install "kudiostudio[eval]"` | STOI and SDR |
-| `pip install "kudio[pesq]"` | PESQ. It builds from source and needs a C compiler, so it is in neither `[eval]` nor `[all]` |
+| `pip install "kudio[pesq]"` | PESQ, and CSIG, CBAK and COVL, which are built on it. It builds from source and needs a C compiler, so it is in neither `[eval]` nor `[all]` |
 | `pip install "kudiostudio[dnsmos]"` | DNSMOS opinion scores (the weights are not bundled) |
 | `pip install "kudiostudio[enhance]"` | learned denoising on PyTorch, through [kudioenhance](https://pypi.org/project/kudioenhance/) |
 | `pip install "kudiostudio[audio]"` | recording until you press Stop, on Linux and macOS (PyAudio; Windows has it already) |

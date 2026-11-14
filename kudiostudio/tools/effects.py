@@ -40,7 +40,7 @@ FADE_SHAPES = ("linear", "cosine", "exponential")
 #: nothing to audition: it reports, it does not change the audio
 NOT_PREVIEWABLE = ("split_on_silence",)
 
-AUDIO_TYPES = ("Audio (*.wav;*.flac;*.mp3;*.ogg)",)
+AUDIO_TYPES = ("Audio (*.wav;*.flac;*.mp3;*.ogg;*.aiff;*.aif)",)
 
 
 def _f(name, label, default, lo, hi, step=0.1, decimals=2, suffix="", **kw):

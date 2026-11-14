@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """The Metrics panel: ``metrics.*`` on the wire.
 
-One table, filled by whichever of the three was asked last: the
-reference-free inspection, DNSMOS, or the scores against a clean reference.
+One table, filled by whichever was asked last: the reference-free
+inspection, SRMR and WADA-SNR, DNSMOS, or the scores against a clean
+reference.
 The rows and their wording come from `kudiostudio.tools.metrics`.
 """
 from __future__ import annotations
@@ -62,7 +63,7 @@ class MetricsPanel(WebPanel):
                 "references": list(metrics.REFERENCES),
                 "pesq_scales": [label for label, _ in metrics.PESQ_SCALES],
                 "pesq_tip": metrics.PESQ_TIP, "align_tip": metrics.ALIGN_TIP,
-                "dnsmos_tip": metrics.DNSMOS_TIP,
+                "dnsmos_tip": metrics.DNSMOS_TIP, "blind_tip": metrics.BLIND_TIP,
                 "availability": metrics.availability(self._installed)}
 
     def _fill(self, rows) -> None:
@@ -85,6 +86,23 @@ class MetricsPanel(WebPanel):
         self._fill(rows)
         self.report("Inspection complete.")
         return self.info()
+
+    @command
+    def blind(self) -> Dict:
+        """How reverberant and how noisy the clip is, from the clip alone.
+        A job, as DNSMOS is: the full SRMR filters the whole clip."""
+        if not self.require_audio():
+            return self.info()
+        y = np.asarray(self.session.y, dtype=np.float32)
+        if not self.start_job("Estimating reverberation and SNR …", metrics.blind_rows,
+                              y, self.session.sr, on_done=self._blind_done,
+                              on_failed=lambda m: self.report(f"Estimate failed — {m}")):
+            self.report("Another job is already running.")
+        return self.info()
+
+    def _blind_done(self, rows) -> None:
+        self._fill(rows)
+        self.report("Estimate complete.")
 
     @command
     def dnsmos(self) -> Dict:
@@ -144,7 +162,16 @@ class MetricsPanel(WebPanel):
         if min(len(ref), len(deg)) == 0:
             self.report("Nothing to compare.")
             return self.info()
+        # kudio refuses a pair with NaN or inf in it, and says so by raising
+        if not np.all(np.isfinite(deg)):
+            self.report("This clip has NaN or inf samples; repair it before scoring.")
+            return self.info()
+        if not np.all(np.isfinite(ref)):
+            self.report("The reference has NaN or inf samples; repair it before scoring.")
+            return self.info()
 
+        # PESQ finds the delay itself and is scored on the two as loaded
+        whole = (ref, deg)
         rows, ref, deg, said = metrics.line_up(ref, deg, sr, bool(align))
         for line in said:
             self.report(line)
@@ -153,15 +180,18 @@ class MetricsPanel(WebPanel):
         rows += metrics.reference_rows(ref, deg, sr)
         self._fill(rows)
         self._installed = self._installed or metrics.installed()
-        self.report("Computing PESQ / STOI / SDR …")
+        self.report("Computing PESQ / STOI / SDR and the rest …")
 
         def done(result) -> None:
-            self._fill(rows + metrics.optional_rows(result, pesq_label,
-                                                    self._installed, sr))
+            scores, more = result
+            self._fill(rows + metrics.optional_rows(scores, pesq_label,
+                                                    self._installed, sr) + more)
             self.report("Evaluation complete.")
 
-        if not self.start_job("Computing PESQ / STOI / SDR …",
-                              partial(kudio.eval_metrics, pesq_scale=scale), sr, ref, deg,
+        if not self.start_job("Computing PESQ / STOI / SDR and the rest …",
+                              partial(metrics.with_reference, pesq_scale=scale,
+                                      available=self._installed, whole=whole),
+                              sr, ref, deg,
                               on_done=done,
                               on_failed=lambda m: self.report(f"Evaluation failed — {m}")):
             self.report("An evaluation is already running.")

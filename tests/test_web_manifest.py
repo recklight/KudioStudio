@@ -222,3 +222,25 @@ def test_the_status_line_after_loading_follows_the_language(studio, corpus):
 def test_the_rail_has_manifest_ready(studio):
     entry = next(e for e in studio.call("rail") if e["id"] == "manifest")
     assert entry["script"] == "js/panels/manifest.js"
+
+
+def test_opening_a_row_asks_before_audio_is_lost(studio):
+    """Open hands the row's noisy file to the window as File → Open does, so
+    it asks the same question when the clip holds something no file does."""
+    from test_batch import mount_page
+    seen = mount_page("js/panels/manifest.js", studio.call("manifest.describe"), """
+let answer = false;
+const titles = [];
+ctx.dialogs = { confirmReplace: async (q) => { titles.push(q.title); return answer; } };
+mounted.event({ selection: { position: 0, can_open: true } });
+const open = made.find((el) => el.kind === "button" && el.label === "Open");
+mounted.state({ unsaved: true });
+await open.given.onClick();                     // declined
+answer = true;
+await open.given.onClick();                     // agreed
+mounted.state({ unsaved: false });
+await open.given.onClick();                     // nothing to lose, nothing asked
+console.log(JSON.stringify({ asked: titles.length,
+                             opened: asked.filter(([name]) => name === "open_row").length }));
+""")
+    assert seen == {"asked": 2, "opened": 2}

@@ -34,7 +34,7 @@ kudiostudio
 
 | 面板 | 用途 | 背後的 kudio |
 |---|---|---|
-| [檢視](panels/inspect.md) | 分析圖的設定、選取範圍，以及「音量」讀數 | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` |
+| [檢查](panels/inspect.md) | 分析圖的設定、選取範圍，以及「音量」讀數 | `STFT`, `melspectrogram`, `mfcc`, `audio_report`, `loudness_over_time`, `true_peak` |
 | [效果](panels/effects.md) | 一次套用一種效果到選取範圍或整段音訊，套用前先試聽 | `kudio.effects`, `rir`, `apply_rir`, `rt60` |
 | [增強](panels/enhance.md) | 七種統計式降噪器搭配四種雜訊估計器、`trad_enhance`、小波濾波，以及學習式模型 | `spectral_enhance`, `trad_enhance`, `wavelet_low_pass_filter`, kudioenhance |
 | [比較](panels/compare.md) | 在同一段音訊上比較七種統計式降噪器、四種雜訊估計器，或兩者的完整組合，並排名；給它一個學習式模型，就多一列。每一列點一下就能聽 | `compare_enhancers` |
@@ -42,7 +42,7 @@ kudiostudio
 | [合成](panels/synthesize.md) | 用一個乾淨語音資料夾和一個雜訊資料夾建立含噪資料集，可加上房間與電話線路 | `Synthesizer` |
 | [Manifest](panels/manifest.md) | 把那個資料集讀回來：遺失的檔案，以及雜訊 × SNR 的覆蓋情況 | `load_manifest` |
 | [音高](panels/pitch.md) | 畫在頻譜圖上的 f0 輪廓，以及轉成標記的有聲區段 | `f0` |
-| [指標](panels/metrics.md) | 沒有參考訊號時找出錄音本身的問題，有參考訊號時評分 | `audio_report`, `dnsmos`, `find_delay`, `eval_metrics`, `snr`, `si_sdr`, `segmental_snr` |
+| [指標](panels/metrics.md) | 沒有參考訊號時找出錄音本身的問題，有參考訊號時評分 | `audio_report`, `srmr`, `wada_snr`, `dnsmos`, `find_delay`, `eval_metrics`, `pesq`, `snr`, `si_sdr`, `segmental_snr`, `llr`, `itakura_saito`, `cepstral_distance`, `wss`, `fw_segmental_snr`, `lsd`, `composite`, `ncm`, `csii` |
 | [批次](panels/batch.md) | 整個資料夾轉檔、正規化、降噪，或另外做一份加了殘響的副本，並列出沒能達標的檔案 | `convert_folder`, `enhance_folder`, `rir`, `apply_rir` |
 
 ## 接下來看哪裡 {#where-to-go-next}

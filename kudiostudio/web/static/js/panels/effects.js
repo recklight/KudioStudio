@@ -110,7 +110,7 @@ export async function mount(root, ctx) {
   function show(state) {
     if (!state) return;
     loadedIr = state.ir?.path ?? null;
-    if (state.ir) irReadout.show(state.ir.measured, state.ir.doubtful);
+    if (state.ir) irReadout.show(t(state.ir.measured), state.ir.doubtful);
     else irReadout.show("—");
     // a file that could not be used leaves the one already loaded in place
     const control = params?.controls.ir?.control;

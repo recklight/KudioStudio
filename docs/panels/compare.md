@@ -60,12 +60,14 @@ Enhance is where to tune the one you picked.
 **PESQ / STOI (slow; STOI needs kudio[eval], PESQ needs kudio[pesq])** adds
 the two perceptual scores to the table. They need a reference, and over a grid
 of 28 they take a while. kudio computes PESQ only at 8 and 16 kHz, so at any
-other rate its column stays empty.
+other rate its column stays empty. The PESQ here is MOS-LQO, kudio's default
+and the Metrics panel's; before setting it beside a paper's figure, read
+[PESQ: MOS-LQO or raw](metrics.md#pesq-mos-lqo-or-raw).
 
 **compare only the selected range** runs on the selection alone. It is faster,
 and it lets you judge one difficult passage, but the noise estimators then see
 only that range, which changes the result. A range shorter than 512 samples is
-refused.
+refused, and with nothing selected the whole clip is compared.
 
 **Run comparison** starts it. The status bar says how many combinations are
 running, and how many succeeded when they are done. If the clip is edited

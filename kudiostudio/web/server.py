@@ -55,6 +55,10 @@ LOGO = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 #: the stream checks whether it is still there
 KEEPALIVE_SECONDS = 15.0
 
+#: the most of a refused POST's body that is waited for and read off the
+#: connection before it closes; a body that claims more is left unread
+REFUSED_BODY_LIMIT = 4 * 1024 * 1024
+
 
 def theme_css() -> str:
     """Every colour in `kudiostudio.theme` as a CSS custom property:
@@ -136,6 +140,8 @@ class LocalServer(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     server: LocalServer
     protocol_version = "HTTP/1.1"
+    #: true from the start of a POST until its body has been read
+    _body_unread = False
 
     def log_message(self, fmt, *args) -> None:  # quiet: one line per request
         log.debug("%s " + fmt, self.address_string(), *args)
@@ -169,11 +175,32 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, body, "application/json; charset=utf-8")
 
     def _refuse(self, status: int, why: str) -> None:
-        # a refused POST still has its body waiting unread; on a kept-alive
-        # connection that body would be taken for the next request line
+        # a POST refused before its body was read waits for that body and
+        # reads it off first: data still unread when a socket closes, or
+        # arriving after the close, draws a TCP reset, and on Windows the
+        # client then loses the 403 it has not read yet. The connection is
+        # closed all the same, since a body over REFUSED_BODY_LIMIT, or with
+        # no usable length, is left on it, and a kept-alive connection would
+        # take it for the next request line.
+        if self._body_unread:
+            self._drop_body()
         self.close_connection = True
         body = json.dumps({"ok": False, "error": why}).encode("utf-8")
         self._send(status, body, "application/json; charset=utf-8", {"Connection": "close"})
+
+    def _drop_body(self) -> None:
+        self._body_unread = False
+        try:
+            left = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return
+        if left > REFUSED_BODY_LIMIT:
+            return
+        while left > 0:
+            chunk = self.rfile.read(min(left, 65536))
+            if not chunk:
+                return
+            left -= len(chunk)
 
     # ------------------------------------------------------------ routing
 
@@ -208,6 +235,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._refuse(HTTPStatus.NOT_FOUND, "no such page")
 
     def do_POST(self) -> None:  # noqa: N802
+        self._body_unread = True
         parts = urlsplit(self.path)
         if not self._host_ok():
             return self._refuse(HTTPStatus.FORBIDDEN, "wrong host")
@@ -219,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
         if name not in self.server.studio.commands:
             return self._refuse(HTTPStatus.NOT_FOUND, f"no command {name!r}")
         length = int(self.headers.get("Content-Length") or 0)
+        self._body_unread = False
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:

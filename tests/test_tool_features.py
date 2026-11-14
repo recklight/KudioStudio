@@ -794,11 +794,14 @@ def test_metrics_names_which_pesq_scale_it_shows(studio, monkeypatch):
 
     rows = evaluate(labels[0])
     assert asked == ["lqo"]
-    assert rows[-3] == ["PESQ (MOS-LQO)", "2.409"]
+    assert ["PESQ (MOS-LQO)", "2.409"] in rows
 
     rows = evaluate(labels[1])
     assert asked == ["lqo", "raw"]
-    assert [label for label, _ in rows[-3:]] == ["PESQ (raw P.862)", "STOI", "SDR"]
+    names = [label for label, _ in rows]
+    at = names.index("PESQ (raw P.862)")
+    assert names[at:at + 3] == ["PESQ (raw P.862)", "STOI", "SDR"]
+    assert "PESQ (MOS-LQO)" not in names
 
 
 def test_pesq_install_advice_names_the_extra_that_installs_it(studio):

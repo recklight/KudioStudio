@@ -13,6 +13,12 @@ export async function mount(root, ctx) {
   const free = ui.section("No reference needed");
   const inspect = ui.button("Inspect this audio", { onClick: async () => show(await ctx.call("inspect")) });
   const inspected = ui.readout("");
+  const blind = ui.button("Estimate reverberation and SNR (SRMR, WADA-SNR)", {
+    tip: info.blind_tip,
+    onClick: async () => show(await ctx.call("blind")),
+  });
+  const blindCall = ui.callText();
+  blindCall.text = "kudio.srmr(y, sr)  +  kudio.wada_snr(y, sr)";
   const dnsmos = ui.button("Predict opinion score (DNSMOS)", {
     tip: info.dnsmos_tip,
     onClick: async () => show(await ctx.call("dnsmos")),
@@ -24,13 +30,14 @@ export async function mount(root, ctx) {
   dnsmosCall.text = "kudio.dnsmos(y, sr)";
   free.body.append(
     ui.hint("Clipping, level, DC offset, noise floor and the bandwidth the content really occupies — the questions you can still ask about a recording that has no clean version anywhere."),
-    reportCall, ui.buttons(inspect), inspected, dnsmosCall, ui.buttons(dnsmos), scored);
+    reportCall, ui.buttons(inspect), inspected, blindCall, ui.buttons(blind),
+    dnsmosCall, ui.buttons(dnsmos), scored);
 
   // ------------------------------------------------------ with reference
   const against = ui.section("Against a clean reference");
   const form = ui.form();
   const file = ui.path({ kind: "open", title: "Select the clean reference",
-                         types: ["Audio (*.wav;*.flac;*.mp3;*.ogg)"],
+                         types: ["Audio (*.wav;*.flac;*.mp3;*.ogg;*.aiff;*.aif)"],
                          placeholder: "no reference file selected",
                          onChange: (p) => { memory.path = p; } });
   if (memory.path) file.value = memory.path;
@@ -54,7 +61,7 @@ export async function mount(root, ctx) {
   const call = ui.callText();
   // find_delay rather than kudio.align: the panel reports the offset even
   // when it is not taken out, and goes on where kudio.align would refuse
-  call.text = "kudio.find_delay(ref, deg, sr).apply(ref, deg)  +  kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg, pesq_scale=...)";
+  call.text = "kudio.find_delay(ref, deg, sr).apply(ref, deg)  +  kudio.snr / si_sdr / segmental_snr  +  kudio.eval_metrics(sr, ref, deg, pesq_scale=...)  +  kudio.pesq on the pair as loaded  +  kudio.llr / itakura_saito / cepstral_distance / wss / fw_segmental_snr / lsd  +  kudio.composite(ref, deg, sr, pesq=...)  +  kudio.ncm / csii";
   against.body.append(form.el, align, ui.buttons(evaluate), call);
 
   const table = ui.table(["Metric", "Value"], { numeric: [1] });
@@ -85,12 +92,14 @@ export async function mount(root, ctx) {
   return {
     state(s) {
       inspect.disabled = !s.has_audio;
+      blind.disabled = !s.has_audio || s.busy.includes("metrics");
       dnsmos.disabled = !s.has_audio || s.busy.includes("metrics");
       evaluate.disabled = !s.has_audio || s.busy.includes("metrics");
     },
     event(e) { if (e.info) show(e.info); },
     busy(on) {
       evaluate.disabled = on;
+      blind.disabled = on;
       dnsmos.disabled = on;
     },
   };

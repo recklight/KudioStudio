@@ -17,7 +17,7 @@
 
 「♪ 預覽」完全照「降噪」的做法處理整段音訊，再循環播放結果中選取的那一段，沒有選取時就播放全部。
 它不提交任何變更。降噪花的是秒而不是毫秒，所以它以背景工作執行：狀態列左側的圓點會從綠色變成琥珀色，
-旁邊寫著工作名稱。預覽播放中改了控制項，會等 400 ms、數值穩定下來才重新算繪。算繪進行中又改了數值，
+工作名稱則出現在狀態列右端。預覽播放中改了控制項，會等 400 ms、數值穩定下來才重新算繪。算繪進行中又改了數值，
 接著算的是最新的那一組，中間經過的會略過，兩次算繪也不會同時進行。
 
 和「效果」面板一樣，任何其他要求播放的動作都會結束試聽：播放、停止、一次編輯，或另一個面板的預覽。
@@ -65,10 +65,10 @@
 | 方法 | 呼叫中的名稱 | 作用 |
 |---|---|---|
 | Spectral subtraction | `specsub` | 減去雜訊頻譜（Boll 1979）。七種裡最便宜的一種，也是 musical noise 的來源：減完後零星留下的頻率格，在幀與幀之間忽隱忽現 |
-| Multi-band spectral subtraction | `multiband` | 每個頻帶各有一個過減係數，依該頻帶自己的 SNR 決定（Kamath & Loizou 2002）。有色雜訊在各頻率的強度不同，全頻譜共用一個係數，會在雜訊小的地方壓過頭 |
+| Multi-band spectral subtraction | `multiband` | 每個頻帶各有一個過減係數，依該頻帶自己的 SNR、照 Berouti 的規則決定（Berouti、Schwartz & Makhoul 1979）；分頻帶相減的想法來自 Kamath & Loizou（2002）。有色雜訊在各頻率的強度不同，全頻譜共用一個係數，會在雜訊小的地方壓過頭 |
 | Wiener (decision-directed) | `wiener` | 增益 ξ/(1+ξ)。變化平滑，musical noise 比減法少得多；代價是在低 SNR 時讓語音變悶 |
-| MMSE-STSA | `mmse_stsa` | 高斯模型下頻譜振幅的 MMSE 估計（Ephraim & Malah 1984）。同樣的壓制量下，保留的語音比 Wiener 多 |
-| log-MMSE | `logmmse` | 同樣的估計改在對數頻譜上做，比較接近人耳對響度的感受（Ephraim & Malah 1985）。常見的預設選擇，沒有模型的話很難贏過它 |
+| MMSE-STSA | `mmse_stsa` | 高斯模型下頻譜振幅的 MMSE 估計（Ephraim & Malah 1984）。在相同的 SNR 下，它把頻率格壓得比 Wiener 少，所以保留的語音較多，殘留的雜訊也稍多 |
+| log-MMSE | `logmmse` | 同樣的估計改對振幅的對數來做（Ephraim & Malah 1985）。它的增益一定低於 MMSE-STSA，殘留雜訊較少。常見的預設選擇，沒有模型的話很難贏過它 |
 | OM-LSA | `omlsa` | 以「這個頻率格裡到底有沒有語音」的機率加權的 log-MMSE：大概沒有語音的地方壓得重，可能有的地方壓得輕（Cohen 2001） |
 | Spectral gate | `spectral_gate` | 不是統計估計器，而是遮罩：低於雜訊平均值加 *n* 個標準差的頻率格都被衰減，遮罩再經過平滑，邊緣才不會有喀聲（參考 noisereduce 的做法）。沒有理論依據，但結果非常好預測 |
 
@@ -76,7 +76,7 @@
 
 | 控制項 | 引數 | 起始值 | 用於 | 設定的是 |
 |---|---|---|---|---|
-| over-subtraction | `over_subtraction` | 2.0 | `specsub` | 減去雜訊估計的倍數。超過約 3，語音就開始跟著被減掉 |
+| over-subtraction | `over_subtraction` | 2.0 | `specsub` | 減去雜訊估計的倍數。越大，減掉的雜訊越多，超過某個程度連語音也一起減掉；Berouti 等人在 0 dB SNR 時用 3 到 6，他們的下限跟著雜訊功率走 |
 | bands | `bands` | 6 | `multiband` | 頻帶數，線性等分。越多越能貼合有色雜訊，估計起來也越不穩 |
 | spectral floor | `spectral_floor` | 0.002 | `specsub`、`multiband` | 減法結果為負的地方留下多少，以含噪頻譜的比例表示 |
 | alpha (SNR smoothing) | `alpha` | 0.98 | `wiener`、`mmse_stsa`、`logmmse`、`omlsa` | decision-directed 平滑。越高，去掉的 musical noise 越多，對語音起頭的反應也越慢 |

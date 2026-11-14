@@ -24,8 +24,8 @@ table:
 | Clipped samples | samples on a flat top at full scale, in runs of three or more, and their share of the clip |
 | DC offset | the mean sample value; a healthy recording sits at zero |
 | Silence | the share of 30 ms frames more than 40 dB below the loud ones |
-| Noise floor | the level of the quietest frames, the 10th percentile, in dBFS |
-| Estimated SNR | the loud frames (95th percentile) against the noise floor. An estimate from one signal, not a measurement against a clean one |
+| Noise floor | the level of the quietest frames, the 10th percentile, in dBFS. `-inf dBFS` when a tenth of the frames or more are exact zeros, as in a clip with its pauses muted: then the floor really is digital silence |
+| Estimated SNR | the loud frames (95th percentile) against the noise floor, so `+inf dB` beside a floor of `-inf`. An estimate from one signal, not a measurement against a clean one |
 | Bandwidth | how high the content reaches, against what the sample rate allows |
 
 A sample or two touching full scale is not counted as clipping, and neither is
@@ -59,6 +59,36 @@ The [Levels readout](inspect.md#levels) on the Inspect panel runs the same
 check all the time, and shows the figures you look at most. This table has
 the ones behind them, for when you want the noise floor or the DC offset as a
 number.
+
+## Reverberation and SNR
+
+**Estimate reverberation and SNR (SRMR, WADA-SNR)** asks two more things of
+the clip on its own, on a job, and fills the table with two rows:
+
+`SRMR (higher is drier)`
+:   `kudio.srmr`, the speech-to-reverberation modulation energy ratio: how
+    much of the envelope's energy sits in the slow modulations syllables make,
+    against the faster ones a room adds. It has no fixed range, so a figure
+    means something only next to the same speech somewhere else: one take in
+    two rooms, or before and after dereverberation. kudio scores it at 8 and
+    16 kHz only, the two rates its authors' toolbox was validated at; at any
+    other rate it is measured on a 16 kHz copy, and the row
+    reads `SRMR (on a 16 kHz copy; higher is drier)`.
+
+`WADA-SNR`
+:   `kudio.wada_snr`, how far the speech sits above its noise, read from how
+    peaked the sample values are. It is close up to about 15 dB; above about
+    20 dB the shape of the speech decides more than the noise does, so I use
+    it to sort recordings and read anything above 30 dB as clean.
+
+A row with no figure says why in a few words: `silence`, `n/a — too short to
+measure`, or `n/a — its pauses are digital silence` for a clip that was
+noise-gated, edited or made with no noise at all, where WADA-SNR has no
+noise in the pauses to read. Too short means under a second of sound for
+WADA-SNR, and under one 256 ms window, once its silence is cut, for SRMR.
+kudio's guide, under
+[Inspecting a recording](https://recklight.github.io/Kudio/guide/inspection/),
+has the rest.
 
 ## DNSMOS
 
@@ -137,16 +167,29 @@ not whether you improved it.
 
 **Evaluate** first measures the offset between the two (next section), then
 fills the table with what numpy alone can give: `SNR`, `SI-SDR`,
-`Segmental SNR`, and `Compared samples`, how many samples were scored. PESQ,
-STOI and SDR are computed on a job and join the table when it finishes. A
-back-end that is missing leaves its row saying so
-([below](#which-metric-needs-what)).
+`Segmental SNR`, and `Compared samples`, how many samples were scored. The
+rest is computed on a job and joins the table when it finishes: PESQ, STOI
+and SDR; Hu and Loizou's measures, `LLR`, `Itakura-Saito`, `Cepstral
+distance`, `WSS` and `fwSegSNR`, which are defined at 8 and 16 kHz only; the
+log-spectral distance `LSD`, with URGENT 2025's settings; with PESQ
+installed, `CSIG`, `CBAK` and `COVL`, the ratings Hu and Loizou fitted to
+listeners, with the PESQ that went into them on a row of its own; and `NCM`
+and `CSII`, which, like STOI, predict intelligibility. NCM is defined at 8
+and 16 kHz only. CSII takes any rate from 8 kHz and has a row for each level
+of the reference: `high` for its frames at or above the reference's overall
+RMS, `mid` for those within 10 dB under it, and `low` for the quieter rest,
+pauses included. A back-end that is missing leaves its row saying so
+([below](#which-metric-needs-what)). A row a measure cannot fill says why,
+as `n/a — the reference is silent` does, and a clip or a reference with NaN
+or inf samples in it is not scored at all: the status bar says which of the
+two to repair.
 
 ## Lining up first
 
-Every metric here compares sample *i* of the reference with sample *i* of the
-clip. Here is one take scored against a copy of itself delayed by 128
-samples, 8 ms at 16 kHz:
+Every metric here but PESQ compares sample *i* of the reference with sample
+*i* of the clip. PESQ finds the delay itself, and is scored on the two as they
+were loaded, lined up or not. Here is one take scored against a copy of
+itself delayed by 128 samples, 8 ms at 16 kHz:
 
 ```text
 lined up       SI-SDR  +148.989 dB
@@ -177,8 +220,10 @@ This clip lags by 128 samples (8.0 ms), correlation 1.000; lined up with the
 reference before scoring.
 ```
 
-Turn it off to score the two as they are. The offset is still measured and
-reported, with a warning row:
+Turn it off to leave the offset in: every metric but PESQ then compares the
+two from their first samples, over the length of the shorter one, and PESQ
+still gets both whole. The offset is still measured and reported, with a
+warning row:
 
 ```text
 ⚠ Not aligned      8.0 ms of offset is left in; the scores below are mostly
@@ -203,6 +248,11 @@ one.
 | Metric | Needs | Notes |
 |---|---|---|
 | SNR, SI-SDR, Segmental SNR | nothing; numpy | always there |
+| LLR, Itakura-Saito, Cepstral distance, WSS, fwSegSNR | nothing; numpy | 8 or 16 kHz only |
+| LSD | nothing; numpy | always there |
+| NCM, CSII | nothing; numpy and scipy | NCM at 8 or 16 kHz only; CSII from 8 kHz, one row for each level of the reference |
+| CSIG, CBAK, COVL | `pip install "kudio[pesq]"` | 8 or 16 kHz only; wideband MOS-LQO inside at 16 kHz and raw narrowband at 8 kHz, whatever **PESQ scale** says |
+| SRMR, WADA-SNR | nothing; numpy and scipy | no reference needed; SRMR on a 16 kHz copy at other rates |
 | STOI | `pip install "kudiostudio[eval]"` | about 0.4 s of speech once silence is removed |
 | SDR | `pip install "kudiostudio[eval]"` | BSS-SDR, from mir_eval |
 | PESQ | `pip install "kudio[pesq]"` | builds from source and needs a C compiler, on Windows the MSVC Build Tools. 8 or 16 kHz only |
@@ -242,15 +292,24 @@ shows. The row says which it is, `PESQ (MOS-LQO)` or `PESQ (raw P.862)`.
 MOS-LQO
 :   the default, and what kudio reports unless asked otherwise: the score
     mapped onto the MOS scale both standards define. At 16 kHz it is wideband
-    PESQ (P.862.2), at 8 kHz narrowband.
+    PESQ (P.862.2), at 8 kHz narrowband. The wideband one is the `pesq`
+    package's, without the correction ITU made to wideband PESQ in 2018,
+    which raises it by 0.73 on average in ITU's own table.
 
 raw P.862
-:   the narrowband score before the P.862.1 mapping, from −0.5 to 4.5: what
-    the ITU reference program prints, and what most speech-enhancement papers
-    quote. At 16 kHz this means running PESQ in narrowband mode as well,
-    since P.862.2 defines no raw score.
+:   the narrowband score before the P.862.1 mapping, from −0.5 to 4.5, which
+    the ITU reference program prints ahead of the MOS-LQO. Papers quote both
+    scales. At 16 kHz this means running PESQ in narrowband mode as well, since
+    P.862.2 reports no raw score.
 
 They are different scales, not different roundings. A raw 2.03 is about 1.66
 MOS-LQO, so a table of raw scores set against a paper's MOS-LQO, or the other
 way round, compares two numbers that cannot be compared. Check which one the
 paper quotes before you put yours beside it.
+
+**PESQ scale** does not reach CSIG, CBAK and COVL. They take the PESQ
+published figures were made with, wideband MOS-LQO at 16 kHz and raw
+narrowband at 8 kHz, and the row `PESQ inside them (...)` shows which one
+and the figure. The fit itself was made on the raw narrowband score;
+`kudio.composite(ref, deg, sr, mode="nb", scale="raw")` gives that variant,
+outside the panel.

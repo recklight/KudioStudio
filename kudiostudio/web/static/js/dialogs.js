@@ -89,6 +89,13 @@ export async function confirm({ title, text = "", submit = t("OK") }) {
   return answer === true;
 }
 
+/** Before something replaces the open clip while no file holds all of it
+ *  (the window's state says `unsaved`); *title* and *submit* name what is
+ *  about to happen. Resolves to true to go on. */
+export function confirmReplace({ title, submit }) {
+  return confirm({ title, submit, text: t("It replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file.") });
+}
+
 /** A number within bounds; resolves to it, or null. */
 export function askNumber({ title, label = "", value = 0, min = 0, max = 1e9,
                             step = 1, unit = "", submit = t("OK") }) {

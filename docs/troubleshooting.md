@@ -189,9 +189,9 @@ you meant, and press **Refresh devices** after plugging one in.
 **Predict opinion score (DNSMOS)** fills its line, in the warning colour, with:
 
 ```text
-FeatureError: DNSMOS model not found. kudio does not ship it — clone
-https://github.com/microsoft/DNS-Challenge and pass model_dir='DNS-Challenge/DNSMOS',
-or set KUDIO_DNSMOS_DIR to that directory.
+FeatureError: find_dnsmos_model(): sig_bak_ovr.onnx not found. kudio does not ship
+the DNSMOS models; clone https://github.com/microsoft/DNS-Challenge and pass
+model_dir='DNS-Challenge/DNSMOS', or set KUDIO_DNSMOS_DIR to that folder
 ```
 
 and the status bar says
@@ -228,8 +228,10 @@ Microsoft C++ Build Tools, on macOS the command line tools
 (`xcode-select --install`), on Debian and Ubuntu `build-essential` and
 `python3-dev`. Install one and run pip again.
 
-The rest of the Metrics panel does not need it. STOI and SDR come from
-`kudiostudio[eval]`, which installs without a compiler.
+The rest of the Metrics panel does not need it, apart from CSIG, CBAK and
+COVL, which are built on PESQ and say `needs PESQ, which is not installed`
+without it. STOI and SDR come from `kudiostudio[eval]`, which installs
+without a compiler.
 
 ### Installed, and still not installed
 
@@ -240,7 +242,11 @@ does not help, pip installed into another Python than the one that runs
 
 `not defined at 44100 Hz (PESQ is 8 or 16 kHz)` in the PESQ row is not an
 install problem. PESQ is defined at those two rates only, and a clip at any
-other rate gets no PESQ.
+other rate gets no PESQ. The same goes for `not defined at 44100 Hz (8 or
+16 kHz only)` beside Hu and Loizou's measures, CSIG, CBAK and COVL, and NCM.
+To score a clip on them, convert its folder to 16 kHz in the
+[Batch](panels/batch.md) panel and open the converted file; a reference file
+is read at the clip's rate anyway.
 
 ## Enhance
 

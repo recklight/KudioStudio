@@ -24,8 +24,9 @@ nothing to learn from.
 then loops the selected part of the result, or all of it when nothing is
 selected. It commits nothing. A denoise takes seconds rather than
 milliseconds, so it runs as a job: the dot in the status bar turns from green
-to amber, with the job named beside it. A change to the controls while the
-preview plays waits 400 ms for them to settle before it renders again. Change
+to amber, and the job's name shows at the bar's right end. A change to the
+controls while the preview plays waits 400 ms for them to settle before it
+renders again. Change
 them again while that render runs and the latest values render next; the ones
 in between are skipped, and two renders never run side by side.
 
@@ -87,10 +88,10 @@ transients more.
 | Method | Name in the call | What it does |
 |---|---|---|
 | Spectral subtraction | `specsub` | subtracts the noise spectrum (Boll 1979). The cheapest of the seven, and where musical noise comes from: isolated bins that survive the subtraction warble from frame to frame |
-| Multi-band spectral subtraction | `multiband` | subtraction with an over-subtraction factor for each band, set from that band's own SNR (Kamath & Loizou 2002). Coloured noise is not equally loud everywhere, and one factor for the whole spectrum over-suppresses where it is quiet |
+| Multi-band spectral subtraction | `multiband` | subtraction with an over-subtraction factor for each band, set from that band's own SNR by Berouti's rule (Berouti, Schwartz & Makhoul 1979); splitting the subtraction into bands is Kamath & Loizou's idea (2002). Coloured noise is not equally loud everywhere, and one factor for the whole spectrum over-suppresses where it is quiet |
 | Wiener (decision-directed) | `wiener` | the gain ξ/(1+ξ). Smooth, so far less musical noise than subtraction; at low SNR it muffles the speech instead |
-| MMSE-STSA | `mmse_stsa` | the MMSE estimate of the spectral amplitude under a Gaussian model (Ephraim & Malah 1984). Keeps more speech than Wiener at the same suppression |
-| log-MMSE | `logmmse` | the same estimate in the log-spectral domain, which is closer to how loudness is heard (Ephraim & Malah 1985). The usual default, and hard to beat without a model |
+| MMSE-STSA | `mmse_stsa` | the MMSE estimate of the spectral amplitude under a Gaussian model (Ephraim & Malah 1984). For the same SNRs it turns a bin down less than Wiener, so it keeps more speech and leaves a little more noise |
+| log-MMSE | `logmmse` | the same estimate for the log of the amplitude (Ephraim & Malah 1985). Its gain is always below MMSE-STSA's, so it leaves less residual noise. The usual default, and hard to beat without a model |
 | OM-LSA | `omlsa` | log-MMSE weighted by the probability that the bin holds any speech at all: hard where there is probably none, gentle where there might be (Cohen 2001) |
 | Spectral gate | `spectral_gate` | not a statistical estimator but a mask: every bin below the noise mean plus *n* standard deviations is attenuated, and the mask is smoothed so its edges do not click (after noisereduce). Unprincipled, and very predictable |
 
@@ -98,7 +99,7 @@ Their parameters, by the label on the control and the argument in the call:
 
 | Control | Argument | Starts at | Used by | What it sets |
 |---|---|---|---|---|
-| over-subtraction | `over_subtraction` | 2.0 | `specsub` | the multiple of the noise estimate that is subtracted. Above about 3 the speech starts going with it |
+| over-subtraction | `over_subtraction` | 2.0 | `specsub` | the multiple of the noise estimate that is subtracted. Higher takes more of the noise and, past a point, the speech with it; Berouti et al. used 3 to 6 at 0 dB SNR, with the floor tied to the noise power |
 | bands | `bands` | 6 | `multiband` | how many bands, linearly spaced. More follow coloured noise more closely and are noisier to estimate |
 | spectral floor | `spectral_floor` | 0.002 | `specsub`, `multiband` | what is left where the subtraction went below zero, as a fraction of the noisy spectrum |
 | alpha (SNR smoothing) | `alpha` | 0.98 | `wiener`, `mmse_stsa`, `logmmse`, `omlsa` | the decision-directed smoothing. Higher removes more musical noise and lags further behind the start of speech |

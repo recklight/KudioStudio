@@ -162,9 +162,9 @@ pip install "kudiostudio[audio]"
 「預測主觀分數（DNSMOS）」下方那一行以警示色顯示：
 
 ```text
-FeatureError: DNSMOS model not found. kudio does not ship it — clone
-https://github.com/microsoft/DNS-Challenge and pass model_dir='DNS-Challenge/DNSMOS',
-or set KUDIO_DNSMOS_DIR to that directory.
+FeatureError: find_dnsmos_model(): sig_bak_ovr.onnx not found. kudio does not ship
+the DNSMOS models; clone https://github.com/microsoft/DNS-Challenge and pass
+model_dir='DNS-Challenge/DNSMOS', or set KUDIO_DNSMOS_DIR to that folder
 ```
 
 狀態列則寫著「DNSMOS 無法使用 — 缺少的項目請見面板說明。」
@@ -195,7 +195,8 @@ pip install kudio[dnsmos]
 Windows 上是 Microsoft C++ Build Tools，macOS 上是命令列工具（`xcode-select --install`），
 Debian 與 Ubuntu 上則是 `build-essential` 與 `python3-dev`。裝好其中一個，再執行一次 pip。
 
-「指標」面板的其他部分都不需要它。STOI 與 SDR 來自 `kudiostudio[eval]`，安裝時不需要編譯器。
+「指標」面板的其他部分都不需要它，只有建立在 PESQ 之上的 CSIG、CBAK 與 COVL 例外，沒有它時
+那一列會寫「需要 PESQ，但沒有安裝」。STOI 與 SDR 來自 `kudiostudio[eval]`，安裝時不需要編譯器。
 
 ### 裝了，卻仍顯示未安裝 {#installed-and-still-not-installed}
 
@@ -204,7 +205,10 @@ Debian 與 Ubuntu 上則是 `build-essential` 與 `python3-dev`。裝好其中�
 的那一個：請用那個 Python 的 `python -m pip` 安裝。
 
 PESQ 那一列顯示「在 44100 Hz 下沒有定義（PESQ 僅支援 8 或 16 kHz）」則不是安裝問題。PESQ 只定義在
-這兩種取樣率，其他取樣率的音訊就沒有 PESQ。
+這兩種取樣率，其他取樣率的音訊就沒有 PESQ。Hu 與 Loizou 的指標、CSIG、CBAK、COVL 與 NCM
+旁邊的「在 44100 Hz 下沒有定義（僅限 8 或 16 kHz）」也一樣。要用它們評分，先在
+[批次](panels/batch.md)面板把音訊所在的資料夾轉成 16 kHz，再開啟轉好的檔案；參考檔案本來就會以
+音訊的取樣率讀入。
 
 ## 增強 {#enhance}
 
@@ -286,7 +290,7 @@ manifest 裡的相對路徑，是相對於執行合成時所在的資料夾，�
 
 來自其他套件的面板，在以下情況會被排除在工具列之外：它的模組無法匯入、它指向的不是面板、它的圖示
 無法登記、建立它時拋出例外，或它的 id 不能用。圖示無法登記，是指 `icon_svg` 不是有效的 SVG、沒有配上
-`icon` 名稱，或用了內建圖示的名稱。id 不能用，是指沒有 id、id 已經在工具列上（包括「檢視」的
+`icon` 名稱，或用了內建圖示的名稱。id 不能用，是指沒有 id、id 已經在工具列上（包括「檢查」的
 `inspect`），或 id 是視窗本身指令用的 `markers`：
 
 ```text

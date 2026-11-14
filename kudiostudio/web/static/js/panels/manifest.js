@@ -93,6 +93,7 @@ export async function mount(root, ctx) {
   let asked = new Set();         // chunk starts asked for under this view
   let generation = 0;            // bumped by every new view; late replies are dropped
   let selection = null;
+  let unsaved = false;          // the window's word: opening a row would lose audio
 
   function applyView(next, { reset = false } = {}) {
     if (!next) return;
@@ -304,12 +305,17 @@ export async function mount(root, ctx) {
   }
 
   async function open() {
-    if (selection?.can_open) await ctx.call("open_row");
+    if (!selection?.can_open) return;
+    if (unsaved && !(await ctx.dialogs.confirmReplace({
+      title: t("Open another file?"), submit: t("Open"),
+    }))) return;
+    await ctx.call("open_row");
   }
 
   applyView(info.view, { reset: true });
 
   return {
+    state(s) { unsaved = Boolean(s.unsaved); },
     event(e) {
       if (e.view) applyView(e.view, { reset: e.reset });
       if (e.selection) applySelection(e.selection);

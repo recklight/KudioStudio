@@ -106,7 +106,8 @@ range
 
 bandwidth
 :   how high the content actually reaches, which is not always what the
-    sample rate promises.
+    sample rate promises. It turns red when the content stops below 90% of
+    half the sample rate.
 
 Under the figures go the problems with the recording itself. These are the
 ones that quietly waste a dataset:

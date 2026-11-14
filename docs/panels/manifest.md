@@ -72,7 +72,8 @@ says how many rows are shown out of how many.
 
 Click a row to select it; ++arrow-up++ and ++arrow-down++ move through the
 table. **Open**, a double-click or ++enter++ loads the row's noisy file into
-the session for editing, as **File → Open…** would.
+the session for editing, as **File → Open…** would, and asks first in the
+same case: [Before a clip is replaced](../editing.md#before-a-clip-is-replaced).
 
 **♪ noisy**, **♪ clean** and **♪ target** loop one file of the selected row
 without loading anything. The button stays down while it plays, and selecting

@@ -57,6 +57,17 @@ The edits behind a script export are kept in full, so an edit too old for the
 undo list is still in the [script](#your-edits-as-a-script). It is still in
 the audio, after all.
 
+## Before a clip is replaced
+
+Opening a file, with **Open**, from **Files**, by dropping it on the window or
+with a manifest row's **Open**, and recording a take both replace the clip
+that is open. When the clip holds something no file does, an edit made since
+it was opened or last saved or a take never written to a file, the window
+asks first, **Open another file?** for a file and **Record over the open
+clip?** for a take, and **Cancel** leaves everything as it was. A clip just
+opened or saved, or one undone back to a point a file holds, is replaced
+without a question, because nothing would be lost.
+
 ## A/B against the original
 
 ++ctrl+b++, or the **A / B** button on the transport, swaps the whole window

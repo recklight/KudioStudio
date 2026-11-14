@@ -46,7 +46,7 @@ The rail on the right of the window holds one tool per panel:
 | [Synthesize](panels/synthesize.md) | a noisy dataset from a clean folder and a noise folder, rooms and phone lines included | `Synthesizer` |
 | [Manifest](panels/manifest.md) | that dataset read back: missing files, and the noise × SNR coverage | `load_manifest` |
 | [Pitch](panels/pitch.md) | the f0 contour over the spectrogram, and the voiced spans as markers | `f0` |
-| [Metrics](panels/metrics.md) | what is wrong with a recording when there is no reference, and scores when there is | `audio_report`, `dnsmos`, `find_delay`, `eval_metrics`, `snr`, `si_sdr`, `segmental_snr` |
+| [Metrics](panels/metrics.md) | what is wrong with a recording when there is no reference, and scores when there is | `audio_report`, `srmr`, `wada_snr`, `dnsmos`, `find_delay`, `eval_metrics`, `pesq`, `snr`, `si_sdr`, `segmental_snr`, `llr`, `itakura_saito`, `cepstral_distance`, `wss`, `fw_segmental_snr`, `lsd`, `composite`, `ncm`, `csii` |
 | [Batch](panels/batch.md) | a whole folder converted, normalised, denoised or given a reverberant copy, with a report of the files that missed | `convert_folder`, `enhance_folder`, `rir`, `apply_rir` |
 
 ## Where to go next

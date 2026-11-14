@@ -6,9 +6,11 @@
 pip install kudiostudio
 ```
 
-KudioStudio needs Python 3.9 or newer. The window is a page the program serves
-to itself, drawn through [pywebview](https://pywebview.flowrl.com/) by the web
-view the system already has: WebView2 on Windows 10 and 11, WebKit on macOS.
+KudioStudio needs Python 3.9 or newer, and kudio 4.0.0 or newer, the first
+with every measure the [Metrics](panels/metrics.md) panel shows; pip brings
+it along. The window is a page the program serves to itself, drawn through
+[pywebview](https://pywebview.flowrl.com/) by the web view the system already
+has: WebView2 on Windows 10 and 11, WebKit on macOS.
 There is no GUI toolkit to install on those two.
 
 Linux needs two things that pip cannot install:
@@ -29,7 +31,7 @@ unless you ask for it.
 | Extra | What it adds |
 |---|---|
 | `pip install "kudiostudio[eval]"` | STOI and SDR in the Metrics panel |
-| `pip install "kudio[pesq]"` | PESQ (ITU-T P.862). It builds from source and needs a C compiler, and on Windows the MSVC Build Tools, so I keep it out of `[eval]` and `[all]`, which would otherwise fail to install without one |
+| `pip install "kudio[pesq]"` | PESQ (ITU-T P.862), and the CSIG, CBAK and COVL built on it. It builds from source and needs a C compiler, and on Windows the MSVC Build Tools, so I keep it out of `[eval]` and `[all]`, which would otherwise fail to install without one |
 | `pip install "kudiostudio[dnsmos]"` | DNSMOS opinion scores. This installs onnxruntime; the model weights are not bundled, and the Metrics panel says where to get them |
 | `pip install "kudiostudio[enhance]"` | learned denoising, on PyTorch, through [kudioenhance](https://pypi.org/project/kudioenhance/). On Linux without an NVIDIA GPU, install the CPU-only PyTorch first; kudioenhance's README says how |
 | `pip install "kudiostudio[audio]"` | recording until you press Stop, on Linux and macOS. It needs PyAudio, which PyPI has prebuilt for Windows only, so elsewhere pip compiles it: install PortAudio's headers first (`sudo apt install portaudio19-dev`, or `brew install portaudio`). On Windows the plain install already has it |
@@ -92,7 +94,7 @@ file:
 ## A first session
 
 1. Open a file: drop it on the window, press **Open** at the top, or use
-   **File → Open…** (++ctrl+o++). WAV, FLAC, OGG and MP3 all open. Several
+   **File → Open…** (++ctrl+o++). WAV, FLAC, OGG, MP3 and AIFF all open. Several
    files at once go into **Files** on the left; click one to switch to it.
 2. The waveform is on top and the STFT under it, with the whole clip in the
    strip above both. The wheel zooms around the pointer, and ++shift++ + wheel

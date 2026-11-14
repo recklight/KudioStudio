@@ -254,6 +254,45 @@ def _kudio_sentences():
         yield str(track)
         if voiced.any():
             yield f"Pitch: {track}"              # as the status bar says it
+    yield from _synthesis_failures()
+
+
+def _synthesis_failures():
+    """The two ways a synthesis run fails before it writes anything, as the
+    synthesize panel reports them ("Synthesis failed — <type>: <message>"):
+    a clean folder with no WAV in it, and an output folder that holds one of
+    the inputs, which kudio refuses to empty."""
+    import tempfile
+
+    import soundfile as sf
+    from kudio.core.synth import Synthesizer
+
+    with tempfile.TemporaryDirectory() as root:
+        root = Path(root)
+        clean, noise = root / "clean", root / "noise"
+        clean.mkdir()
+        noise.mkdir()
+        sf.write(str(noise / "n.wav"), np.zeros(1600, np.float32), 16000)
+        # the temporary folder's name changes from run to run; the test ids
+        # are made from these sentences, so it is written as one fixed name
+        def said(e):
+            return f"{type(e).__name__}: {e}".replace(str(root), "corpus")
+
+        try:
+            Synthesizer(str(clean), str(noise), out_path=str(root / "out"))
+        except Exception as e:                   # noqa: BLE001 - what the panel shows
+            yield said(e)
+        sf.write(str(clean / "c.wav"), np.zeros(1600, np.float32), 16000)
+        quiet = root / "no-noise"
+        quiet.mkdir()
+        try:
+            Synthesizer(str(clean), str(quiet), out_path=str(root / "out"))
+        except Exception as e:                   # noqa: BLE001
+            yield said(e)
+        try:
+            Synthesizer(str(clean), str(noise), out_path=str(clean)).syn(overwrite=True)
+        except Exception as e:                   # noqa: BLE001
+            yield said(e)
 
 
 @pytest.mark.parametrize("sentence", sorted(set(_kudio_sentences())))
@@ -263,6 +302,27 @@ def test_what_kudio_says_is_shown_in_chinese(chinese, sentence):
     English in the Chinese window."""
     shown = i18n.tr(sentence)
     assert shown != sentence and not _english_left(shown), shown
+
+
+@pytest.mark.parametrize("language", ["en", "zh_TW"])
+def test_no_menu_has_the_name_of_a_panel(language):
+    """"View" and "Inspect" both came out 檢視 in Chinese: a menu and a panel
+    of one name, and a page that says 檢視 could mean either."""
+    from kudiostudio.web.panels import PANEL_CLASSES
+    main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+    menus = re.findall(r'^\s*\{ title: "(&[^"]+)", items:', main, re.M)
+    assert len(menus) >= 5, menus
+    panels = ["Inspect"] + [cls.title for cls in PANEL_CLASSES]
+
+    def shown(text):
+        return re.sub(r"\(&\w\)|&", "", i18n.tr(text)).strip()
+
+    i18n.load(language)
+    try:
+        clash = {shown(m) for m in menus} & {shown(p) for p in panels}
+    finally:
+        i18n.load("en")
+    assert not clash, clash
 
 
 def test_the_metrics_panel_lists_kudio_findings_in_chinese(window, recording):
@@ -282,6 +342,36 @@ def test_the_metrics_panel_lists_kudio_findings_in_chinese(window, recording):
     window.call("set_language", ["en"])
     text, _ = window.call("metrics.describe")["inspect"]
     assert text == "\n".join("· " + p for p in problems)
+
+
+def test_the_effects_panel_shows_the_room_reading_through_the_page_translation():
+    """The reading comes from Python in English, as the panel's info() hands
+    it over, so the page has to translate it as it shows it."""
+    source = (STATIC / "js" / "panels" / "effects.js").read_text(encoding="utf-8")
+    assert "irReadout.show(t(state.ir.measured)" in source
+
+
+def test_a_measured_room_reads_in_chinese_on_the_page(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    from kudiostudio.tools import effects
+    ir = kudio.rir(16000, rt60=0.5, drr_db=0.0, seed=1)
+    path = tmp_path / "hall.wav"
+    kudio.save_wave(path, np.concatenate([np.zeros(200, np.float32), ir]), 16000)
+    response, _ = effects.read_response(path, 16000)
+    text, _ = response.describe(True)
+    script = tmp_path / "t.mjs"
+    script.write_text(
+        f"import {{ load, t }} from {json.dumps((STATIC / 'js' / 'i18n.js').as_uri())};\n"
+        f"load({json.dumps(i18n.table('zh_TW'), ensure_ascii=False)});\n"
+        f"process.stdout.write(t({json.dumps(text)}));\n",
+        encoding="utf-8")
+    done = subprocess.run([node, str(script)], capture_output=True, timeout=60,
+                          encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert "直達聲" in done.stdout and "從那裡開始套用" in done.stdout, done.stdout
+    assert not _english_left(done.stdout), done.stdout
 
 
 def test_a_measured_room_reads_in_chinese(chinese, tmp_path):

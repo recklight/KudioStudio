@@ -123,10 +123,8 @@ export async function mount(root, ctx) {
     const p = params();
     // a take replaces the open clip, so ask while the microphone is still
     // idle; Stop on a running take has nothing left to ask
-    if (!streaming && unsaved && !(await ctx.dialogs.confirm({
-      title: t("Record over the open clip?"),
-      text: t("The take replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file."),
-      submit: t("Record"),
+    if (!streaming && unsaved && !(await ctx.dialogs.confirmReplace({
+      title: t("Record over the open clip?"), submit: t("Record"),
     }))) return;
     show(await ctx.call("record", [p.mode, p.seconds, p.sr, p.channels, p.device, p.monitor]));
   }

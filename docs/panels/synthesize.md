@@ -35,8 +35,11 @@ because a wire carries whatever reached the microphone.
 
 Type a path or use **Browse…**. Both input folders are read with all their
 subfolders, and only WAV files count, `.WAV` included; a FLAC or MP3 in there
-is left out. The output mirrors the clean folder's subfolders, so two talkers'
-`u0.wav` stay two files.
+is left out. A folder with no WAV in it at all stops the run with
+`Synthesis failed — ValueError: No wave files found in clean path: …`, or
+`noise path`, and the files have to be converted to WAV first. The output
+mirrors the clean folder's subfolders, so two talkers' `u0.wav` stay two
+files.
 
 ### Overwrite empties the folder
 

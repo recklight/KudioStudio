@@ -186,7 +186,8 @@ numpy 純量、numpy 陣列與 `Path` 會在途中轉換。指令拋出例外時
 `on_failed` 收到一行錯誤訊息，兩者都在鎖之內執行，在那裡讀取與修改工作階段都是安全的。
 沒有 `on_failed` 時，錯誤會顯示在狀態列。
 
-工作執行時，狀態列最左邊的小圓點會亮起，旁邊寫著它的標籤。每個面板一次只有一個工作。
+工作執行時，狀態列最左邊的小圓點會變成琥珀色，工作的標籤則出現在狀態列右端、版本號碼前面。
+每個面板一次只有一個工作。
 工作無法中途停止，因為 kudio 的呼叫沒有可以停下的地方，所以結束程式時會等它做完。
 耗時較長的工作，可以用 `self.studio.jobs.progress(self.id, text)` 把目前進度送到頁面模組的
 `progress` hook。
@@ -271,14 +272,14 @@ export async function mount(root, ctx) {
 | `state()` | 視窗最新的狀態 |
 | `status(text, warn)` | 從頁面本身在狀態列寫一行 |
 | `view` | 蓋在圖上的一層，見下文 |
-| `dialogs` | 視窗的提示框：`ask`、`askNumber` 與 `choosePath` |
+| `dialogs` | 視窗的提示框：`ask`、`askNumber`、`confirm` 與 `choosePath`，以及 `confirmReplace({ title, submit })`，也就是有東西要取代目前開啟的音訊之前，視窗會問的那個問題；`state().unsaved` 為 true 時就先問它 |
 | `id` | 面板的 `id` |
 
 `mount` 回傳它要被呼叫的 hook，以下任選：
 
 | Hook | 傳入的內容 |
 |---|---|
-| `state(s)` | 視窗狀態有變化時的新狀態：`has_audio`、`sr`、`duration`、`selection`、`playing`、`busy`（有工作在執行的面板 id）、`language` 等等 |
+| `state(s)` | 視窗狀態有變化時的新狀態：`has_audio`、`sr`、`duration`、`selection`、`playing`、`busy`（有工作在執行的面板 id）、`unsaved`（目前的音訊有任何檔案都沒保存的內容）、`language` 等等 |
 | `event(e)` | 這個面板的 Python 那一半所送出的東西 |
 | `busy(on, label)` | 這個面板的工作開始與結束 |
 | `progress(text)` | 來自 `jobs.progress` 的一行 |

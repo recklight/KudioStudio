@@ -411,6 +411,15 @@ def _post(server, name, payload=None, token=True, raw=None):
     return response.status, data
 
 
+def _until_closed(sock):
+    received = b""
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            return received
+        received += chunk
+
+
 def test_the_page_gets_the_token_only_from_a_request_that_had_it(server):
     _, without = _get(server, "/")
     assert server.token.encode() not in without
@@ -455,6 +464,41 @@ def test_a_refused_post_does_not_poison_the_next_request(server):
     assert received.startswith(b"HTTP/1.1 403")
     assert b"Connection: close" in received
     assert b" 501 " not in received
+
+
+def test_a_refused_post_is_answered_after_its_body_arrives(server):
+    """http.client sends the headers and the body in two writes, and on a busy
+    machine the body can trail by a while. If the server answers the headers
+    alone and closes, the body lands on a closed socket and draws a reset,
+    and on Windows the client loses the 403 it has not read yet (WinError
+    10053 in getresponse). The pauses stand in for the busy machine."""
+    body = b'{"args":[],"kwargs":{}}'
+    head = (f"POST /api/state HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n"
+            f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n"
+            ).encode()
+    for _ in range(3):
+        with socket.create_connection(("127.0.0.1", server.port), timeout=10) as s:
+            s.sendall(head)
+            time.sleep(0.1)
+            s.sendall(body)
+            time.sleep(0.1)
+            received = _until_closed(s)
+        assert received.startswith(b"HTTP/1.1 403")
+        assert received.endswith(b'{"ok": false, "error": "token"}')
+
+
+def test_a_refused_post_claiming_a_huge_body_is_not_waited_for(server):
+    """Only a body up to REFUSED_BODY_LIMIT is waited for. One that claims a
+    terabyte gets its 403 at once, instead of the server reading for as long
+    as the client cares to send."""
+    head = (f"POST /api/state HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n"
+            f"Content-Type: application/json\r\nContent-Length: {10 ** 12}\r\n\r\n"
+            ).encode()
+    with socket.create_connection(("127.0.0.1", server.port), timeout=5) as s:
+        s.sendall(head)
+        received = _until_closed(s)
+    assert received.startswith(b"HTTP/1.1 403")
+    assert received.endswith(b'{"ok": false, "error": "token"}')
 
 
 def test_unknown_commands_and_bad_bodies(server):

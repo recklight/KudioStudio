@@ -2,7 +2,7 @@
 // the Studio behind the local server, and keeps them in step with its events.
 
 import { call, listen } from "./api.js";
-import { about, ask, askNumber, choosePath } from "./dialogs.js";
+import { about, ask, askNumber, choosePath, confirmReplace } from "./dialogs.js";
 import { clock, hertz, level } from "./format.js";
 import { load as loadTable, t, translatePage } from "./i18n.js";
 import { fillIcons, loadIcons, svg } from "./icons.js";
@@ -80,7 +80,16 @@ async function command(name, args = [], kwargs = {}) {
   }
 }
 
+/** Whether to go on with opening a file over the clip: at once when a file
+ *  holds everything in it, and after asking when something would be lost. */
+async function mayOpenOver() {
+  if (!state?.unsaved) return true;
+  return confirmReplace({ title: t("Open another file?"), submit: t("Open") });
+}
+
 async function open() {
+  // asked before the dialog: the window's own dialog opens the files itself
+  if (!(await mayOpenOver())) return;
   const result = await command("open_dialog");
   if (result && result.needs_path) {
     const path = await ask({ title: t("Open audio"), submit: t("Open"),
@@ -340,7 +349,9 @@ function renderFiles(s) {
     remove.innerHTML = svg("close", 2.2);
     remove.title = t("Remove from the list");
     remove.addEventListener("click", (e) => { e.stopPropagation(); command("remove_file", [file.path]); });
-    li.addEventListener("click", () => { if (file.path !== s.path) command("load", [file.path]); });
+    li.addEventListener("click", async () => {
+      if (file.path !== s.path && await mayOpenOver()) command("load", [file.path]);
+    });
     list.append(li);
   }
   $("files-empty").hidden = s.files.length > 0;
@@ -642,10 +653,13 @@ function bind() {
   document.addEventListener("dragleave", (e) => {
     if (!e.relatedTarget) app.classList.remove("dragging");
   });
-  document.addEventListener("drop", (e) => {
+  document.addEventListener("drop", async (e) => {
     e.preventDefault();
     app.classList.remove("dragging");
     const paths = [...(e.dataTransfer?.files || [])].map((f) => f.pywebviewFullPath).filter(Boolean);
+    // a manifest goes to its panel and leaves the clip alone
+    const audio = paths.some((p) => !p.toLowerCase().endsWith(".json"));
+    if (paths.length && audio && !(await mayOpenOver())) return;
     if (paths.length) command("open_files", [paths]);
     else if (e.dataTransfer?.files?.length) status(t("Dropping files needs the KudioStudio window; use Open here."));
   });

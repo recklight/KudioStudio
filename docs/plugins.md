@@ -202,8 +202,9 @@ touch the session: hand it the audio it needs, as `measure` hands over `y`.
 under the lock, where the session is safe to read and change. Without
 `on_failed`, the error goes to the status bar.
 
-While a job runs, the dot at the left of the status bar lights up with its
-label. Each panel has one job at a time. A job cannot be stopped half-way,
+While a job runs, the dot at the left of the status bar turns amber and the
+job's label shows at the bar's right end, before the version numbers. Each
+panel has one job at a time. A job cannot be stopped half-way,
 since a kudio call has no point to stop it at, so quitting waits for it. For
 a long one, `self.studio.jobs.progress(self.id, text)` sends a line of how far
 it has got to the page module's `progress` hook.
@@ -295,14 +296,14 @@ nothing: everything it needs comes in `ctx`, and since it is loaded from
 | `state()` | the window's latest state |
 | `status(text, warn)` | a line in the status bar from the page itself |
 | `view` | a layer over the plots, below |
-| `dialogs` | the window's prompts: `ask`, `askNumber` and `choosePath` |
+| `dialogs` | the window's prompts: `ask`, `askNumber`, `confirm` and `choosePath`, and `confirmReplace({ title, submit })`, the question the window asks before something replaces the open clip; ask it when `state().unsaved` is true |
 | `id` | the panel's `id` |
 
 `mount` returns the hooks it wants called, any of:
 
 | Hook | Called with |
 |---|---|
-| `state(s)` | the window's state, whenever it changes: `has_audio`, `sr`, `duration`, `selection`, `playing`, `busy` (the ids of the panels with a job running), `language` and more |
+| `state(s)` | the window's state, whenever it changes: `has_audio`, `sr`, `duration`, `selection`, `playing`, `busy` (the ids of the panels with a job running), `unsaved` (the clip holds something no file does), `language` and more |
 | `event(e)` | whatever this panel's Python half published |
 | `busy(on, label)` | this panel's job starting and ending |
 | `progress(text)` | a line from `jobs.progress` |

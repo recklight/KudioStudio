@@ -245,11 +245,9 @@ gone.
 
 So when the open clip holds something no file does, **● Record** (or
 **● Start**) asks first, before the microphone opens: **Record over the open
-clip?** That is the case after an edit that has not been saved since, and for
-a take that was never written to a file. **Cancel** leaves everything as it
-was. A clip just opened, or saved since its last edit, is replaced without a
-question, because the file still holds it; so is one undone back to a point a
-file holds.
+clip?** **Cancel** leaves everything as it was. Opening a file asks the same
+way, and [Before a clip is replaced](../editing.md#before-a-clip-is-replaced)
+says when it does.
 
 The take is called `recording` and has no file behind it, so it does not join
 **Files**; **File → Save As…** writes it out. An

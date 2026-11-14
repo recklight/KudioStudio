@@ -12,7 +12,8 @@ the far right.
 
 **Files**, on the left, lists every file opened in this session. Click one to
 switch to it, and its **×** to take it off the list. The folder button beside
-the heading adds more.
+the heading adds more. Switching asks first when the open clip holds an edit
+or a take no file does: [Before a clip is replaced](editing.md#before-a-clip-is-replaced).
 
 **Markers**, under it, are named points and ranges that stay put, unlike a
 selection. [Markers](editing.md#markers), on the editing page, covers them.

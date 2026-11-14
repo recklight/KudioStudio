@@ -143,7 +143,9 @@ const made = [];
 class Fake {
   constructor(kind, given = {}) {
     Object.assign(this, { kind, given, rows: {}, children: [], on: {}, options: [],
-                          hidden: false, disabled: false, classList: { add() {} },
+                          hidden: false, disabled: false, style: {}, dataset: {},
+                          scrollTop: 0, clientHeight: 0, offsetHeight: 0,
+                          classList: { add() {}, remove() {}, toggle() {} },
                           value: given.value ?? given.checked });
     made.push(this);
   }
@@ -152,14 +154,19 @@ class Fake {
   append(...items) { this.children.push(...items); }
   replaceChildren(...items) { this.children = items; }
   addEventListener(type, fn) { this.on[type] = fn; }
+  querySelector() { return new Fake("found"); }
+  querySelectorAll() { return []; }
+  remove() {}
   row(label, control) { this.rows[label] = control; }
   setRange(low, high, { value } = {}) { if (value !== undefined) this.value = value; }
   values() { return {}; }
   set() {}
+  clear() { this.rows = {}; }
   show() {}
   setBusy() {}
 }
 globalThis.document = { createElement: (tag) => new Fake(tag) };
+globalThis.ResizeObserver = class { observe() {} };
 globalThis.Option = class extends Fake {
   constructor(text, value) { super("option", { value }); }
 };
@@ -188,7 +195,7 @@ def mount_page(module: str, info: dict, steps: str):
               "  call: async (name, args) => (name === 'describe' ? info\n"
               "                               : (asked.push([name, args]), '')) };\n"
               f"const {{ mount }} = await import({json.dumps((STATIC / module).as_uri())});\n"
-              "await mount(new Fake('root'), ctx);\n" + steps)
+              "const mounted = await mount(new Fake('root'), ctx);\n" + steps)
     done = subprocess.run([node, "--input-type=module"], input=script, check=False,
                           capture_output=True, text=True, encoding="utf-8")
     assert done.returncode == 0, done.stderr

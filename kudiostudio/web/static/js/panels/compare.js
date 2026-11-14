@@ -25,7 +25,7 @@ export async function mount(root, ctx) {
   const reference = ui.select(info.references, { value: memory.reference, translate: true,
                                                  onChange: (v) => { memory.reference = v; sync(); } });
   const file = ui.path({ kind: "open", title: "Select the clean reference",
-                         types: ["Audio (*.wav;*.flac;*.mp3;*.ogg)"],
+                         types: ["Audio (*.wav;*.flac;*.mp3;*.ogg;*.aiff;*.aif)"],
                          placeholder: "no reference file selected",
                          onChange: (p) => { memory.path = p; } });
   if (memory.path) file.value = memory.path;

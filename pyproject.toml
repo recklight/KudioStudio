@@ -27,9 +27,10 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Editors",
 ]
 dependencies = [
-    # 3.7.1 is the first kudio whose eval_metrics takes pesq_scale, and the
-    # Metrics panel passes it
-    "kudio[viz]>=3.7.1",
+    # 4.0.0 is the first kudio with the measures the Metrics panel shows
+    # beside PESQ, STOI and SDR: LLR, IS, CEP, WSS, fwSegSNR, LSD, CSIG/CBAK/COVL,
+    # NCM, CSII, SRMR and WADA-SNR
+    "kudio[viz]>=4.0.0",
     # playback and fixed-length recording
     "sounddevice>=0.4.5",
     # the open-ended take, kudio.StreamRecorder. PyPI has PyAudio wheels for
@@ -48,10 +49,10 @@ dependencies = [
 # recording until stopped, on Linux and macOS: needs PortAudio's headers
 # (portaudio19-dev, or brew install portaudio) and a C compiler
 audio = ["PyAudio>=0.2.13"]
-eval = ["kudio[eval]>=3.7.1"]
+eval = ["kudio[eval]>=4.0.0"]
 # DNSMOS in the Metrics panel. The weights are NOT bundled -- see
 # kudio.find_dnsmos_model for where to get them.
-dnsmos = ["kudio[dnsmos]>=3.7.1"]
+dnsmos = ["kudio[dnsmos]>=4.0.0"]
 # learned models in the Enhance and Compare panels; pulls in PyTorch, hence
 # optional
 enhance = ["kudioenhance>=1.0"]

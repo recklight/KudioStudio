@@ -1467,3 +1467,50 @@ def test_a_full_window_starts_at_zero_again(studio):
     last = wave["start"] + (len(wave["values"]) // 2 - 0.5) * wave["step"]
     assert wave["start"] == pytest.approx(0.0, abs=0.02)
     assert MONITOR_SECONDS - 0.1 < last <= MONITOR_SECONDS + 0.05
+
+
+# ------------------------------------------------- what a new clip throws away
+
+#: click the file list's entry for *name*; returns how many prompts are up
+#: once the page has had a moment, and how many loads it has asked for
+CLICK_FILE = """
+    const entry = $("file-list").children.find((li) => li.title.endsWith(name));
+    const loads = () => asked.filter((n) => n === "load").length;
+    const before = loads();
+    entry.dispatch("click");
+    await new Promise((done) => setTimeout(done, 100));
+    return [document.body.children.length, loads() - before];
+"""
+
+
+def test_switching_files_with_nothing_unsaved_asks_nothing(page, studio, tone, tmp_path):
+    other = _wave(tmp_path / "other.wav", noise(SR))
+    studio.call("open_files", [[other, str(tone)]])
+    page.catch_up(studio)
+    assert page.run(CLICK_FILE, name="tone.wav") == [0, 1]
+
+
+def test_switching_files_asks_before_an_edit_is_lost(page, studio, tone, tmp_path):
+    """The file list, like File → Open, replaces the clip; an edit nobody has
+    saved would go with it."""
+    other = _wave(tmp_path / "other.wav", noise(SR))
+    studio.call("open_files", [[other, str(tone)]])
+    studio.session.set_audio(studio.session.y * 0.5, SR, undo_label="gain",
+                             keep_original=True)
+    page.catch_up(studio)
+    assert page.run(CLICK_FILE, name="tone.wav") == [1, 0]      # asked, nothing loaded
+    declined = page.run("""
+        const form = document.body.children[0].children[0];
+        form.children.at(-1).children[0].dispatch("click");     // Cancel
+        await new Promise((done) => setTimeout(done, 50));
+        return [document.body.children.length, asked.filter((n) => n === "load").length];
+    """)
+    assert declined == [0, 0]
+    assert page.run(CLICK_FILE, name="tone.wav") == [1, 0]
+    agreed = page.run("""
+        document.body.children[0].children[0].dispatch("submit");
+        await until(() => answered.includes("load"));
+        return document.body.children.length;
+    """)
+    assert agreed == 0
+    assert studio.session.name == "tone.wav"

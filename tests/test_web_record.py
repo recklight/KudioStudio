@@ -572,7 +572,7 @@ def test_a_take_asks_before_it_replaces_audio_no_file_holds(studio):
     seen = _page(studio, """
         let answer = false;
         const titles = [];
-        ctx.dialogs = { confirm: async (q) => { titles.push(q.title); return answer; } };
+        ctx.dialogs = { confirmReplace: async (q) => { titles.push(q.title); return answer; } };
         const record = primary();
         mounted.state({ unsaved: false });
         await click(record);

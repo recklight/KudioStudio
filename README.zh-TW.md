@@ -28,7 +28,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-KudioStudio 需要 Python 3.9 以上。視窗透過 [pywebview](https://pywebview.flowrl.com/)，
+KudioStudio 需要 Python 3.9 以上，以及 kudio 4.0.0 以上，後者 pip 會一起裝好。視窗透過 [pywebview](https://pywebview.flowrl.com/)，
 用系統本來就有的網頁元件畫出來：Windows 10 與 11 是 WebView2，macOS 是 WebKit。
 Linux 上 pywebview 需要 GTK 或 Qt，聲音需要 PortAudio 的函式庫；沒有網頁元件時，
 同一個頁面會改在預設瀏覽器開啟。詳細說明見[入門](https://recklight.github.io/KudioStudio/zh-TW/getting-started/)。
@@ -38,7 +38,7 @@ Linux 上 pywebview 需要 GTK 或 Qt，聲音需要 PortAudio 的函式庫；�
 | Extra | 加入的功能 |
 |---|---|
 | `pip install "kudiostudio[eval]"` | STOI 與 SDR |
-| `pip install "kudio[pesq]"` | PESQ。它要從原始碼編譯，需要 C 編譯器，所以不在 `[eval]` 也不在 `[all]` 裡 |
+| `pip install "kudio[pesq]"` | PESQ，以及建立在它之上的 CSIG、CBAK 與 COVL。它要從原始碼編譯，需要 C 編譯器，所以不在 `[eval]` 也不在 `[all]` 裡 |
 | `pip install "kudiostudio[dnsmos]"` | DNSMOS 主觀分數預測（權重沒有隨附） |
 | `pip install "kudiostudio[enhance]"` | 基於 PyTorch 的學習式降噪，透過 [kudioenhance](https://pypi.org/project/kudioenhance/) |
 | `pip install "kudiostudio[audio]"` | 在 Linux 與 macOS 上錄到按停止為止（PyAudio；Windows 已經包含） |
@@ -55,7 +55,7 @@ kudiostudio --lang zh_TW       # 以繁體中文介面啟動
 
 | 面板 | 用途 |
 |---|---|
-| [檢視](https://recklight.github.io/KudioStudio/zh-TW/panels/inspect/) | 分析圖（STFT、mel、MFCC）、選取範圍，以及含 true peak 與響度曲線的「音量」讀數 |
+| [檢查](https://recklight.github.io/KudioStudio/zh-TW/panels/inspect/) | 分析圖（STFT、mel、MFCC）、選取範圍，以及含 true peak 與響度曲線的「音量」讀數 |
 | [效果](https://recklight.github.io/KudioStudio/zh-TW/panels/effects/) | 一次套用一種 kudio 效果到選取範圍或整段音訊，套用前先試聽 |
 | [增強](https://recklight.github.io/KudioStudio/zh-TW/panels/enhance/) | 統計式降噪器與學習式模型 |
 | [比較](https://recklight.github.io/KudioStudio/zh-TW/panels/compare/) | 在同一段音訊上跑每一種降噪器並排名，每一列點一下就能聽 |

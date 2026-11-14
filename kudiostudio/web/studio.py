@@ -45,11 +45,11 @@ from kudiostudio.web.player import Player
 
 log = logging.getLogger(__name__)
 
-#: A duration change below this is the same clip. Frame-based processing does
-#: not return exactly what it was given -- kudio's `trad_enhance` comes back
-#: 128 samples (8 ms) short -- and treating that as a new clip would reset the
-#: colour scale after every denoise, which is when it is wanted kept. The page
-#: holds its zoom and amplitude axis by the same rule (main.js, SAME_CLIP_S).
+#: A duration change below this is the same clip. A step that works in frames
+#: or resamples can hand back a few milliseconds more or less than it was
+#: given, and treating that as a new clip would reset the colour scale after
+#: every denoise, which is when it is wanted kept. The page holds its zoom and
+#: amplitude axis by the same rule (main.js, SAME_CLIP_S).
 SAME_CLIP_S = 0.05
 
 #: what the open dialog lists: what `kudio.file_load` reads, which is what

@@ -28,7 +28,9 @@ VoIP 鏈路，最後在結果旁寫一份 `manifest.json`，記錄每個檔案�
 | `out_path` | 語料庫要寫到的資料夾 |
 
 直接輸入路徑，或按「瀏覽…」。兩個輸入資料夾連同所有子資料夾都會讀取，但只收 WAV 檔，
-`.WAV` 也算；裡面的 FLAC 或 MP3 會被略過。輸出會照乾淨資料夾的子資料夾結構排列，
+`.WAV` 也算；裡面的 FLAC 或 MP3 會被略過。資料夾裡完全沒有 WAV 時，執行會停在
+`合成失敗 — ValueError: 乾淨語音的路徑裡找不到任何 WAV 檔：…`（雜訊資料夾則是「雜訊的路徑」），
+得先把那些檔案轉成 WAV。輸出會照乾淨資料夾的子資料夾結構排列，
 所以兩位說話者各自的 `u0.wav` 仍是兩個檔案。
 
 ### 覆寫會清空資料夾 {#overwrite-empties-the-folder}
@@ -50,8 +52,8 @@ data\mixed 不是空的，所以什麼都沒有合成。傳入 overwrite=True �
 而是停下來並說明原因：
 
 ```text
-合成失敗 — SynthesisError: refusing to empty data before synthesising:
-it holds the input data\clean\spk1\u0.wav. Point out_path= at a folder of its own.
+合成失敗 — SynthesisError: 合成前不會清空 data：輸入檔 data\clean\spk1\u0.wav 在它裡面。
+請把 out_path= 指到一個專用的資料夾。
 ```
 
 ## SNR {#snrs}

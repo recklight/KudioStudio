@@ -126,8 +126,10 @@ MESSAGES = {
         'ValueError: 它的 id {} 是視窗本身指令的名稱',
     'Record over the open clip?':
         '要錄音取代目前開啟的音訊嗎？',
-    'The take replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file.':
-        '新的錄音會取代目前開啟的音訊，沒有任何檔案保存的部分會跟著不見：上次儲存之後的編輯，或從沒寫成檔案的整段錄音。',
+    'It replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file.':
+        '目前開啟的音訊會被取代，沒有任何檔案保存的部分會跟著不見：上次儲存之後的編輯，或從沒寫成檔案的整段錄音。',
+    'Open another file?':
+        '要開啟另一個檔案嗎？',
     '&User guide':
         '使用說明(&U)',
     'The user guide opens in your browser: {}':
@@ -698,14 +700,14 @@ MESSAGES = {
         '這一對無法計算',
     'Line up with the reference first':
         '先與參考訊號對齊',
-    'Every metric here compares sample i of one signal with sample i\nof the other. A clip scored against itself reads +145 dB; one\nsample of delay costs 134 of them, and a millisecond scores worse\nthan not processing at all — with nothing in the number to say\nwhich of the two happened.\n\nThe delay is measured and reported either way. This decides\nwhether it is taken out before scoring.':
-        '這裡的每個指標都是拿一個訊號的第 i 個樣本與另一個的第 i 個樣本比較。\n一段音訊拿自己評分會得到 +145 dB；延遲一個樣本就少掉 134 dB，\n延遲一毫秒的分數比完全不處理還差 — 而數字本身\n無法告訴你是哪一種情況。\n\n延遲無論如何都會被量測並回報。這個選項決定\n評分前是否先把它去除。',
+    'Every metric here but PESQ compares sample i of one signal with\nsample i of the other. A clip scored against itself reads +145 dB; one\nsample of delay costs 134 of them, and a millisecond scores worse\nthan not processing at all — with nothing in the number to say\nwhich of the two happened.\n\nThe delay is measured and reported either way. This decides\nwhether it is taken out before scoring.':
+        '這裡除了 PESQ，每個指標都是拿一個訊號的第 i 個樣本與另一個的第 i 個樣本比較。\n一段音訊拿自己評分會得到 +145 dB；延遲一個樣本就少掉 134 dB，\n延遲一毫秒的分數比完全不處理還差 — 而數字本身\n無法告訴你是哪一種情況。\n\n延遲無論如何都會被量測並回報。這個選項決定\n評分前是否先把它去除。',
     'Evaluate':
         '評估',
     'Against a clean reference':
         '與乾淨參考訊號比較',
-    'Which PESQ scale the table reports.\n\nMOS-LQO is what kudio reports by default. raw P.862 is the\nnarrowband score most speech-enhancement papers quote. They are\ndifferent scales, not different roundings: raw 2.03 is about\n1.66 MOS-LQO.':
-        '表格回報的 PESQ 尺度。\n\nMOS-LQO 是 kudio 預設回報的分數。raw P.862 是\n多數語音增強論文引用的窄頻分數。兩者是不同的尺度，\n不是不同的捨入方式：raw 2.03 大約等於 1.66 MOS-LQO。',
+    'Which PESQ scale the table reports.\n\nMOS-LQO is what kudio reports by default. raw P.862 is the\nnarrowband score before the P.862.1 mapping. The two are\ndifferent scales, not different roundings: raw 2.03 is about\n1.66 MOS-LQO. Papers quote both, so check which one a paper used.':
+        '表格回報的 PESQ 尺度。\n\nMOS-LQO 是 kudio 預設回報的分數。raw P.862 是\n經過 P.862.1 映射之前的窄頻分數。兩者是不同的尺度，\n不是不同的捨入方式：raw 2.03 大約等於 1.66 MOS-LQO。\n論文兩種都有人用，比較之前先確認對方用的是哪一種。',
     'PESQ scale':
         'PESQ 尺度',
     'Inspect this audio':
@@ -730,8 +732,66 @@ MESSAGES = {
         '未安裝',
     'not defined at {} Hz (PESQ is 8 or 16 kHz)':
         '在 {} Hz 下沒有定義（PESQ 僅支援 8 或 16 kHz）',
-    'Computing PESQ / STOI / SDR …':
-        '正在計算 PESQ / STOI / SDR…',
+    'Computing PESQ / STOI / SDR and the rest …':
+        '正在計算 PESQ / STOI / SDR 與其餘指標…',
+    'Estimate reverberation and SNR (SRMR, WADA-SNR)':
+        '估計殘響與 SNR（SRMR、WADA-SNR）',
+    'Two more things a recording can say about itself.\n\nSRMR: how reverberant it is, as the energy of the slow\nmodulations syllables make over the faster ones a room adds.\nHigher is drier, and a figure means something only next to the\nsame speech somewhere else. It is scored at 8 and 16 kHz only,\nso other rates are measured on a 16 kHz copy.\n\nWADA-SNR: how far the speech sits above its noise, read from how\npeaked the samples are. Good for sorting recordings; read\nanything above 30 dB as clean rather than as a figure.':
+        '錄音還能自己回答的兩件事。\n\nSRMR：殘響有多重，以音節造成的慢速調變能量，\n除以房間加上去的較快調變能量來表示。\n越高表示越乾，數字只有和同一段語音在別處的版本\n並列時才有意義。它只在 8 與 16 kHz 下計算，\n其他取樣率會在 16 kHz 的複本上量測。\n\nWADA-SNR：語音比它的雜訊高出多少，從樣本值\n有多集中來讀出。適合用來排序錄音；30 dB 以上\n請當成「乾淨」，不要當成一個數字來讀。',
+    'Estimating reverberation and SNR …':
+        '正在估計殘響與 SNR…',
+    'Estimate complete.':
+        '估計完成。',
+    'Estimate failed — {}':
+        '估計失敗 — {}',
+    'SRMR (higher is drier)':
+        'SRMR（越高越乾）',
+    'SRMR (on a {} kHz copy; higher is drier)':
+        'SRMR（在 {} kHz 的複本上量測；越高越乾）',
+    'n/a — the reference is silent':
+        '不適用 — 參考訊號是靜音',
+    'n/a — its pauses are digital silence':
+        '不適用 — 停頓是數位靜音',
+    'n/a — too short to measure':
+        '不適用 — 太短，無法量測',
+    'n/a — the noise is not Gaussian, or drowns the speech':
+        '不適用 — 雜訊不是高斯分布，或蓋過了語音',
+    'n/a — next to no noise to measure':
+        '不適用 — 幾乎沒有雜訊可量',
+    'Cepstral distance':
+        '倒頻譜距離',
+    'not defined at {} Hz (8 or 16 kHz only)':
+        '在 {} Hz 下沒有定義（僅限 8 或 16 kHz）',
+    'needs PESQ, which is not installed':
+        '需要 PESQ，但沒有安裝',
+    'CSIG (signal)':
+        'CSIG（訊號）',
+    'CBAK (background)':
+        'CBAK（背景）',
+    'COVL (overall)':
+        'COVL（整體）',
+    'PESQ inside them (raw P.862)':
+        '其中所用的 PESQ（raw P.862）',
+    'PESQ inside them (wideband MOS-LQO)':
+        '其中所用的 PESQ（寬頻 MOS-LQO）',
+    'CSII (high level)':
+        'CSII（高位準）',
+    'CSII (mid level)':
+        'CSII（中位準）',
+    'CSII (low level)':
+        'CSII（低位準）',
+    'not defined at {} Hz (8 kHz or more)':
+        '在 {} Hz 下沒有定義（需要 8 kHz 以上）',
+    'n/a — no frame of the reference is at this level':
+        '不適用 — 參考訊號沒有音框落在這一級',
+    'n/a — one frame at this level, too few':
+        '不適用 — 這一級只有一個音框，太少',
+    'n/a — this clip is silent':
+        '不適用 — 這段音訊是靜音',
+    'This clip has NaN or inf samples; repair it before scoring.':
+        '這段音訊有 NaN 或 inf 樣本；請先修復再評分。',
+    'The reference has NaN or inf samples; repair it before scoring.':
+        '參考訊號有 NaN 或 inf 樣本；請先修復再評分。',
     'This clip {}; lined up with the reference before scoring.':
         '這段音訊比參考訊號{}；評分前已對齊。',
     'Evaluation complete.':
@@ -976,6 +1036,20 @@ MESSAGES = {
         '已將 {} 個檔案寫入 {}{}',
     'Synthesis failed — {}':
         '合成失敗 — {}',
+    'ValueError: No wave files found in clean path: {}':
+        'ValueError: 乾淨語音的路徑裡找不到任何 WAV 檔：{}',
+    'ValueError: No wave files found in noise path: {}':
+        'ValueError: 雜訊的路徑裡找不到任何 WAV 檔：{}',
+    'SynthesisError: refusing to empty {} before synthesising: {}. Point out_path= at a folder of its own.':
+        'SynthesisError: 合成前不會清空 {}：{}。請把 out_path= 指到一個專用的資料夾。',
+    'it is the root of a filesystem':
+        '那是檔案系統的根目錄',
+    'it holds the working directory':
+        '目前的工作目錄在它裡面',
+    'it holds the home directory':
+        '使用者的家目錄在它裡面',
+    'it holds the input {}':
+        '輸入檔 {} 在它裡面',
     '{} is not a usable SNR':
         '{} 不是可用的 SNR',
     'Set a seed to make the mixture reproducible — the same seed gives the same noise offsets, rooms and lost packets. Which noise and SNR each clean file gets follows the file order, not the seed. Left at None, a seed is drawn and the result names it.':
@@ -1181,7 +1255,7 @@ MESSAGES = {
     'end':
         '終點',
     'Inspect':
-        '檢視',
+        '檢查',
     'Waveform':
         '波形',
     'Select all':

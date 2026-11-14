@@ -16,7 +16,8 @@ edit, no undo step. It loops, so finding the right `top_db` is a matter of
 listening rather than apply, listen, undo, again. Change a parameter while it
 plays and it renders again, 120 ms after the last change. Preview and Apply
 run the same code on the same audio, so what you hear is what Apply will
-commit.
+commit. A random [seed](#seeds) is the exception: every render draws again,
+Apply included, so set a seed when the result you heard is the one you want.
 
 Anything else that claims playback ends the audition and releases the button:
 Play, Stop, an edit, another panel's preview.
@@ -118,9 +119,10 @@ at 8 kHz is described as what is left of it:
 T30 0.59 s (EDT 0.54 s)  ·  C50 +9.4 dB  ·  DRR +3.0 dB  ·  fit 1.000
 ```
 
-A file that is not an impulse response still produces a T30. When the decay is
-not a straight line, or its EDT and T30 disagree, the reading says so and turns
-red.
+A file that is not an impulse response, a speech take say, can still produce
+a T30. When the decay is not a straight line, or its EDT and T30 disagree, the
+reading says so and turns red, and a file whose tail never falls 35 dB, such
+as steady noise, gets no T30 at all.
 
 ## Lost packets
 
