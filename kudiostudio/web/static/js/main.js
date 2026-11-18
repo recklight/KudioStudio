@@ -2,7 +2,8 @@
 // the Studio behind the local server, and keeps them in step with its events.
 
 import { call, listen } from "./api.js";
-import { about, ask, askNumber, choosePath, confirmReplace } from "./dialogs.js";
+import { plotMenuItems, showContextMenu } from "./contextmenu.js";
+import { about, ask, askNumber, choosePath, confirm, confirmReplace } from "./dialogs.js";
 import { clock, hertz, level } from "./format.js";
 import { load as loadTable, t, translatePage } from "./i18n.js";
 import { fillIcons, loadIcons, svg } from "./icons.js";
@@ -10,6 +11,7 @@ import { MarkerList } from "./markers.js";
 import { MenuBar, menuText } from "./menus.js";
 import { Overview } from "./overview.js";
 import { Panels } from "./panels.js";
+import { applyOptions, nextZoom, openSettings, setLanguageHandler } from "./settings.js";
 import { SpectrogramPlot } from "./spectrogram.js";
 import { TimeView } from "./view.js";
 import { WaveformPlot } from "./waveform.js";
@@ -53,6 +55,7 @@ const plotHooks = (which) => ({
   onSeek: (time) => { setPlayhead(time); command("seek", [time]); },
   onHover: (time, value) => hover(which, time, value),
   onDoubleClick: () => (state?.selection ? zoomToSelection() : view.full()),
+  onContextMenu: (e, at) => plotMenu(e, { ...at, which }),
 });
 const wave = new WaveformPlot($("wave"), view, plotHooks("wave"));
 const spec = new SpectrogramPlot($("spec"), view, plotHooks("spec"));
@@ -122,11 +125,48 @@ function zoomToSelection() {
 
 // ------------------------------------------------------------ edit + file
 
-async function insertSilence() {
+async function insertSilence(at = null) {
   if (!state?.has_audio) return;
   const seconds = await askNumber({ title: menuText("Insert silence")[0], label: t("Seconds:"),
                                     value: 1, min: 0.001, max: 600, step: 0.1, unit: "s" });
-  if (seconds !== null) command("insert_silence", [seconds]);
+  if (seconds !== null) command("insert_silence", at === null ? [seconds] : [seconds, at]);
+}
+
+/** The right-click menu of the waveform and the spectrogram. */
+function plotMenu(e, at) {
+  if (!state?.has_audio) return;
+  const s = { ...state, mode: state.analysis.mode, nFft: state.analysis.n_fft,
+              hop: state.analysis.hop_length, yZoomed: spec.yZoomed, units: spec.yUnits,
+              label: t(spec.label) };
+  showContextMenu(e, plotMenuItems(at, s, {
+    play: (a, b) => command("play_range", b === undefined ? [a] : [a, b]),
+    stop: () => command("stop"),
+    seek: (time) => { setPlayhead(time); command("seek", [time]); },
+    edit: (name) => edit(name)(),
+    saveSelection,
+    pasteAt: (time) => command("paste", [time]),
+    silenceAt: (time) => insertSilence(time),
+    markAt: (time) => command("markers.add", [time]),
+    markSelection: () => command("markers.mark_selection"),
+    zoomToSelection,
+    zoomFull: () => view.full(),
+    selectAll: () => command("select_all"),
+    clearSelection: () => command("clear_selection"),
+    copy: async (text) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        status(t(`Copied ${text}`));
+      } catch (error) {
+        status(error.message, true);
+      }
+    },
+    resetY: () => spec.setYRange(0, spec.yMax),
+    // n_fft and the hop together, so the frames overlap as much as before
+    resolution: (factor) => command("set_analysis", [], {
+      n_fft: Math.round(s.nFft * factor),
+      hop_length: Math.min(Math.max(Math.round(s.hop * factor), 16), 4096) }),
+    mode: (mode) => command("set_analysis", [], { mode }),
+  }));
 }
 
 async function crossfadeDialog() {
@@ -138,15 +178,30 @@ async function crossfadeDialog() {
   if (ms !== null) command("set_crossfade", [ms]);
 }
 
+// what Save As writes; the format follows the name's suffix
+const AUDIO_SAVE_TYPES = ["WAV (*.wav)", "FLAC (*.flac)", "AIFF (*.aiff;*.aif)"];
+
 async function saveTo(kind, commandName, title, types) {
   const suggested = await call("suggest_name", [kind]);
   const path = await choosePath("save", { title: t(title), suggested, types });
-  if (path) await command(commandName, [path]);
+  if (!path) return;
+  const answer = await command(commandName, [path]);
+  // the path typed in a browser comes with no question before a file is
+  // written over, so the server asks for one
+  const target = answer?.confirm_replace;
+  if (!target) return;
+  const name = target.path.split(/[\\/]/).pop();
+  const yes = await confirm({
+    title: t(`Replace ${name}?`), submit: t("Replace"),
+    text: target.source ? t("It is the file this audio was opened from.") : "",
+    focusCancel: true,
+  });
+  if (yes) await command(commandName, [target.path, true]);
 }
 
-const saveAs = () => state?.has_audio && saveTo("audio", "save_as", "Save audio as", ["WAV (*.wav)"]);
+const saveAs = () => state?.has_audio && saveTo("audio", "save_as", "Save audio as", AUDIO_SAVE_TYPES);
 const saveSelection = () => state?.can_copy
-  && saveTo("selection", "save_selection", "Save selection as", ["WAV (*.wav)"]);
+  && saveTo("selection", "save_selection", "Save selection as", AUDIO_SAVE_TYPES);
 const exportScript = () => state?.has_history
   && saveTo("script", "export_script", "Export edits as Python script", ["Python (*.py)"]);
 
@@ -210,6 +265,7 @@ const MENUS = [
   ] },
   { title: "&Edit", items: [
     { label: "&Undo", keys: "Ctrl+Z", run: () => command("undo"), enabled: () => Boolean(state?.can_undo) },
+    { label: "R&edo", keys: "Ctrl+Y", run: () => command("redo"), enabled: () => Boolean(state?.can_redo) },
     { label: "&Revert to original", run: () => command("revert"), enabled: () => Boolean(state?.can_revert) },
     "-",
     { label: "Cu&t\tCtrl+X", run: edit("cut"), enabled: () => Boolean(state?.can_copy) },
@@ -221,6 +277,7 @@ const MENUS = [
     { label: "&Insert silence…", run: insertSilence, enabled: has },
     { label: "Splice cross&fade…", run: crossfadeDialog,
       text: (label) => `${label} (${(state?.crossfade_ms ?? 0).toString()} ms)` },
+    { label: "Se&ttings…", keys: "Ctrl+,", run: openSettings },
     "-",
     { label: "Select &All", keys: "Ctrl+A", run: () => command("select_all"), enabled: has },
     { label: "&Clear selection", keys: "Esc", run: () => command("clear_selection"), enabled: has },
@@ -257,6 +314,18 @@ function applyState(next) {
   const previous = state;
   state = next;
   app.dataset.state = next.has_audio ? "ready" : "empty";
+  applyOptions(next.options, {
+    // the plots draw their own labels, in the size and font just set
+    resized: () => {
+      for (const plot of [wave, spec, overview]) {
+        plot.readColors?.();          // the axis and its figures may have a new colour
+        plot.resize();
+      }
+    },
+    colormap: (name) => spec.loadColormap(name),
+    cramped: (shown, chosen) => status(t(
+      `Size ${Math.round(chosen * 100)}% needs a larger window; this one has room for ${Math.round(shown * 100)}%.`)),
+  });
 
   $("file-chip").hidden = !next.has_audio;
   if (next.has_audio) {
@@ -640,10 +709,6 @@ function bind() {
       if (Number.isFinite(a) && Number.isFinite(b) && b > a) command("set_selection", [a, b]);
     });
   }
-  $("language").addEventListener("change", async (e) => {
-    const table = await command("set_language", [e.target.value]);
-    if (table) applyLanguage(table);
-  });
 
   document.addEventListener("keydown", keyDown);
 
@@ -685,6 +750,9 @@ function keyDown(e) {
   else if (ctrl && key === "o") { handled(); open(); }
   else if (ctrl && key === "q") { handled(); quit(); }
   else if (ctrl && key === "a") { handled(); command("select_all"); }
+  // Ctrl+Shift+Z as well as Ctrl+Y: both are Redo somewhere, and either one
+  // taken as Undo would take a second edit back instead of restoring the first
+  else if (ctrl && (key === "y" || (e.shiftKey && key === "z"))) { handled(); command("redo"); }
   else if (ctrl && key === "z") { handled(); command("undo"); }
   else if (ctrl && key === "x") { handled(); edit("cut")(); }
   else if (ctrl && key === "c") { handled(); edit("copy")(); }
@@ -694,24 +762,26 @@ function keyDown(e) {
   else if (ctrl && key === "e") { handled(); zoomToSelection(); }
   else if (ctrl && key === "f") { handled(); view.full(); }
   else if (ctrl && key === "b") { handled(); toggleCompare(); }
+  else if (ctrl && key === ",") { handled(); openSettings(); }
+  // the interface size, as a browser's own Ctrl+ and Ctrl- would have it
+  else if (ctrl && (e.key === "=" || e.key === "+")) { handled(); stepZoom(1); }
+  else if (ctrl && e.key === "-") { handled(); stepZoom(-1); }
+  else if (ctrl && e.key === "0") { handled(); command("options.set", ["zoom", 1]); }
   else if (!ctrl && (e.key === "+" || e.key === "=")) { handled(); view.zoomAt(playhead, 0.5); }
   else if (!ctrl && e.key === "-") { handled(); view.zoomAt(playhead, 2); }
   else if (e.key === "ArrowLeft") { handled(); view.pan(-view.span * 0.15); }
   else if (e.key === "ArrowRight") { handled(); view.pan(view.span * 0.15); }
 }
 
+async function stepZoom(step) {
+  const { zooms, values } = await call("options.describe");
+  const zoom = nextZoom(zooms, values.zoom, step);
+  if (zoom !== values.zoom) await command("options.set", ["zoom", zoom]);
+}
+
 async function applyLanguage(table) {
   loadTable(table.messages);
   document.documentElement.lang = table.language.replace("_", "-");
-  const select = $("language");
-  select.replaceChildren();
-  for (const [code, name] of Object.entries(table.languages)) {
-    const option = document.createElement("option");
-    option.value = code;
-    option.textContent = name;
-    option.selected = code === table.language;
-    select.append(option);
-  }
   translatePage();
   applyTips();
   menuBar.render();
@@ -729,6 +799,11 @@ async function boot() {
   await Promise.all([loadIcons(), spec.loadColormap()]);
   fillIcons();
   await applyLanguage(await call("translations"));
+  // the language is chosen in Settings, which hands the choice back here
+  setLanguageHandler(async (code) => {
+    const table = await command("set_language", [code]);
+    if (table) await applyLanguage(table);
+  });
   bind();
   listen((event) => {
     if (event.type === "state") applyState(event.state);

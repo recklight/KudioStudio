@@ -450,3 +450,62 @@ def test_the_rail_lists_every_tool_in_order(studio):
     entries = studio.call("rail")
     assert [e["id"] for e in entries][:3] == ["inspect", "effects", "enhance"]
     assert entries[0]["script"] == "" and all(e["script"] for e in entries[1:])
+
+
+def test_the_address_is_out_before_the_server_settles_in(studio, monkeypatch):
+    """Printed to a file or a pipe, the address with its token sat in the
+    buffer for as long as the server ran, and a closed tab could not be
+    opened again."""
+    import io
+    import sys
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="utf-8"))
+    seen = []
+
+    def sleep(seconds):
+        seen.append(raw.getvalue().decode("utf-8"))
+        raise KeyboardInterrupt
+
+    _browser(monkeypatch, studio, sleep)
+    assert seen and "KudioStudio" in seen[0] and "Ctrl+C to stop." in seen[0]
+
+
+def test_verbose_turns_up_kudiostudio_and_kudio_only(studio, monkeypatch):
+    """`kudiostudio -v` logged 597 lines at start-up, most of them numba's
+    compiler, over the traceback it was asked for."""
+    import logging
+
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])          # so basicConfig acts here
+    monkeypatch.setattr(root, "level", root.level)
+    for name in ("kudiostudio", "kudio"):
+        monkeypatch.setattr(logging.getLogger(name), "level", logging.getLogger(name).level)
+    monkeypatch.setattr(web_app, "Prefs", lambda: studio.prefs)
+    monkeypatch.setattr(web_app, "Studio", lambda prefs, language: studio)
+    monkeypatch.setattr(web_app, "LocalServer", lambda s, port: FakeServer(s, port))
+    monkeypatch.setattr(web_app, "set_windows_app_id", lambda: None)
+    monkeypatch.setattr(web_app, "webbrowser", types.SimpleNamespace(open=lambda url: True))
+
+    def stop(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(web_app, "time", types.SimpleNamespace(sleep=stop))
+    try:
+        assert web_app.main(["--browser", "-v"]) == 0
+        assert logging.getLogger("kudiostudio").getEffectiveLevel() == logging.DEBUG
+        assert logging.getLogger("kudio.core").getEffectiveLevel() == logging.DEBUG
+        assert logging.getLogger("numba.core").getEffectiveLevel() == logging.INFO
+    finally:
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+
+
+def test_version_names_kudiostudio_and_kudio(capsys):
+    import kudio
+    from kudiostudio import __version__
+
+    with pytest.raises(SystemExit) as done:
+        web_app.main(["--version"])
+    assert done.value.code == 0
+    assert capsys.readouterr().out == f"KudioStudio {__version__} (kudio {kudio.__version__})\n"

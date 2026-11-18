@@ -11,9 +11,10 @@ from __future__ import annotations
 import base64
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from kudiostudio.web.commands import command
+from kudiostudio.web.options import subtype_for
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,10 @@ log = logging.getLogger(__name__)
 MAX_SILENCE_S = 600.0
 #: longest splice crossfade, as the transport's crossfade box allows
 MAX_CROSSFADE_MS = 200.0
+
+#: what Save As writes, by the name's suffix: the samples are PCM or float
+#: at the bit depth in Settings, which OGG Vorbis and MP3 cannot hold
+SAVE_SUFFIXES = (".wav", ".flac", ".aiff", ".aif")
 
 
 class Editing:
@@ -51,9 +56,13 @@ class Editing:
         return self._done()
 
     @command
-    def paste(self) -> Dict:
-        """Paste at the playhead."""
-        if not self.session.paste(self.studio.position()):
+    def paste(self, at: Optional[float] = None) -> Dict:
+        """Paste over the selection, or at the playhead; given *at* seconds,
+        as the plots' "Paste here" gives it, at that point whatever is
+        selected."""
+        if at is not None:
+            self.session.clear_selection()
+        if not self.session.paste(self.studio.position(at)):
             self.studio.say("The clipboard is empty.")
         return self._done()
 
@@ -70,16 +79,22 @@ class Editing:
         return self._done()
 
     @command
-    def insert_silence(self, seconds: float) -> Dict:
+    def insert_silence(self, seconds: float, at: Optional[float] = None) -> Dict:
+        """Silence over the selection, or at the playhead; at *at* seconds,
+        whatever is selected, when that is given."""
+        if at is not None:
+            self.session.clear_selection()
         if self.session.has_audio:
             seconds = min(max(float(seconds), 0.001), MAX_SILENCE_S)
-            self.session.insert_silence(seconds, at=self.studio.position())
+            self.session.insert_silence(seconds, at=self.studio.position(at))
         return self._done()
 
     @command
     def set_crossfade(self, ms: float) -> Dict:
         applied = self.session.set_crossfade_ms(min(max(float(ms), 0.0),
                                                     MAX_CROSSFADE_MS))
+        # kept, so the next start splices the same way
+        self.studio.options.put("crossfade_ms", applied)
         self.studio.say(f"Splices now crossfade over {applied:g} ms." if applied
                         else "Splices are now hard cuts — expect a click at every join.")
         return self._done()
@@ -106,30 +121,70 @@ class Editing:
             return f"{Path(s.name or 'markers').stem}.txt"
         raise ValueError(f"no suggestion for {kind!r}")
 
+    def _save_target(self, path: str, replace: bool):
+        """``(path, None)`` to write to, or ``(None, answer)`` when it is not
+        written yet: a name without a suffix gets .wav, one in a format Save
+        As does not write is refused in words rather than in libsndfile's,
+        and a file already there is written over only when the page has
+        asked. The window's own Save dialog asks that itself; the path the
+        page asks for in a browser does not."""
+        target = Path(str(path).strip())
+        if not target.suffix:
+            # "take." would be "take..wav"; Windows drops a name's last dots
+            target = target.with_name(target.name.rstrip(".") + ".wav")
+        if target.suffix.lower() not in SAVE_SUFFIXES:
+            self.studio.say(f"Saved as WAV, FLAC or AIFF only — {target.name} "
+                            f"asks for {target.suffix}.")
+            return None, self._done()
+        if self.studio.dialogs is None and not replace and target.exists():
+            source = (self.session.path is not None
+                      and target.resolve() == Path(self.session.path).resolve())
+            return None, {**self._done(),
+                          "confirm_replace": {"path": str(target), "source": source}}
+        return target, None
+
     @command
-    def save_as(self, path: str) -> Dict:
+    def save_as(self, path: str, replace: bool = False) -> Dict:
         if not self.session.has_audio:
             self.studio.say("Nothing to save.")
             return self._done()
+        target, answer = self._save_target(path, replace)
+        if target is None:
+            return answer
+        target = target.resolve()
+        subtype, note = subtype_for(target, self.studio.options["bit_depth"])
         try:
-            self.session.save(path)
+            self.session.save(target, subtype=subtype)
         except Exception as e:  # noqa: BLE001 - reported to the person
             self.studio.say(f"Save failed — {type(e).__name__}: {e}")
             return self._done()
-        self.studio.remember_dir(path)
+        if note:
+            self.studio.say(note)
+        self.studio.remember_file(str(target))
+        # the clip goes by the new file now, so the Files list has it, marked
+        # as the open one, as it would be had the file been opened
+        if str(target) not in self.studio.files:
+            self.studio.files.append(str(target))
+        self.studio.remember_dir(str(target))
         return self._done()
 
     @command
-    def save_selection(self, path: str) -> Dict:
+    def save_selection(self, path: str, replace: bool = False) -> Dict:
         if not self.session.can_copy():
             self.studio.say("Select a range first — Ctrl+A selects everything.")
             return self._done()
+        target, answer = self._save_target(path, replace)
+        if target is None:
+            return answer
+        subtype, note = subtype_for(target, self.studio.options["bit_depth"])
         try:
-            self.session.save_selection(path)
+            self.session.save_selection(target, subtype=subtype)
         except Exception as e:  # noqa: BLE001
             self.studio.say(f"Save failed — {type(e).__name__}: {e}")
             return self._done()
-        self.studio.remember_dir(path)
+        if note:
+            self.studio.say(note)
+        self.studio.remember_dir(str(target))
         return self._done()
 
     @command
@@ -147,7 +202,9 @@ class Editing:
         path = Path(path)
         stem = Path(s.name or "audio").stem
         try:
-            path.write_text(s.edit_script(f"{stem}_edited.wav"), encoding="utf-8")
+            path.write_text(s.edit_script(f"{stem}_edited.wav",
+                                          subtype=self.studio.options["bit_depth"]),
+                            encoding="utf-8")
         except Exception as e:  # noqa: BLE001
             self.studio.say(f"Export failed — {type(e).__name__}: {e}")
             return self._done()

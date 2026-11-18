@@ -43,20 +43,20 @@ def test_switching_plugins_off_finds_none(monkeypatch):
 
 
 def test_the_entry_point_group_is_read_on_this_python(monkeypatch):
-    """3.9 hands back a dict of lists, 3.10 and later a selectable set."""
     monkeypatch.delenv(plugins.DISABLE_ENV, raising=False)
     assert isinstance(plugins._entry_points(), list)
 
 
 def test_an_entry_point_listed_twice_is_loaded_once(monkeypatch):
-    """An editable install shows up as two distributions on Python 3.9."""
+    """Two copies of a package's metadata, a dist-info and an egg-info left
+    in its source, list its entry point twice."""
     one = metadata.EntryPoint("notes", f"{MODULE}:NotesPanel", plugins.GROUP)
     twin = metadata.EntryPoint("notes", f"{MODULE}:NotesPanel", plugins.GROUP)
     other = metadata.EntryPoint("notes", "elsewhere:NotesPanel", plugins.GROUP)
 
-    class Found(dict):
-        def get(self, group, default=()):
-            return [one, twin, other] if group == plugins.GROUP else default
+    class Found:
+        def select(self, group):
+            return [one, twin, other] if group == plugins.GROUP else []
 
     monkeypatch.setattr(plugins.metadata, "entry_points", lambda: Found())
     assert plugins._entry_points() == [one, other]

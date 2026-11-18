@@ -14,7 +14,8 @@ import numpy as np
 
 import kudio
 from kudiostudio.tools import compare as tools
-from kudiostudio.tools.enhance import LearnedModel, kudioenhance_available, model_state
+from kudiostudio.tools.enhance import (LearnedModel, kudioenhance_available, model_state,
+                                       published_models)
 from kudiostudio.web.commands import command
 from kudiostudio.web.panels.base import WebPanel
 
@@ -43,7 +44,7 @@ class ComparePanel(WebPanel):
                 # by value, not by text: "9.66" must beat "10.2". The two label
                 # columns sort in kudio's own order, cheapest first
                 "sort": [index, index] + [tools.as_number(t) for t in text[2:]],
-                "error": bool(result.error),
+                "error": bool(result.error), "message": result.error or "",
             })
         return {"busy": self.busy, "rows": rows,
                 "has_reference": tools.has_reference(self._results),
@@ -61,7 +62,8 @@ class ComparePanel(WebPanel):
                 "reference_columns": list(tools.REFERENCE_COLUMNS),
                 "tips": {"sweep": tools.SWEEP_TIP, "run_dir": tools.RUN_DIR_TIP,
                          "selection": tools.SELECTION_TIP},
-                "metrics_text": tools.METRICS_TEXT, "note": tools.RUN_NOTE}
+                "metrics_text": tools.METRICS_TEXT, "note": tools.RUN_NOTE,
+                "published": list(published_models())}
 
     def _arguments(self, sweep, method, noise, run_dir):
         if run_dir != self.model.run_dir:

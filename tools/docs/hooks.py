@@ -9,7 +9,8 @@ are joined before the page is rendered. The same hook runs on kudio's site.
 from __future__ import annotations
 
 import re
-from typing import List
+from pathlib import Path
+from typing import Dict, List
 
 #: A Chinese character or full-width punctuation mark.
 _CJK = re.compile("[　-〿一-鿿＀-￯]")
@@ -61,3 +62,20 @@ def on_page_markdown(markdown: str, page, config, files, **kwargs) -> str:
     if page.file.src_uri.endswith(".zh-TW.md"):
         return _join_cjk_lines(markdown)
     return markdown
+
+
+#: the English build's 404 page. Each language's build writes 404.html at
+#: the root of the site, the Chinese one last, and GitHub Pages shows that one
+#: file for every address it does not have, so a mistyped English address
+#: answered in Chinese.
+_NOT_FOUND: Dict[str, bytes] = {}
+
+
+def on_post_build(config, **kwargs) -> None:
+    page = Path(config["site_dir"]) / "404.html"
+    if not page.is_file():
+        return
+    if config["theme"]["language"] == "en":
+        _NOT_FOUND["en"] = page.read_bytes()
+    elif "en" in _NOT_FOUND:
+        page.write_bytes(_NOT_FOUND["en"])

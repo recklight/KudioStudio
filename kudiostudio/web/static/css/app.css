@@ -50,7 +50,9 @@ body {
 
 .app {
   display: grid;
-  height: 100vh;
+  /* the window's height at any interface size: Settings zooms the page,
+     and 100vh would be zoomed with it */
+  height: calc(100vh / var(--zoom, 1));
   grid-template-columns: 248px minmax(0, 1fr) 420px;
   grid-template-rows: 52px minmax(0, 1fr) 72px 26px;
   grid-template-areas:
@@ -92,14 +94,13 @@ body {
   border: var(--line);
   border-radius: 999px;
   background: var(--surface);
-  max-width: 46vw;
+  max-width: calc(46vw / var(--zoom, 1));
   overflow: hidden;
 }
 .file-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-meta { color: var(--hint); font-size: 12px; white-space: nowrap; }
 
 .top-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
-.top-right { display: flex; align-items: center; gap: 8px; }
 .divider { width: 1px; height: 22px; background: var(--border); margin: 0 6px; }
 
 /* ----------------------------------------------------------------- buttons */
@@ -371,7 +372,6 @@ input.num:hover, input.text:hover, select:hover { border-color: #3a4f66; }
 input.num:focus, input.text:focus, select:focus { border-color: var(--primary); outline: none; }
 input.num:disabled, input.text:disabled { color: var(--disabled); background: var(--surface); }
 input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
-.select-wrap.compact select { width: auto; height: 28px; }
 
 .readout-line { color: var(--call); margin: 10px 0 8px; font-size: 12px; min-height: 1em; }
 .button-row { display: flex; gap: 8px; }
@@ -397,7 +397,14 @@ input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
   background: linear-gradient(180deg, rgba(22, 32, 43, 0.85), rgba(11, 15, 21, 0.95));
 }
 .transport-left { display: flex; align-items: center; gap: 16px; }
+/* a narrow window squeezes the gaps; a Chinese label kept whole rather
+   than one character to a line, and English still breaks at its space */
+.transport label, .menubar, .top-actions .btn { word-break: keep-all; }
 .transport-mid { display: flex; align-items: center; gap: 18px; }
+/* in a narrow window the switches go onto a second row, each whole, and
+   the gain slider gives up some of its length first */
+.transport-mid { flex-wrap: wrap; justify-content: center; row-gap: 6px; }
+.gain input[type=range] { width: 0; flex: 1 1 140px; min-width: 72px; max-width: 140px; }
 .transport-right { display: flex; justify-content: flex-end; }
 
 .play {
@@ -462,7 +469,7 @@ input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
 .toggle input:checked + .switch { background: var(--primary); box-shadow: 0 0 10px rgba(31, 198, 240, 0.4); }
 .toggle input:checked + .switch::after { transform: translateX(14px); background: var(--ink); }
 
-.ab { font-family: var(--font-mono); letter-spacing: 1px; }
+.ab { font-family: var(--font-mono); letter-spacing: 1px; white-space: nowrap; }
 
 .gain { display: flex; align-items: center; gap: 10px; color: var(--hint); }
 .gain-value { min-width: 48px; text-align: right; color: var(--text); }
@@ -535,7 +542,9 @@ input[type=range]::-webkit-slider-thumb {
   backdrop-filter: blur(3px);
 }
 .prompt {
-  width: min(560px, 90vw);
+  width: min(560px, calc(90vw / var(--zoom, 1)));
+  max-height: calc(90vh / var(--zoom, 1));
+  overflow-y: auto;
   padding: 18px;
   border: var(--line);
   border-radius: var(--radius-l);
@@ -549,3 +558,6 @@ input[type=range]::-webkit-slider-thumb {
 .prompt p { margin: 0; color: var(--hint); line-height: 1.5; }
 .prompt input { height: 32px; padding: 0 10px; border: 1px solid var(--edge); border-radius: var(--radius-s); background: var(--canvas); color: var(--text); font: inherit; }
 .prompt .button-row { justify-content: flex-end; }
+.settings h4 { margin: 6px 0 -4px; font-size: 12px; font-weight: 600; color: var(--hint); }
+.settings .button-row { justify-content: space-between; }
+.font-field input { width: 100%; }

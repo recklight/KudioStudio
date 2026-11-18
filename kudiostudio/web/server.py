@@ -16,7 +16,7 @@ Routes:
 ``GET /static/...``       its scripts and styles
 ``GET /plugins/<id>/...`` a plugin panel's page module, from its own package
 ``GET /theme.css``        the colours, from `kudiostudio.theme`
-``GET /colormap.bin``     the spectrogram's 256 colours, RGB bytes
+``GET /colormap.bin``     the spectrogram's 256 colours, RGB bytes; ``?map=`` names one
 ``GET /icons.json``       the line icons, from `kudiostudio.shapes`
 ``GET /assets/logo.png``  the application's mark
 ``POST /api/<command>``   run a `Studio` command, JSON in and out
@@ -44,6 +44,7 @@ import numpy as np
 
 from kudiostudio import theme
 from kudiostudio.shapes import SHAPES
+from kudiostudio.web.options import SPECTRUM_MAPS
 from kudiostudio.web.studio import Studio
 
 log = logging.getLogger(__name__)
@@ -62,7 +63,8 @@ REFUSED_BODY_LIMIT = 4 * 1024 * 1024
 
 def theme_css() -> str:
     """Every colour in `kudiostudio.theme` as a CSS custom property:
-    BASE_COLOR becomes ``--base``, PRIMARY_SOFT ``--primary-soft``."""
+    BASE_COLOR becomes ``--base``, PRIMARY_SOFT ``--primary-soft``; and each
+    of the TEXT_SETS under ``:root[data-text="bright"]`` and the like."""
     lines = [":root {"]
     for name in sorted(dir(theme)):
         value = getattr(theme, name)
@@ -73,6 +75,11 @@ def theme_css() -> str:
         css = name[:-len("_COLOR")] if name.endswith("_COLOR") else name
         lines.append(f"  --{css.lower().replace('_', '-')}: {value};")
     lines.append("}")
+    # the other text colours, for the page to switch to by an attribute
+    for name, colours in theme.TEXT_SETS.items():
+        if colours:
+            body = " ".join(f"--{key}: {value};" for key, value in colours.items())
+            lines.append(f':root[data-text="{name}"] {{ {body} }}')
     return "\n".join(lines) + "\n"
 
 
@@ -101,7 +108,7 @@ class LocalServer(ThreadingHTTPServer):
         self.studio = studio
         self.token = secrets.token_urlsafe(24)
         self.closing = threading.Event()
-        self._colormap: Optional[bytes] = None
+        self._colormaps: Dict[str, bytes] = {}
         super().__init__(("127.0.0.1", port), Handler)
 
     @property
@@ -112,10 +119,14 @@ class LocalServer(ThreadingHTTPServer):
     def url(self) -> str:
         return f"http://127.0.0.1:{self.port}/?token={self.token}"
 
-    def colormap(self) -> bytes:
-        if self._colormap is None:
-            self._colormap = colormap_bytes()
-        return self._colormap
+    def colormap(self, name: Optional[str] = None) -> bytes:
+        """The spectrogram's colours: *name* when it is one of the maps
+        Settings offers, else the one Settings has."""
+        if name not in SPECTRUM_MAPS:
+            name = self.studio.options["spectrum_map"]
+        if name not in self._colormaps:
+            self._colormaps[name] = colormap_bytes(name)
+        return self._colormaps[name]
 
     def start(self) -> threading.Thread:
         thread = threading.Thread(target=self.serve_forever, name="kudiostudio-server",
@@ -217,7 +228,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/icons.json":
             return self._json(HTTPStatus.OK, SHAPES)
         if path == "/colormap.bin":
-            return self._send(HTTPStatus.OK, self.server.colormap(), "application/octet-stream")
+            return self._send(HTTPStatus.OK, self.server.colormap((query.get("map") or [None])[0]),
+                              "application/octet-stream")
         if path == "/assets/logo.png":
             return self._file_under(LOGO.parent, LOGO.name)
         if path.startswith("/static/"):

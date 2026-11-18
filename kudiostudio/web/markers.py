@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 import kudio
 from kudiostudio.session import Marker
@@ -39,10 +39,10 @@ class Markers:
         return self.studio.state()
 
     @command
-    def add(self) -> Dict:
-        """A point marker at the playhead."""
+    def add(self, at: Optional[float] = None) -> Dict:
+        """A point marker at the playhead, or at *at* seconds."""
         if self.session.has_audio:
-            at = self.studio.position()
+            at = self.studio.position(at)
             self.session.add_marker(at)
             self.studio.say(f"Marker at {format_span(at, at)}")
         return self._done()

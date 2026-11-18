@@ -3,6 +3,7 @@
 
 import { data } from "./api.js";
 import { roundRect } from "./timeplot.js";
+import { pixelRatio, pointIn } from "./zoom.js";
 
 export class Overview {
   constructor(canvas, view) {
@@ -30,7 +31,7 @@ export class Overview {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = pixelRatio(this.canvas);
     const { clientWidth: w, clientHeight: h } = this.canvas;
     if (!w || !h) return;
     const before = this.width;
@@ -140,7 +141,7 @@ export class Overview {
 
   down(e) {
     if (!this.view.duration) return;
-    const x = e.clientX - this.canvas.getBoundingClientRect().left;
+    const { x } = pointIn(e, this.canvas);
     const t = (x / this.width) * this.view.duration;
     this.canvas.setPointerCapture(e.pointerId);
     if (t >= this.view.t0 && t <= this.view.t1) {
@@ -154,7 +155,7 @@ export class Overview {
 
   move(e) {
     if (!this.drag) return;
-    const x = e.clientX - this.canvas.getBoundingClientRect().left;
+    const { x } = pointIn(e, this.canvas);
     const dt = ((x - this.drag.x) / this.width) * this.view.duration;
     this.view.set(this.drag.t0 + dt, this.drag.t0 + dt + this.view.span);
   }

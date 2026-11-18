@@ -121,8 +121,10 @@ T30 0.59 s (EDT 0.54 s)  ·  C50 +9.4 dB  ·  DRR +3.0 dB  ·  fit 1.000
 
 A file that is not an impulse response, a speech take say, can still produce
 a T30. When the decay is not a straight line, or its EDT and T30 disagree, the
-reading says so and turns red, and a file whose tail never falls 35 dB, such
-as steady noise, gets no T30 at all.
+reading says so and turns red. Even steady noise gets one: the decay curve is
+the energy still to come, which reaches zero at the end of any file, so 5 s of
+white noise reads a T30 of several seconds, with an EDT more than four times as
+long and a fit of about 0.77, in red.
 
 ## Lost packets
 

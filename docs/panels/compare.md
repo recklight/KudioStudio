@@ -79,17 +79,19 @@ the clip empties the table for the same reason.
 
 | Column | What it holds |
 |---|---|
-| method | the gain rule, by kudio's label; a learned model by the name of its run directory |
+| method | the gain rule, by kudio's label; a learned model by the name of its run directory or of its published weights |
 | noise | the noise estimator; `own` for a learned model, which brings its own |
-| ms | how long the denoise took. kudio runs each method once over the first second before it starts the clock, so the first row is not charged for the one-time cost of compiling and importing |
-| floor dBFS | the noise floor left in the result, from `kudio.audio_report` |
-| LUFS | the integrated loudness of the result |
 | SI-SDR | against the reference, in dB |
 | ΔSNR | the result's SNR against the reference, minus the untouched input's: how much better than leaving it alone, which is the number that answers "did this help" |
 | PESQ, STOI | the perceptual scores, when their box is ticked |
+| ms | how long the denoise took. kudio runs each method once over the first second before it starts the clock, so the first row is not charged for the one-time cost of compiling and importing |
+| floor dBFS | the noise floor left in the result, from `kudio.audio_report` |
+| LUFS | the integrated loudness of the result |
 
-Without a reference the last four columns are hidden, as there is nothing for
-them to measure against. LUFS is worth reading beside the floor: a row whose
+Without a reference the four scores are hidden, as there is nothing for them
+to measure against. They come straight after method and noise because the
+panel column is narrower than the table, and with a reference they are what
+ranks the rows. LUFS is worth reading beside the floor: a row whose
 loudness has dropped well below the others' took out more than noise.
 
 A row that failed stays in the table, marked, with the error in place of its
@@ -231,8 +233,9 @@ almost nothing to work from.
 ## A trained model in the same table
 
 Point **Learned model** at a
-[kudioenhance](https://pypi.org/project/kudioenhance/) run directory, the same
-kind the [Enhance](enhance.md) panel loads, and the model gets a row of its
+[kudioenhance](https://pypi.org/project/kudioenhance/) run directory, or type
+the name of weights it publishes (`gtcrn-vbd16k`), as the
+[Enhance](enhance.md) panel takes them, and the model gets a row of its
 own, scored against the same reference on the same audio. "Is the model
 actually better than log-MMSE" is not a question two separate printouts
 answer. The call above Run comparison lists it as `('exp1', model.enhance)`:

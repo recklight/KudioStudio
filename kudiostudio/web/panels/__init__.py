@@ -3,7 +3,8 @@
 
 Inspect comes first and is drawn by the page itself from the window's own
 commands. The rest follow `ORDER`: Compare beside Enhance, Manifest after
-Synthesize, Pitch with Metrics.
+Synthesize, Pitch with Metrics, and Claude, which reads what the others
+measured, last.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from typing import List, Tuple
 
 from kudiostudio.web.panels.base import WebPanel
 from kudiostudio.web.panels.batch import BatchPanel
+from kudiostudio.web.panels.claude import ClaudePanel
 from kudiostudio.web.panels.compare import ComparePanel
 from kudiostudio.web.panels.effects import EffectsPanel
 from kudiostudio.web.panels.enhance import EnhancePanel
@@ -23,11 +25,11 @@ from kudiostudio.web.panels.synth import SynthPanel
 #: panels that have their Python half here, in rail order
 PANEL_CLASSES: Tuple[type, ...] = (EffectsPanel, EnhancePanel, ComparePanel, RecordPanel,
                                    SynthPanel, ManifestPanel, PitchPanel, MetricsPanel,
-                                   BatchPanel)
+                                   BatchPanel, ClaudePanel)
 
 #: the rail's order, by id
 ORDER = ("inspect", "effects", "enhance", "compare", "record", "synthesize",
-         "manifest", "pitch", "metrics", "batch")
+         "manifest", "pitch", "metrics", "batch", "claude")
 
 
 def module_url(panel: WebPanel) -> str:
@@ -56,6 +58,6 @@ def rail(panels: List[WebPanel]) -> List[dict]:
     return entries
 
 
-__all__ = ["WebPanel", "BatchPanel", "ComparePanel", "EffectsPanel", "EnhancePanel",
+__all__ = ["WebPanel", "BatchPanel", "ClaudePanel", "ComparePanel", "EffectsPanel", "EnhancePanel",
            "ManifestPanel", "MetricsPanel", "PitchPanel", "RecordPanel", "SynthPanel",
            "PANEL_CLASSES", "ORDER", "module_url", "rail"]

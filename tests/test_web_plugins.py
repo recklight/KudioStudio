@@ -69,6 +69,17 @@ class MarkerTaker(WebPanel):
         return "taken"
 
 
+class SettingsTaker(WebPanel):
+    """Its commands would be options.*, the Settings dialog's."""
+    id = "options"
+    title = "Settings taker"
+    script = "notes.js"
+
+    @command(name="set")
+    def set_option(self, key, value) -> str:
+        return "taken"
+
+
 class Lookalike:
     """A panel's attributes, without being a WebPanel."""
     id = "lookalike"
@@ -91,8 +102,8 @@ def plugin(tmp_path, monkeypatch):
     (tmp_path / "secret.txt").write_text("not for the page", encoding="utf-8")
     monkeypatch.setattr(NotesPanel, "static_dir", static)
     module = types.ModuleType(MODULE)
-    for target in (NotesPanel, Unbuildable, Squatter, Inspector, MarkerTaker, Lookalike,
-                   not_a_panel):
+    for target in (NotesPanel, Unbuildable, Squatter, Inspector, MarkerTaker, SettingsTaker,
+                   Lookalike, not_a_panel):
         setattr(module, target.__name__, target)
     monkeypatch.setitem(sys.modules, MODULE, module)
     monkeypatch.delenv(plugins.DISABLE_ENV, raising=False)
@@ -248,6 +259,17 @@ def test_a_plugin_with_the_id_of_the_marker_commands_is_left_out(plugin, monkeyp
         "commands"]
     chinese = studio_with("zh_TW").call("about")["left_out"]
     assert chinese == ["外掛 taker 未載入 — ValueError: 它的 id 'markers' 是視窗本身指令的名稱"]
+
+
+def test_a_plugin_with_the_id_of_the_settings_commands_is_left_out(plugin, monkeypatch,
+                                                                   studio_with):
+    entry_points(monkeypatch, taker="SettingsTaker")
+    studio = studio_with()
+    assert not any(isinstance(p, SettingsTaker) for p in studio.panels)
+    assert studio.commands["options.set"].__self__ is studio.options
+    assert studio.call("about")["left_out"] == [
+        "Plugin taker was left out — ValueError: its id 'options' names the window's own "
+        "commands"]
 
 
 def test_a_built_in_icon_cannot_be_redrawn():

@@ -40,6 +40,8 @@ MESSAGES = {
         '編輯(&E)',
     '&Undo':
         '復原(&U)',
+    'R&edo':
+        '重做(&E)',
     '&Revert to original':
         '還原為原始音訊(&R)',
     'Cu&t\tCtrl+X':
@@ -56,6 +58,8 @@ MESSAGES = {
         '插入靜音(&I)…',
     'Splice cross&fade…':
         '接合交叉淡化(&F)…',
+    'Se&ttings…':
+        '設定(&T)…',
     'Select &All':
         '全選(&A)',
     '&Clear selection':
@@ -176,6 +180,14 @@ MESSAGES = {
         '無法開啟 {} — {}: {}',
     'Save failed — {}: {}':
         '儲存失敗 — {}: {}',
+    'Saved as WAV, FLAC or AIFF only — {} asks for {}.':
+        '只能存成 WAV、FLAC 或 AIFF — {} 指定的是 {}。',
+    'Replace {}?':
+        '要取代 {} 嗎？',
+    'Replace':
+        '取代',
+    'It is the file this audio was opened from.':
+        '這是這段音訊當初開啟的檔案。',
     'Export failed — {}: {}':
         '匯出失敗 — {}: {}',
     'Load an audio file first.':
@@ -190,6 +202,16 @@ MESSAGES = {
         '批次完成 — 已寫入 {}/{} 個，{} 個失敗。',
     'Batch complete — {}/{} written, {} failed, {} missed the loudness target.':
         '批次完成 — 已寫入 {}/{} 個，{} 個失敗，{} 個未達響度目標。',
+    'Batch complete — {}/{} written, {} missed the loudness target.':
+        '批次完成 — 已寫入 {}/{} 個，{} 個未達響度目標。',
+    '{} — conversion: {}':
+        '{} — 轉換：{}',
+    '{} — denoise: {}':
+        '{} — 降噪：{}',
+    '{} — levelling: {}':
+        '{} — 響度調整：{}',
+    '{} — reverberant copy: {}':
+        '{} — 殘響副本：{}',
     '{} LU over':
         '高了 {} LU',
     '{} LU under':
@@ -348,8 +370,10 @@ MESSAGES = {
         '要變動哪一個軸。增強包含兩個選擇 — 增益規則與雜訊估計器 — 哪一個對結果影響較大要看錄音；完整網格兩者都會量，並說明這一段是哪一個。',
     'optional: a kudioenhance run directory':
         '選用：kudioenhance 的執行目錄',
-    "Rank a trained model in the same table as the statistical methods. 'Is the model actually better than log-MMSE' is not a question two separate printouts answer.":
-        '把訓練好的模型與統計式方法排在同一張表裡。「模型真的比 log-MMSE 好嗎」不是兩份分開的輸出能回答的問題。',
+    'optional: a run directory, or published weights: {}':
+        '選用：執行目錄，或已發布的權重：{}',
+    "Rank a trained model, a run directory or the name of published weights, in the same table as the statistical methods. 'Is the model actually better than log-MMSE' is not a question two separate printouts answer.":
+        '把訓練好的模型（執行目錄，或已發布權重的名稱）與統計式方法排在同一張表裡。「模型真的比 log-MMSE 好嗎」不是兩份分開的輸出能回答的問題。',
     'PESQ / STOI (slow; STOI needs kudio[eval], PESQ needs kudio[pesq])':
         'PESQ / STOI（較慢；STOI 需要 kudio[eval]，PESQ 需要 kudio[pesq]）',
     'compare only the selected range':
@@ -438,6 +462,8 @@ MESSAGES = {
         '勝過不處理最多的是 <b>{} + {}</b>，ΔSNR {} dB。',
     'No learned row: {} is not a folder.':
         '沒有學習式模型那一列：{} 不是資料夾。',
+    'No learned row: {} is neither a folder nor published weights ({}).':
+        '沒有學習式模型那一列：{} 既不是資料夾，也不是已發布的權重（{}）。',
     'Auditioning ':
         '試聽中：',
     'Effects':
@@ -516,6 +542,8 @@ MESSAGES = {
         '請先執行 split_on_silence。',
     'Nothing to undo.':
         '沒有可復原的動作。',
+    'Nothing to redo.':
+        '沒有可重做的動作。',
     'No original to revert to.':
         '沒有可還原的原始音訊。',
     '{} does not change the audio, so there is nothing to preview.':
@@ -550,6 +578,8 @@ MESSAGES = {
         '分析幀。較長的幀能更準確地解析雜訊，但會讓瞬態更模糊。',
     'run directory from kudioenhance, e.g. runs/exp1':
         'kudioenhance 的執行目錄，例如 runs/exp1',
+    'run directory, or published weights: {}':
+        '執行目錄，或已發布的權重：{}',
     "resample to the model's rate if they differ":
         '若取樣率不同，重新取樣到模型的取樣率',
     'The clip is resampled to the rate the model was trained at, then the result is resampled back, so the session keeps its own rate.':
@@ -582,8 +612,8 @@ MESSAGES = {
         '此模型以 {} Hz 訓練，但音訊為 {} Hz — 請啟用重新取樣，或在「批次」面板轉換',
     'Denoising always processes the whole clip — noise estimation needs the full signal. Preview does the same, then loops whatever is selected, and commits nothing.':
         '降噪一律處理整段音訊 — 雜訊估計需要完整的訊號。預覽也一樣，之後循環播放選取的部分，且不提交任何變更。',
-    "kudioenhance is installed — point 'run_dir' at a directory it produced (it holds the model, its normalisation statistics and the STFT geometry they were trained with).":
-        '已安裝 kudioenhance — 把「run_dir」指向它產生的目錄（裡面有模型、正規化統計量，以及訓練時使用的 STFT 參數）。',
+    "kudioenhance is installed — point 'run_dir' at a directory it produced (it holds the model, its normalisation statistics and the STFT geometry they were trained with), or type the name of weights it publishes, downloaded the first time they are used.":
+        '已安裝 kudioenhance — 把「run_dir」指向它產生的目錄（裡面有模型、正規化統計量，以及訓練時使用的 STFT 參數），或輸入它發布的權重名稱，第一次使用時會下載。',
     'Denoising…':
         '降噪中…',
     'learned model ({})':
@@ -594,6 +624,8 @@ MESSAGES = {
         '雜訊估計',
     'Select a kudioenhance run directory first.':
         '請先選擇 kudioenhance 執行目錄。',
+    'Select a kudioenhance run directory, or type the name of published weights ({}), first.':
+        '請先選擇 kudioenhance 執行目錄，或輸入已發布權重的名稱（{}）。',
     'Manifest (*.json);;All files (*)':
         'Manifest (*.json);;所有檔案 (*)',
     'Manifest':
@@ -754,6 +786,8 @@ MESSAGES = {
         '不適用 — 停頓是數位靜音',
     'n/a — too short to measure':
         '不適用 — 太短，無法量測',
+    'n/a — too loud to compute in float64':
+        '不適用 — 音量太大，float64 算不了',
     'n/a — the noise is not Gaussian, or drowns the speech':
         '不適用 — 雜訊不是高斯分布，或蓋過了語音',
     'n/a — next to no noise to measure':
@@ -788,6 +822,9 @@ MESSAGES = {
         '不適用 — 這一級只有一個音框，太少',
     'n/a — this clip is silent':
         '不適用 — 這段音訊是靜音',
+    # a reason the table does not know is kudio's own sentence, in English
+    'n/a — {}':
+        '不適用 — {}',
     'This clip has NaN or inf samples; repair it before scoring.':
         '這段音訊有 NaN 或 inf 樣本；請先修復再評分。',
     'The reference has NaN or inf samples; repair it before scoring.':
@@ -968,6 +1005,8 @@ MESSAGES = {
         'sounddevice 裝置索引（kudio.list_devices）',
     'No input devices found — is kudio[audio] installed?':
         '找不到輸入裝置 — 是否已安裝 kudio[audio]？',
+    '{} is installed but the system offers it no input device: check that a microphone is connected and enabled in the sound settings.':
+        '{} 已經安裝，但系統沒有提供任何輸入裝置給它：請確認麥克風已接上，並在音效設定中啟用。',
     'Recording…':
         '錄音中…',
     'A recording is already in progress.':
@@ -1090,6 +1129,8 @@ MESSAGES = {
         '已載入 {} — {} 秒 @ {} Hz{}',
     'Undo: {}':
         '復原：{}',
+    'Redo: {}':
+        '重做：{}',
     'Reverted to the original audio':
         '已還原為原始音訊',
     ' (no crossfade — hard cut)':
@@ -1381,4 +1422,246 @@ MESSAGES = {
         '{} — 背景比語音還乾淨，這正是降噪下手太重的樣子',
     '{} — the speech survived but the background is still intrusive':
         '{} — 語音保住了，但背景仍然干擾',
+    'Settings':
+        '設定',
+    'Interface':
+        '介面',
+    'Size':
+        '大小',
+    'Font':
+        '字型',
+    'Numbers font':
+        '數字字型',
+    'Default':
+        '預設',
+    'Editing':
+        '編輯',
+    'Undo steps':
+        '復原步數',
+    'Saving':
+        '存檔',
+    'Bit depth':
+        '位元深度',
+    '16-bit PCM':
+        '16 位元 PCM',
+    '24-bit PCM':
+        '24 位元 PCM',
+    '32-bit float':
+        '32 位元浮點',
+    'Spectrogram':
+        '頻譜圖',
+    'Colours':
+        '色彩',
+    'Start and questions':
+        '啟動與詢問',
+    'Open the last file at start':
+        '啟動時開啟上次的檔案',
+    'Ask before unsaved audio is replaced':
+        '取代未存檔的音訊前先詢問',
+    'Restore defaults':
+        '還原預設值',
+    'Ctrl+= and Ctrl+- step through the sizes; Ctrl+0 is 100%. A window too small for the size shows as much of it as fits.':
+        'Ctrl+= 與 Ctrl+- 逐級調整大小；Ctrl+0 回到 100%。視窗太小、放不下所選的大小時，會放大到放得下為止。',
+    "Any installed font; empty is the window's own.":
+        '任何已安裝的字型；留空則用視窗原本的字型。',
+    'For figures, times and code; one with digits of even width keeps columns lined up.':
+        '用於數字、時間與程式碼；數字等寬的字型能讓欄位對齊。',
+    'The fade at every cut, paste and inserted silence; 0 is a hard cut.':
+        '每次剪下、貼上與插入靜音時接合處的淡化；0 是直接切。',
+    'Each step holds a copy of the clip: an hour of 48 kHz mono is 690 MB.':
+        '每一步都保留一份音訊副本：一小時 48 kHz 單聲道是 690 MB。',
+    'What Save As writes. FLAC holds no float and gets 24-bit instead.':
+        '另存新檔寫出的格式。FLAC 不能存浮點，改寫成 24 位元。',
+    'inferno, magma, viridis and cividis are even in lightness from end to end; gray prints.':
+        'inferno、magma、viridis 和 cividis 從頭到尾亮度變化均勻；gray 適合列印。',
+    'Only when the window is started with no file named.':
+        '只在啟動時沒有指定檔案的情況下。',
+    'Off, opening a file or recording over an edit no file holds goes ahead without a question.':
+        '關閉後，若目前的編輯還沒存成任何檔案，開啟檔案或錄音時會直接取代，不再詢問。',
+    'Not changed — {}.':
+        '沒有變更 — {}。',
+    'Settings restored to their defaults.':
+        '設定已還原為預設值。',
+    'FLAC holds no floating point, so {} was written as 24-bit.':
+        'FLAC 不能存浮點，所以 {} 寫成了 24 位元。',
+    'Claude':
+        'Claude',
+    'Ask about this recording':
+        '問問這段錄音',
+    'Sent':
+        '送出的數據',
+    'Ask Claude':
+        '問 Claude',
+    "Only the figures below go, with your key, to Anthropic's API: no audio, no file name. Claude reads them and says what they mean.":
+        '只有下面這些數字會用你的金鑰送到 Anthropic 的 API，不含音訊和檔名。Claude 讀了這些數字，說明它們代表什麼。',
+    'Answer':
+        '回答',
+    'Needs fixing':
+        '需要處理',
+    'Worth knowing':
+        '值得留意',
+    'Fine':
+        '沒問題',
+    'No API key yet. Add yours in Edit → Settings… (Ctrl+,); it stays on this computer.':
+        '還沒有 API 金鑰。到「編輯 → 設定…」（Ctrl+,）加上你的金鑰；金鑰只存在這台電腦上。',
+    'automatic':
+        '自動',
+    'key':
+        '金鑰',
+    'The audio has changed since this answer.':
+        '這個回答之後，音訊已經改過了。',
+    'about':
+        '約',
+    'answered by':
+        '回答的模型：',
+    'tokens in':
+        '個 token 輸入',
+    'tokens out':
+        '個 token 輸出',
+    'Duration':
+        '長度',
+    'Sample rate':
+        '取樣率',
+    'Channels':
+        '聲道數',
+    'Edited since opened':
+        '開啟後有編輯',
+    'True peak':
+        'True peak',
+    'RMS':
+        'RMS',
+    'Loudness':
+        '響度',
+    'Loudness range':
+        '響度範圍',
+    'Non-finite samples':
+        '非有限值樣本',
+    'kudio found':
+        'kudio 發現',
+    'yes':
+        '是',
+    'no':
+        '否',
+    'API key':
+        'API 金鑰',
+    "Your own key from the Claude Console. It is kept in the system's credential store, not in KudioStudio's settings file.":
+        '你自己在 Claude Console 建立的金鑰。它存在系統的認證管理員裡，不在 KudioStudio 的設定檔中。',
+    'Save the key':
+        '儲存金鑰',
+    'Test':
+        '測試',
+    'Lists the models the key can use; it costs nothing.':
+        '列出這把金鑰能用的模型，不花任何費用。',
+    'Checking the key …':
+        '正在檢查金鑰…',
+    'Remove the key':
+        '移除金鑰',
+    'Get a key…':
+        '取得金鑰…',
+    'Automatic':
+        '自動',
+    'Model':
+        '模型',
+    'Automatic is the model this version of KudioStudio recommends, and moves on with it. Test lists the others the key can use.':
+        '「自動」是這一版 KudioStudio 推薦的模型，會隨版本更新。按「測試」可以列出這把金鑰能用的其他模型。',
+    "Key saved in the system's credential store:":
+        '金鑰已存在系統的認證管理員：',
+    'Key from the ANTHROPIC_API_KEY variable.':
+        '使用 ANTHROPIC_API_KEY 環境變數裡的金鑰。',
+    'No key yet. Paste yours and save it, or set ANTHROPIC_API_KEY.':
+        '還沒有金鑰。貼上你的金鑰並儲存，或設定 ANTHROPIC_API_KEY。',
+    'Asking Claude needs the anthropic package: pip install "anthropic>=2,<3" keyring':
+        '要問 Claude 需要 anthropic 套件：pip install "anthropic>=2,<3" keyring',
+    'No API key yet. Add yours in Edit → Settings…':
+        '還沒有 API 金鑰。到「編輯 → 設定…」加上你的金鑰。',
+    'Asking Claude …':
+        '正在問 Claude…',
+    '{} is not available any more; Settings is back on automatic.':
+        '{} 已經停用；設定已改回自動。',
+    'Claude answered: {} tokens in, {} out{}.':
+        'Claude 回答了：輸入 {} 個 token，輸出 {} 個{}。',
+    ', about ${}':
+        '，約 ${}',
+    'The Claude Console opens in your browser: {}':
+        '在瀏覽器開啟 Claude Console：{}',
+    'That does not look like an API key; one starts with sk-ant-.':
+        '這看起來不像 API 金鑰；金鑰的開頭是 sk-ant-。',
+    'The key could not be saved: this system has no credential store KudioStudio can use. Set ANTHROPIC_API_KEY instead.':
+        '金鑰沒有存成功：這個系統沒有 KudioStudio 能用的認證管理員。請改用 ANTHROPIC_API_KEY 環境變數。',
+    "Key saved in the system's credential store.":
+        '金鑰已存進系統的認證管理員。',
+    'Key removed.':
+        '金鑰已移除。',
+    'The key works: {} models can answer here.':
+        '金鑰可以使用：有 {} 個模型能回答。',
+    'The API key was refused, or there is none. Add one in Edit → Settings…':
+        'API 金鑰被拒絕，或是沒有金鑰。請到「編輯 → 設定…」加上金鑰。',
+    'This key may not use {}.':
+        '這把金鑰不能使用 {}。',
+    '{} is not available any more.':
+        '{} 已經停用。',
+    'The account behind this key has no credit left.':
+        '這把金鑰的帳戶已經沒有額度了。',
+    'Too many requests for now; try again in {} s.':
+        '目前請求太多，請 {} 秒後再試。',
+    'Too many requests for now; try again shortly.':
+        '目前請求太多，請稍後再試。',
+    'No connection to the Anthropic API.':
+        '連不上 Anthropic API。',
+    'The Anthropic API could not answer (HTTP {}); try again later.':
+        'Anthropic API 無法回應（HTTP {}），請稍後再試。',
+    'Asking Claude failed — {}: {}':
+        '問 Claude 失敗 — {}：{}',
+    'Claude declined to answer ({}).':
+        'Claude 拒絕回答（{}）。',
+    'The answer ran past its length limit and was cut off.':
+        '回答超過長度上限，被截斷了。',
+    'The answer could not be read.':
+        '無法讀取回答。',
+    'no reason given':
+        '沒有說明原因',
+    'Open {}':
+        '開啟「{}」',
+    'Stop':
+        '停止',
+    'Play from here':
+        '從這裡播放',
+    'Play the selection':
+        '播放選取範圍',
+    'Move the playhead here':
+        '播放頭移到這裡',
+    'Paste here':
+        '貼上到這裡',
+    'Insert silence here…':
+        '在這裡插入靜音…',
+    'Add a marker here':
+        '在這裡加標記',
+    'Mark the selection':
+        '把選取範圍設成標記',
+    'Reset the frequency range':
+        '重設頻率範圍',
+    'Finer frequency detail (n_fft {})':
+        '頻率更精細（n_fft {}）',
+    'Finer time detail (n_fft {})':
+        '時間更精細（n_fft {}）',
+    'Copy {}':
+        '複製 {}',
+    'Copied {}':
+        '已複製 {}',
+    'Text colour':
+        '文字顏色',
+    'Standard':
+        '標準',
+    'Bright':
+        '明亮',
+    'Warm':
+        '暖色',
+    'High contrast':
+        '高對比',
+    'Brighter text and figures for a dim screen, warmer for the evening, or the most contrast. Warnings keep their red and passes their green.':
+        '螢幕較暗時用更亮的文字與數字，晚上用暖色，或選對比最高的一組。警告的紅色與通過的綠色維持不變。',
+    'Paste over the selection':
+        '貼上並取代選取範圍',
+    'Size {} needs a larger window; this one has room for {}.':
+        '大小 {} 需要更大的視窗，這個視窗目前只放得下 {}。',
 }

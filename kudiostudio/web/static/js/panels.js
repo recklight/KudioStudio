@@ -16,6 +16,7 @@
 
 import { call } from "./api.js";
 import * as dialogs from "./dialogs.js";
+import { Freshness } from "./fresh.js";
 import { t, translatePage } from "./i18n.js";
 import { fillIcons } from "./icons.js";
 import * as ui from "./ui.js";
@@ -72,6 +73,7 @@ export class Panels {
     this.memories = new Map();    // id -> what the panel keeps across mounts
     this.current = "inspect";
     this.view = new PanelView();
+    this.fresh = new Freshness();
   }
 
   async load() {
@@ -84,6 +86,7 @@ export class Panels {
       }
       const button = document.createElement("button");
       button.dataset.tool = entry.id;
+      button.dataset.tLabel = entry.title;
       button.innerHTML = `<i data-icon="${entry.icon}"></i><span data-t>${entry.title}</span>`;
       button.addEventListener("click", () => this.select(entry.id));
       rail.append(button);
@@ -142,7 +145,8 @@ export class Panels {
       t,
       ui,
       dialogs,
-      call: (name, args = [], kwargs = {}) => this.run(prefix + name, args, kwargs),
+      call: (name, args = [], kwargs = {}) =>
+        this.fresh.ask(entry.id, name, () => this.run(prefix + name, args, kwargs)),
       window: (name, args = [], kwargs = {}) => this.run(name, args, kwargs),
       view: {
         show: (title, node, { onClose } = {}) => this.view.show(entry.id, title, node, onClose),
@@ -174,6 +178,7 @@ export class Panels {
   }
 
   event(e) {
+    this.fresh.heard(e);
     if (e.type === "panel") this.mounted.get(e.panel)?.api?.event?.(e);
     else if (e.type === "job") this.mounted.get(e.owner)?.api?.busy?.(e.busy, e.label);
     else if (e.type === "progress") this.mounted.get(e.owner)?.api?.progress?.(e.text);

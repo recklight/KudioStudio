@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
+import types
 from types import SimpleNamespace
 
 import numpy as np
@@ -114,6 +116,54 @@ def mount_page(module: str, info: dict, steps: str):
     return json.loads(done.stdout)
 
 
+def test_a_quick_denoise_is_not_undone_by_the_answer_to_its_click(studio):
+    """trad_enhance on a short clip is done, its figures published and the
+    job over, before the click that started it is answered. That answer says
+    busy, with the figures from before: applied, it left the old numbers up
+    and the button reading Denoising… with nothing running."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    info = studio.call("enhance.describe")
+    q = studio.events.subscribe()
+    answer = studio.call("enhance.denoise", [TRAD, values()])
+    assert studio.jobs.wait(60)
+    events = []
+    while not q.empty():
+        e = q.get_nowait()
+        if e["type"] == "panel" and e["panel"] == "enhance":
+            events.append(e)
+    finished = events[-1]["info"]["result"]
+    assert finished.startswith("SNR")
+    # what the page hears, in the order a quick job delivers it: the events,
+    # the end of the job, and only then the answer, through the window's
+    # own check (panels.js)
+    fresh = (STATIC / "js" / "fresh.js").as_uri()
+    script = (PAGE + "Fake.prototype.show = function (text) { this.shown = text; };\n"
+              f"const {{ Freshness }} = await import({json.dumps(fresh)});\n"
+              "const fresh = new Freshness();\n"
+              f"const info = {json.dumps(info)};\n"
+              "let panel;\n"
+              "const ctx = { ui, t: (text) => text, memory: {}, window() {},\n"
+              "  call: async (name) => {\n"
+              "    if (name === 'describe') return info;\n"
+              f"    for (const e of {json.dumps(events)}) {{ fresh.heard(e); panel.event(e); }}\n"
+              "    panel.busy(false);\n"
+              f"    const answer = {json.dumps(answer)};\n"
+              "    return fresh.stale('enhance', answer) ? null : answer;\n"
+              "  } };\n"
+              f"const {{ mount }} = await import({json.dumps((STATIC / 'js/panels/enhance.js').as_uri())});\n"
+              "panel = await mount(new Fake('root'), ctx);\n"
+              "const run = made.find((el) => el.kind === 'button' && el.given?.primary);\n"
+              "await run.given.onClick();\n"
+              "const readout = made.find((el) => el.kind === 'readout');\n"
+              "console.log(JSON.stringify([readout.shown, run.textContent, run.disabled]));\n")
+    ran = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                         capture_output=True, text=True, encoding="utf-8")
+    assert ran.returncode == 0, ran.stderr
+    assert json.loads(ran.stdout) == [finished, "Denoise", False]
+
+
 def test_a_method_shows_only_its_own_rows(studio):
     """The noise estimate row belongs to kudio's methods, thres to the wavelet
     filter and run_dir to a learned model; the page shows only the form of
@@ -162,14 +212,61 @@ def test_call_hint_tracks_the_method(studio):
     assert "noise='mcra'" in text
 
 
+def published(monkeypatch, *names):
+    """kudioenhance.pretrained as a kudioenhance that publishes *names* has
+    it, whichever kudioenhance this machine has, if any."""
+    pretrained = types.ModuleType("kudioenhance.pretrained")
+    pretrained.PRETRAINED = {name: object() for name in names}
+    monkeypatch.setitem(sys.modules, "kudioenhance.pretrained", pretrained)
+
+
 def test_learned_without_a_run_directory_reports(studio, monkeypatch):
     """kudioenhance is made to look installed, so whatever this machine has,
     the missing run directory is the one thing to report."""
     monkeypatch.setattr(tools, "kudioenhance_available", lambda: True)
+    published(monkeypatch)
     said = messages(studio)
 
     studio.call("enhance.denoise", [LEARNED, values()])
     assert said() == ["Select a kudioenhance run directory first."]
+
+    published(monkeypatch, "gtcrn-vbd16k")
+    studio.call("enhance.denoise", [LEARNED, values(run_dir="runs/typo")])
+    assert said() == ["Select a kudioenhance run directory, or type the name of "
+                      "published weights (gtcrn-vbd16k), first."]
+
+
+def test_published_weights_load_by_name(studio, monkeypatch):
+    """The name goes to Enhancer.load as it is, which downloads the weights
+    the first time, and the history records the name rather than a folder of
+    that name under wherever KudioStudio was started."""
+    loads = []
+
+    class Enhancer:
+        cfg = SimpleNamespace(audio=SimpleNamespace(sr=16000))
+
+        @classmethod
+        def load(cls, run_dir):
+            loads.append(str(run_dir))
+            return cls()
+
+        def enhance(self, y):
+            return 0.5 * np.asarray(y, dtype=np.float32)
+
+    inference = types.ModuleType("kudioenhance.inference")
+    inference.Enhancer = Enhancer
+    monkeypatch.setitem(sys.modules, "kudioenhance.inference", inference)
+    monkeypatch.setattr(tools, "kudioenhance_available", lambda: True)
+    published(monkeypatch, "gtcrn-vbd16k")
+    said = messages(studio)
+
+    studio.call("enhance.denoise", [LEARNED, values(run_dir="gtcrn-vbd16k")])
+    studio.jobs.wait(60)
+    assert loads == ["gtcrn-vbd16k"]
+    assert not [m for m in said() if "Select" in m]
+    code = studio.session.edit_script()
+    assert "enhancer = Enhancer.load('gtcrn-vbd16k')" in code
+    assert "run_dir = Path(" not in code
 
 
 def test_learned_without_the_package_shows_the_install_hint(studio, monkeypatch):

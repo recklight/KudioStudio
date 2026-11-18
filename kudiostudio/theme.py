@@ -87,10 +87,23 @@ def mix(a: str, b: str, t: float) -> str:
 #: lifted towards white so text in it stays easy to read
 PRIMARY_TEXT = mix(PRIMARY_COLOR, "#ffffff", 0.45)
 
+#: the text colours Settings offers, over the same surfaces: TEXT is what is
+#: read, HINT what explains it, AXIS the plots' figures. "standard" is the
+#: three above. Against SURFACE the text and hints stand at 13.8:1 and 5.9:1
+#: in standard, 17.0 and 9.8 bright, 14.7 and 7.7 warm, 18.2 and 12.9 high;
+#: the axis against CANVAS at 5.5, 9.4, 7.0 and 12.6. Warnings, passes and
+#: the plots' own colours keep theirs, since they carry a meaning
+TEXT_SETS = {
+    "standard": {},
+    "bright": {"text": "#f4f8fc", "hint": "#b0c0d2", "axis": "#a3b4c6"},
+    "warm": {"text": "#f1e6d2", "hint": "#b8a78c", "axis": "#a8977c"},
+    "high": {"text": "#ffffff", "hint": "#d0dbe6", "axis": "#c2cfdc"},
+}
+
 __all__ = ["CALL_COLOR", "HINT_COLOR", "WAVE_COLOR", "ACCENT_COLOR",
            "WARN_COLOR", "OK_COLOR", "MARKER_COLOR", "SPECTRUM_MAP",
            "PITCH_COLOR", "LOUDNESS_COLOR", "BASE_COLOR",
            "SURFACE_COLOR", "RAISED_COLOR", "HOVER_COLOR", "BORDER_COLOR",
            "EDGE_COLOR", "CANVAS_COLOR", "TEXT_COLOR", "DISABLED_COLOR",
            "PRIMARY_COLOR", "PRIMARY_SOFT", "PRIMARY_TEXT", "INK_COLOR",
-           "AXIS_COLOR", "mix"]
+           "AXIS_COLOR", "TEXT_SETS", "mix"]

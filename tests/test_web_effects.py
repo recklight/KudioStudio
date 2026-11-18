@@ -196,8 +196,10 @@ def test_new_audio_forgets_the_segments(studio):
     events = []
     while not q.empty():
         events.append(q.get_nowait())
-    assert {"type": "panel", "panel": "effects",
-            "info": studio.call("effects.measure_ir")} in events
+    # the state itself; the event and the answer each carry their own number
+    shown = {k: v for k, v in studio.call("effects.measure_ir").items() if k != "serial"}
+    assert any(e["type"] == "panel" and e["panel"] == "effects" and e.get("info") == shown
+               for e in events)
 
 
 def test_a_preview_renders_again_with_new_values(studio):

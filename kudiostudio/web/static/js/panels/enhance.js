@@ -45,8 +45,10 @@ export async function mount(root, ctx) {
 
   const learned = ui.form();
   const runDir = ui.path({ kind: "folder", title: "Select a kudioenhance run directory",
-                           placeholder: "run directory from kudioenhance, e.g. runs/exp1",
-                           readOnly: false, onChange: changed });
+                           placeholder: info.published.length
+                             ? "run directory, or published weights: " + info.published.join(", ")
+                             : "run directory from kudioenhance, e.g. runs/exp1",
+                           readOnly: false, suggestions: info.published, onChange: changed });
   if (memory.values.run_dir) runDir.value = memory.values.run_dir;
   const resample = ui.check("resample to the model's rate if they differ", {
     checked: memory.values.resample ?? true, onChange: changed,

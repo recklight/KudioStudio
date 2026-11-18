@@ -30,6 +30,8 @@ class PitchPanel(WebPanel):
         self._track = None
         #: where in the clip the track was measured from
         self._offset = 0.0
+        #: seconds of audio the track was made from: a voiced run ends there
+        self._length = 0.0
         self._scope = ""
         #: what the result line says: (text, ok)
         self._result: Optional[tuple] = None
@@ -97,6 +99,7 @@ class PitchPanel(WebPanel):
             if self.studio.version != version:
                 return                  # the audio moved on while it ran
             self._offset, self._scope = offset, scope
+            self._length = len(y) / self.session.sr
             self._finished(track)
 
         return self.start_job("Tracking…", kudio.f0, y, self.session.sr, fmin=fmin,
@@ -148,7 +151,7 @@ class PitchPanel(WebPanel):
         replaced = len(self.session.markers) - len(kept)
         new = tuple(Marker(start=start, end=end, label=f"voiced {n}")
                     for n, (start, end) in enumerate(
-                        pitch.voiced_spans(self._track, self._offset), 1))
+                        pitch.voiced_spans(self._track, self._offset, self._length), 1))
         self.session.set_markers(kept + list(new))
         self._added = new
         if replaced:

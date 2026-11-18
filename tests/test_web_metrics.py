@@ -496,3 +496,91 @@ def test_at_8_khz_the_composite_takes_raw_narrowband_pesq(monkeypatch, scale, ca
                                           whole=(y, y[:7200]))
     assert handed == calls and given == {"pesq": 3.0}
     assert dict(rows)["PESQ inside them (raw P.862)"] == "3.000"
+
+
+def test_a_dnsmos_that_fails_at_once_leaves_evaluate_usable(studio, monkeypatch):
+    """Without its models DNSMOS fails before the click's answer arrives, and
+    that answer still says busy. Evaluate follows the job events, which by
+    then have said the job is over."""
+    import json
+    import shutil
+    import subprocess
+
+    from test_enhance import PAGE
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+
+    def missing(y, sr):
+        raise FileNotFoundError("DNSMOS model not found")
+
+    monkeypatch.setattr(kudio, "dnsmos", missing)
+    before = studio.call("metrics.describe")
+    studio.call("metrics.dnsmos")
+    assert studio.jobs.wait(30)
+    failed = studio.call("metrics.describe")
+    # a path field has an input and a Browse button of its own
+    script = (PAGE + "Fake.prototype.querySelector = function () { return new Fake('input'); };\n"
+              "Object.defineProperty(Fake.prototype, 'button', {\n"
+              "  get() { return this._browse ??= new Fake('browse'); } });\n"
+              "Fake.prototype.setRows = function () {};\n"
+              f"const info = {json.dumps(before)};\n"
+              f"const failed = {json.dumps(failed)};\n"
+              "let panel;\n"
+              "const ctx = { ui, t: (text) => text, memory: {}, window() {},\n"
+              "  call: async (name) => {\n"
+              "    if (name === 'describe') return info;\n"
+              "    panel.event({ info: failed });     // the job failed and said so\n"
+              "    panel.busy(false);                 // and ended\n"
+              "    return { ...failed, busy: true };  // then the click's answer\n"
+              "  } };\n"
+              f"const {{ mount }} = await import({json.dumps((STATIC / 'js/panels/metrics.js').as_uri())});\n"
+              "panel = await mount(new Fake('root'), ctx);\n"
+              "const [inspect, blind, dnsmos, evaluate] = made.filter((el) => el.kind === 'button');\n"
+              "await dnsmos.given.onClick();\n"
+              "console.log(JSON.stringify(evaluate.disabled));\n")
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) is False
+
+
+def test_a_row_kudio_scored_nan_for_says_kudios_reason(monkeypatch):
+    """LLR's nan for a frame too loud to square has a short reason of its
+    own, and a nan whose reason the table does not know shows kudio's
+    sentence rather than a bare n/a."""
+    import warnings
+
+    def too_loud(ref, deg, sr):
+        warnings.warn("llr(): 3 of the 929 frames came out NaN, as a frame does when "
+                      "it is too loud to square in float64; scored nan")
+        return float("nan")
+
+    def unknown(ref, deg, sr):
+        warnings.warn("wss(): something new went wrong; scored nan")
+        return float("nan")
+
+    monkeypatch.setattr(kudio, "llr", too_loud)
+    monkeypatch.setattr(kudio, "wss", unknown)
+    voice = _syllables(16000)
+    rows = dict(metrics.quality_rows(voice, voice, 16000))
+    assert rows["LLR"] == "n/a — too loud to compute in float64"
+    assert rows["WSS"] == "n/a — something new went wrong; scored nan"
+    # in Chinese the sentence stays kudio's, and the words around it do not
+    assert i18n.translate(rows["WSS"], "zh_TW") == "不適用 — something new went wrong; scored nan"
+
+
+def test_the_composite_row_says_why_it_has_no_ratings(monkeypatch):
+    import warnings
+
+    def composite(ref, deg, sr, **kwargs):
+        warnings.warn("composite(): of the 929 frames, 3 in LLR came out NaN, as a frame "
+                      "does when it is too loud to square in float64")
+        nan = float("nan")
+        return kudio.CompositeScore(nan, nan, nan, 2.0, nan, 30.0, 5.0)
+
+    monkeypatch.setattr(kudio, "composite", composite)
+    voice = _syllables(16000)
+    assert metrics.composite_rows(voice, voice, 16000, {"PESQ": True}, pesq=2.0) == [
+        ("CSIG / CBAK / COVL", "n/a — too loud to compute in float64")]

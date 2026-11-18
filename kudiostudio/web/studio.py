@@ -40,6 +40,7 @@ from kudiostudio.web.editing import Editing
 from kudiostudio.web.jobs import Jobs
 from kudiostudio.web.markers import Markers
 from kudiostudio.web.monitor import LiveMonitor
+from kudiostudio.web.options import Options
 from kudiostudio.web.panels import ORDER, PANEL_CLASSES, rail
 from kudiostudio.web.player import Player
 
@@ -134,6 +135,31 @@ class Prefs:
             log.warning("settings not saved: %s", e)
 
 
+def shown_names(paths: Sequence[str]) -> List[str]:
+    """Each file's name for the Files list, with as many of its folders in
+    front as it takes to tell it from another of the same name. A test set
+    holds clean/spk1_01.wav and noisy/spk1_01.wav, and two lines that both
+    read spk1_01.wav are an easy way to pick the wrong reference."""
+    parts = [Path(p).parts for p in paths]
+    depth = [1] * len(parts)
+    while True:
+        # a root part ends in its separator, C:\ or /, and the join adds one
+        shown = ["/".join(part.rstrip("\\/") for part in q[-d:])
+                 for q, d in zip(parts, depth)]
+        clash = {s for s in shown if shown.count(s) > 1}
+        grow = [i for i, s in enumerate(shown) if s in clash and depth[i] < len(parts[i])]
+        if not grow:
+            return shown
+        for i in grow:
+            depth[i] += 1
+
+
+def _lu(value: float) -> str:
+    """A loudness difference to 0.1 LU, signed. Rounded first and then
+    added to 0.0, so that a gap of nothing, or of -0.04, reads +0.0 rather
+    than -0.0."""
+    return f"{round(value, 1) + 0.0:+.1f}"
+
 class Studio:
     """The window's back end: one session, one player."""
 
@@ -189,6 +215,9 @@ class Studio:
 
         self.editing = Editing(self)
         self.markers = Markers(self)
+        #: the Settings dialog's values; they set the session's undo depth
+        #: and crossfade as they are read
+        self.options = Options(self)
         #: the plots while a take is running
         self.monitor = LiveMonitor(self)
         self.panels = [cls(self) for cls in PANEL_CLASSES]
@@ -206,8 +235,8 @@ class Studio:
                 if panel.id in ORDER or any(p.id == panel.id for p in self.panels):
                     raise ValueError(f"its id {panel.id!r} is already on the rail")
                 # a panel's commands are named after its id, and markers.*
-                # are the window's own
-                if panel.id == "markers":
+                # and options.* are the window's own
+                if panel.id in ("markers", "options"):
                     raise ValueError(f"its id {panel.id!r} names the window's own commands")
             except Exception as e:  # noqa: BLE001 - one plugin must not stop the window
                 plugin.error = f"{type(e).__name__}: {e}"
@@ -218,6 +247,7 @@ class Studio:
         self.commands: Dict[str, Callable] = commands_of(self)
         self.commands.update(commands_of(self.editing))
         self.commands.update(commands_of(self.markers, "markers."))
+        self.commands.update(commands_of(self.options, "options."))
         for panel in self.panels:
             self.commands.update(commands_of(panel, panel.id + "."))
 
@@ -236,7 +266,12 @@ class Studio:
         no such command."""
         fn = self.commands[name]
         with self.lock:
-            return fn(*(args or ()), **(kwargs or {}))
+            answer = fn(*(args or ()), **(kwargs or {}))
+            # a panel's state is numbered as its events are (WebPanel.publish)
+            panel = self.panel(name.partition(".")[0]) if "." in name else None
+            if panel is not None and isinstance(answer, dict) and "busy" in answer:
+                answer = {**answer, "serial": getattr(panel, "_serial", 0)}
+            return answer
 
     def panel(self, panel_id: str):
         """The panel *panel_id*, or None."""
@@ -247,6 +282,8 @@ class Studio:
     def say(self, text: str) -> None:
         """A line for the status bar."""
         log.info("%s", text)
+        # kept in English, to be said again in another language (set_language)
+        self._said = text
         self.events.publish("message", text=i18n.translate(text, self.language))
 
     def _push_state(self) -> None:
@@ -298,8 +335,8 @@ class Studio:
                     "(too short to measure loudness)")
         if self.session.loudness_matched:
             return (f"A/B — the original, levelled to the edit "
-                    f"({-gap:+.1f} LU applied)")
-        return (f"A/B — the original, {gap:+.1f} LU against the edit; "
+                    f"({_lu(-gap)} LU applied)")
+        return (f"A/B — the original, {_lu(gap)} LU against the edit; "
                 f"turn on Match loudness to compare fairly")
 
     def _on_finished(self, end: float) -> None:
@@ -340,6 +377,7 @@ class Studio:
             "samples": len(s.y) if s.has_audio else 0,
             "selection": list(selection) if selection else None,
             "can_undo": s.can_undo(),
+            "can_redo": s.can_redo(),
             "can_revert": s.original() is not None,
             "can_compare": s.can_compare(),
             "comparing": s.comparing,
@@ -350,7 +388,8 @@ class Studio:
             # replacing the clip would lose audio no file holds
             "unsaved": s.has_unsaved_audio(),
             "crossfade_ms": s.crossfade_ms,
-            "files": [{"path": p, "name": Path(p).name} for p in self.files],
+            "files": [{"path": p, "name": name}
+                      for p, name in zip(self.files, shown_names(self.files))],
             "markers": [{"start": m.start, "end": m.end, "label": m.label}
                         for m in s.markers],
             "playing": self.player.playing,
@@ -362,6 +401,7 @@ class Studio:
             "analysis": dict(self.settings.__dict__),
             "call": self.settings.call(),
             "language": self.language,
+            "options": dict(self.options.values),
             "busy": [owner for owner, _ in self.jobs.running()],
             "monitoring": self.monitor.running,
             "version_info": {"kudiostudio": __version__, "kudio": kudio.__version__},
@@ -477,7 +517,21 @@ class Studio:
             self.say(f"Could not open {Path(path).name} — {type(e).__name__}: {e}")
             return self.state()
         self.remember_dir(path)
+        self.remember_file(path)
         return self.state()
+
+    def remember_file(self, path: str) -> None:
+        """Note the file the clip now is, for reopening it at the next start."""
+        self.prefs.set("last_file", str(Path(path).resolve()))
+
+    def reopen_last(self) -> bool:
+        """Open the file the window last had, when Settings asks for it and
+        the file is still there; for a start with no file named."""
+        last = self.prefs.get("last_file")
+        if not (self.options["reopen_last"] and last and Path(last).is_file()):
+            return False
+        self.open_files([last])
+        return True
 
     @command
     def remove_file(self, path: str) -> Dict:
@@ -557,6 +611,17 @@ class Studio:
         return self.stop() if self.player.playing else self.play()
 
     @command
+    def play_range(self, start: float, end: Optional[float] = None) -> Dict:
+        """Play from *start* to *end*, or to the end of the clip, whatever the
+        selection and Selection only say: the plots' right-click menu plays
+        from a point, or the selection, without flipping that switch."""
+        self.end_preview()
+        if self.session.has_audio:
+            total = self.session.duration
+            self._play_range(max(0.0, float(start)), total if end is None else float(end))
+        return self._playback_state()
+
+    @command
     def seek(self, seconds: float) -> Dict:
         """Move the playhead; keep playing from there if it already was."""
         if not self.session.has_audio:
@@ -584,10 +649,14 @@ class Studio:
             self.gain_db = float(np.clip(gain_db, -24.0, 12.0))
         return self.state()
 
-    def position(self) -> float:
+    def position(self, at: Optional[float] = None) -> float:
         """Where the playhead is now. While the clip plays that is where
         playback has got to, not where it started; a panel's preview loops
-        audio of its own, so its clock is not the clip's playhead."""
+        audio of its own, so its clock is not the clip's playhead. *at*, a
+        time the page names, as the plots' right-click menu does, comes back
+        held to the clip instead."""
+        if at is not None:
+            return min(max(float(at), 0.0), self.session.duration)
         if self.player.playing and self._preview is None:
             return min(self.player.position, self.session.duration)
         return self.playhead
@@ -703,6 +772,12 @@ class Studio:
     def undo(self) -> Dict:
         if not self.session.undo():
             self.say("Nothing to undo.")
+        return self.state()
+
+    @command
+    def redo(self) -> Dict:
+        if not self.session.redo():
+            self.say("Nothing to redo.")
         return self.state()
 
     @command
@@ -848,6 +923,11 @@ class Studio:
         i18n.load(self.language)
         self.prefs.set("language", self.language)
         self._levels = {}              # its problem lines are in the old language
+        # the status bar keeps its line until the next one comes, and in the
+        # old language that reads as a switch that did not take
+        said = getattr(self, "_said", "")
+        if said:
+            self.events.publish("message", text=i18n.translate(said, self.language))
         return self.translations()
 
     # ----------------------------------------------------------------- about
@@ -908,4 +988,4 @@ def _audible(value) -> Optional[float]:
 
 
 __all__ = ["Studio", "EventHub", "Prefs", "AUDIO_TYPES", "PATH_KINDS",
-           "config_dir", "system_language"]
+           "config_dir", "shown_names", "system_language"]

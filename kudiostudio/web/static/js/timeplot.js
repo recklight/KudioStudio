@@ -6,6 +6,7 @@
 // where "1.2 seconds" is.
 
 import { ticks, timeTick } from "./format.js";
+import { pixelRatio, pointIn } from "./zoom.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -49,6 +50,7 @@ export class TimePlot {
     canvas.addEventListener("pointerleave", () => this.leave());
     canvas.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
     canvas.addEventListener("dblclick", (e) => this.doubleClick(e));
+    canvas.addEventListener("contextmenu", (e) => this.contextMenu(e));
   }
 
   readColors() {
@@ -60,7 +62,7 @@ export class TimePlot {
   // ------------------------------------------------------------ geometry
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = pixelRatio(this.canvas);
     const { clientWidth: w, clientHeight: h } = this.canvas;
     if (w === 0 || h === 0) return;
     this.dpr = dpr;
@@ -268,9 +270,7 @@ export class TimePlot {
 
   pointerDown(e) {
     if (!this.view.duration) return;
-    const r = this.canvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
+    const { x, y } = pointIn(e, this.canvas);
     if (!this.inArea(x, y)) return;
     this.canvas.setPointerCapture(e.pointerId);
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -278,6 +278,21 @@ export class TimePlot {
       return;
     }
     if (e.button !== 0) return;
+    if (e.shiftKey) {
+      // Shift carries the selection to the click, from whichever edge is
+      // further away, or selects from the playhead when there is none
+      const t = Math.min(Math.max(this.xToTime(x), 0), this.view.duration);
+      let anchor = this.playhead ?? t;
+      if (this.selection) {
+        const [a, b] = this.selection;
+        anchor = Math.abs(t - a) < Math.abs(t - b) ? b : a;
+      }
+      this.selection = [Math.min(anchor, t), Math.max(anchor, t)];
+      this.drag = { mode: "edge", x, anchor };
+      this.hooks.onSelecting?.(this.selection);
+      this.requestDraw();
+      return;
+    }
     let mode = "pending";
     let anchor = this.xToTime(x);
     if (this.selection) {
@@ -290,9 +305,7 @@ export class TimePlot {
   }
 
   pointerMove(e) {
-    const r = this.canvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
+    const { x, y } = pointIn(e, this.canvas);
     const d = this.drag;
     if (!d) {
       const inside = this.inArea(x, y) && this.view.duration > 0;
@@ -320,11 +333,26 @@ export class TimePlot {
     this.drag = null;
     if (!d) return;
     if (d.mode === "pending") {
-      const r = this.canvas.getBoundingClientRect();
-      this.hooks.onSeek?.(Math.min(Math.max(this.xToTime(e.clientX - r.left), 0), this.view.duration));
+      const { x } = pointIn(e, this.canvas);
+      this.hooks.onSeek?.(Math.min(Math.max(this.xToTime(x), 0), this.view.duration));
     } else if ((d.mode === "select" || d.mode === "edge") && this.selection) {
       this.hooks.onSelect?.(this.selection[0], this.selection[1]);
     }
+  }
+
+  /** A right click: the time and value under it, or the value axis, for
+   *  the menu the window builds. */
+  contextMenu(e) {
+    e.preventDefault();
+    if (!this.view.duration) return;
+    const { x, y } = pointIn(e, this.canvas);
+    const a = this.area;
+    if (y < a.y || y > a.y + a.h || x > a.x + a.w) return;
+    const onAxis = x < a.x;
+    this.hooks.onContextMenu?.(e, {
+      time: onAxis ? null : Math.min(Math.max(this.xToTime(x), 0), this.view.duration),
+      value: this.valueAt(y), onAxis,
+    });
   }
 
   leave() {
@@ -342,8 +370,7 @@ export class TimePlot {
   wheel(e) {
     if (!this.view.duration) return;
     e.preventDefault();
-    const r = this.canvas.getBoundingClientRect();
-    const time = this.xToTime(e.clientX - r.left);
+    const time = this.xToTime(pointIn(e, this.canvas).x);
     // a trackpad's sideways swipe, or Shift with a wheel, scrolls; the plain
     // wheel zooms around the pointer, as in every audio editor
     const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : 0);

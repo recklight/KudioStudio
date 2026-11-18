@@ -115,6 +115,10 @@ run_dir 是 kudioenhance 訓練時寫出的目錄，可以直接輸入，或按�
 東西組成：`config.yaml` 裡的設定（包含訓練時的 STFT 參數）、`stats.npz` 裡的正規化統計量，
 以及 checkpoint。三者出自同一次訓練，所以推論不可能在不知不覺中，與訓練用了不同的幀長或縮放方式。
 
+它也接受 kudioenhance 發布的權重名稱，輸入時欄位會列出來：`gtcrn-vbd16k`，是在 VoiceBank-DEMAND
+上以 16 kHz 訓練的 GTCRN。第一次「降噪」會把它下載到 kudioenhance 的快取，並核對 SHA-256，
+之後都從那裡讀取。若有同名的資料夾，會以資料夾為準，和 `Enhancer.load` 一樣。
+
 第一次按「降噪」或「預覽」時會載入模型，也就是匯入 PyTorch 並讀取 checkpoint，要花幾秒。
 之後模型會被保留，同一個目錄再按就直接沿用。保留的依據是目錄在磁碟上的內容，而不是它的名稱：
 在同一個目錄重新訓練之後，下一次按下會重新載入，所以執行的權重一定是資料夾裡的那一份。
@@ -136,7 +140,7 @@ run_dir 是 kudioenhance 訓練時寫出的目錄，可以直接輸入，或按�
 | 狀態列的訊息 | 原因 |
 |---|---|
 | 學習式模型需要 kudioenhance 套件與 PyTorch：… | 兩者之一沒有安裝 |
-| 請先選擇 kudioenhance 執行目錄。 | run_dir 是空的，或不是資料夾 |
+| 請先選擇 kudioenhance 執行目錄，或輸入已發布權重的名稱（…）。 | run_dir 是空的，或既不是資料夾，也不是已發布的名稱 |
 | 學習式模型（…） 失敗 — FileNotFoundError: … | 這個資料夾不是完整的訓練結果：沒有 `config.yaml` 或 `stats.npz`，或沒有以設定中的模型命名的 checkpoint（`no model at …`） |
 | 學習式模型（…） 失敗 — FileNotFoundError，訊息裡提到 `.keras` 檔 | 這次訓練存的是 Keras 權重，PyTorch 讀不了。請重新訓練；資料夾裡的設定與資料切分可以照原樣沿用 |
 | 學習式模型（…） 失敗 — ValueError: … | checkpoint 訓練的模型，與 `config.yaml` 描述的不同 |

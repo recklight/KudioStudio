@@ -68,15 +68,11 @@ def enabled() -> bool:
 
 
 def _entry_points(group: str = GROUP) -> list:
-    found = metadata.entry_points()
-    if hasattr(found, "select"):  # Python 3.10 and later
-        listed = found.select(group=group)
-    else:  # 3.9: a dict of lists
-        listed = found.get(group, ())
-    # 3.9 lists a package installed with ``pip install -e`` twice, once for
-    # its dist-info and once for the egg-info the build leaves in its source
+    # the same entry point can come from two copies of one package's
+    # metadata, a dist-info and an egg-info a build left in its source, and
+    # is loaded once
     unique = {}
-    for entry_point in listed:
+    for entry_point in metadata.entry_points().select(group=group):
         unique.setdefault((entry_point.name, entry_point.value), entry_point)
     return list(unique.values())
 

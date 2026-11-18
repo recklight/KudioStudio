@@ -244,3 +244,54 @@ console.log(JSON.stringify({ asked: titles.length,
                              opened: asked.filter(([name]) => name === "open_row").length }));
 """)
     assert seen == {"asked": 2, "opened": 2}
+
+
+#: what manifest.js touches beyond the stand-ins of test_enhance's page
+_MORE_PAGE = """
+for (const name of ["style", "dataset"]) {
+  Object.defineProperty(Fake.prototype, name, { get() { return this["_" + name] ??= {}; } });
+}
+Object.assign(Fake.prototype, { clear() {}, querySelectorAll() { return []; },
+                                setAttribute() {}, focus() {} });
+globalThis.ResizeObserver = class { observe() {} };
+globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+"""
+
+
+@pytest.mark.parametrize("button", ["Open…", "Reload"])
+def test_the_table_keeps_the_view_the_read_published(studio, corpus, button):
+    """A small manifest is read before load() answers. The view it answers
+    with is the one from before the read, and the page must not put it back
+    over the table the read has just filled."""
+    import json
+    import shutil
+    import subprocess
+
+    from test_enhance import PAGE, STATIC
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    before = studio.call("manifest.describe")
+    after = _open(studio, corpus)
+    script = (PAGE + _MORE_PAGE + f"const info = {json.dumps(before)};\n"
+              f"const after = {json.dumps(after)};\n"
+              "let panel;\n"
+              "const ctx = { ui, t: (text) => text, memory: {}, window() {},\n"
+              f"  dialogs: {{ choosePath: async () => {json.dumps(str(corpus))} }},\n"
+              "  call: async (name) => {\n"
+              "    if (name === 'describe') return info;\n"
+              "    panel.event({ view: after, reset: true });   // the read, done first\n"
+              "    return info.view;\n"
+              "  } };\n"
+              f"const {{ mount }} = await import({json.dumps((STATIC / 'js/panels/manifest.js').as_uri())});\n"
+              "panel = await mount(new Fake('root'), ctx);\n"
+              # Open… and Reload are the first two buttons the panel makes
+              "const [openFile, reload] = made.filter((el) => el.kind === 'button');\n"
+              f"await ({json.dumps(button)} === 'Open…' ? openFile : reload).given.onClick();\n"
+              "const path = made.find((el) => el.given?.placeholder === 'no manifest open');\n"
+              "console.log(JSON.stringify(path.value));\n")
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == after["path"]

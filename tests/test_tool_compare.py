@@ -202,6 +202,7 @@ const file = control("File");
 const verdict = nodes().find((n) => n.classList.contains("verdict"));
 const look = () => ({
   rows: tbody.children.map((tr) => tr.children.map((td) => td.textContent)),
+  spans: tbody.children.map((tr) => tr.children.map((td) => td.colSpan || 1)),
   selected: tbody.children.map((tr) => tr.classList.contains("selected")),
   hidden: headers().map((th) => th.hidden),
   audition: { enabled: !audition.disabled, text: audition.textContent, on: audition.on },
@@ -752,15 +753,17 @@ CHINESE = [
 ]
 
 
-def test_a_verdict_is_translated_sentence_by_sentence(studio):
+def test_a_verdict_is_translated_sentence_by_sentence(studio, monkeypatch):
     """Glued into one string, a verdict with a second sentence matched no
     translation and the whole of it stayed English."""
+    published(monkeypatch)
     texts = chinese_verdicts(studio)
     i18n.load("zh_TW")
     assert [i18n.tr(text).split("\n") for text in texts] == CHINESE
 
 
-def test_the_page_shows_a_verdict_in_chinese_sentence_by_sentence(studio):
+def test_the_page_shows_a_verdict_in_chinese_sentence_by_sentence(studio, monkeypatch):
+    published(monkeypatch)
     info = studio.call("compare.describe")
     for text, lines in zip(chinese_verdicts(studio), CHINESE):
         info["verdict"] = {"text": text, "tone": "ok"}
@@ -797,12 +800,35 @@ def test_no_run_directory_means_no_extra_row(studio):
     assert len(results(studio)) == len(kudio.METHODS)
 
 
-def test_a_run_directory_that_is_not_a_folder_says_why_there_is_no_row(studio, tmp_path):
+def published(monkeypatch, *names):
+    """kudioenhance.pretrained as a kudioenhance that publishes *names* has it."""
+    pretrained = types.ModuleType("kudioenhance.pretrained")
+    pretrained.PRETRAINED = {name: object() for name in names}
+    monkeypatch.setitem(sys.modules, "kudioenhance.pretrained", pretrained)
+
+
+def test_a_run_directory_that_is_not_a_folder_says_why_there_is_no_row(
+        studio, tmp_path, monkeypatch):
     missing = tmp_path / "runs" / "exp9"
+    published(monkeypatch)
     info = run(studio, run_dir=str(missing))
     assert len(results(studio)) == len(kudio.METHODS)
     assert info["verdict"]["text"].split("\n")[-1] == \
         f"No learned row: {missing} is not a folder."
+    published(monkeypatch, "gtcrn-vbd16k")
+    info = run(studio, run_dir=str(missing))
+    assert info["verdict"]["text"].split("\n")[-1] == \
+        f"No learned row: {missing} is neither a folder nor published weights (gtcrn-vbd16k)."
+
+
+def test_published_weights_add_a_row_by_name(studio, monkeypatch):
+    model = install_fake_model(monkeypatch)
+    model.load_seconds = 0.0
+    published(monkeypatch, "gtcrn-vbd16k")
+    run(studio, run_dir="gtcrn-vbd16k")
+    row = learned_row(studio)
+    assert (row.method, row.error) == ("gtcrn-vbd16k", None)
+    assert set(model.loads) == {"gtcrn-vbd16k"}
 
 
 def test_a_run_directory_adds_one_row(studio, tmp_path, monkeypatch):
@@ -1306,3 +1332,23 @@ def test_a_sort_that_keeps_the_order_does_not_restart_the_loop(studio):
     # and nothing plays again while nothing is playing
     view = page(info, ("click", 0), ("shift", 1), ("header", 0), ("header", 0))[-1]
     assert asked(view, "audition") == []
+
+
+def test_the_scores_come_right_after_the_labels():
+    """At 1366 x 850 the table is wider than the panel, and the columns that
+    rank the rows, last in it, were the ones scrolled out of view."""
+    assert tools.COLUMNS[:6] == ("method", "noise", "SI-SDR", "ΔSNR", "PESQ", "STOI")
+    assert set(tools.REFERENCE_COLUMNS) == {2, 3, 4, 5}
+
+
+def test_a_failed_row_shows_its_error_across_the_score_columns(studio, monkeypatch):
+    """With a reference the error sat in the ms column, the seventh, past
+    the right edge of a 1366 px window; it starts where the scores do."""
+    break_wiener(monkeypatch)
+    info = run(studio)
+    for reference in (False, True):
+        view = page({**info, "has_reference": reference})[0]
+        failed = next(i for i, key in enumerate(shown_keys(info, view)) if key[0] == "wiener")
+        shown = len(tools.COLUMNS) - (0 if reference else len(tools.REFERENCE_COLUMNS))
+        assert view["rows"][failed][2] == "RuntimeError: boom"
+        assert view["spans"][failed] == [1, 1, shown - 2]

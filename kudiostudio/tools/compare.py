@@ -24,7 +24,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 import kudio
-from kudiostudio.tools.enhance import INSTALL_HINT, LearnedModel, ModelState, learned_code
+from kudiostudio.tools.enhance import (INSTALL_HINT, LearnedModel, ModelState, is_model,
+                                       learned_code, published_models)
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +34,11 @@ REF_ORIGINAL = "the original, before this session's edits"
 REF_FILE = "a file…"
 REFERENCES = (REF_NONE, REF_ORIGINAL, REF_FILE)
 
-COLUMNS = ("method", "noise", "ms", "floor dBFS", "LUFS",
-           "SI-SDR", "ΔSNR", "PESQ", "STOI")
+#: the scores, which rank the rows when there is a reference, come straight
+#: after the two labels: the panel column is narrower than the table, and the
+#: columns that decide come first
+COLUMNS = ("method", "noise", "SI-SDR", "ΔSNR", "PESQ", "STOI",
+           "ms", "floor dBFS", "LUFS")
 #: columns that only mean anything with a clean reference
 REFERENCE_COLUMNS = tuple(COLUMNS.index(c) for c in ("SI-SDR", "ΔSNR", "PESQ", "STOI"))
 
@@ -60,7 +64,8 @@ SWEEP_TIP = ("Which axis to vary. Enhancement is two choices — a gain rule and
              "noise estimator — and which of them moves the result more depends on "
              "the recording; the full grid measures both and says which it was for "
              "this clip.")
-RUN_DIR_TIP = ("Rank a trained model in the same table as the statistical methods. "
+RUN_DIR_TIP = ("Rank a trained model, a run directory or the name of published weights, "
+               "in the same table as the statistical methods. "
                "'Is the model actually better than log-MMSE' is not a question two "
                "separate printouts answer.")
 SELECTION_TIP = ("Faster, and lets you judge one difficult passage. Noise estimation "
@@ -107,10 +112,11 @@ def label(method: str) -> str:
 
 
 def learned_entry(run_dir: str, model: LearnedModel, available: Callable[[], bool]):
-    """``(name, callable)`` for a run directory, or ``None`` when there is
-    none. The model is not loaded here: `compare_with_model` loads it on the
-    job's thread before the comparison starts."""
-    if not run_dir or not Path(run_dir).is_dir():
+    """``(name, callable)`` for a run directory or published weights, or
+    ``None`` when there is none. The model is not loaded here:
+    `compare_with_model` loads it on the job's thread before the comparison
+    starts."""
+    if not is_model(run_dir):
         return None
     if not available():
         raise RuntimeError(INSTALL_HINT)
@@ -125,7 +131,11 @@ def no_learned_row(run_dir: str) -> str:
     """Why *run_dir* adds no row to the table, or "" when it adds one or
     none was asked for. A path that is not a folder is most often a typo,
     and a table that is one row short says nothing about it."""
-    if run_dir and not Path(run_dir).is_dir():
+    if run_dir and not is_model(run_dir):
+        names = published_models()
+        if names:
+            return (f"No learned row: {run_dir} is neither a folder nor published "
+                    f"weights ({', '.join(names)}).")
         return f"No learned row: {run_dir} is not a folder."
     return ""
 
@@ -223,18 +233,21 @@ def as_number(text: str):
 
 
 def cells(result) -> List[str]:
-    """A result's row, as text, in `COLUMNS` order."""
+    """A result's row, as text, in `COLUMNS` order. A failed row has its
+    error in the ms column; the page runs it across the score columns."""
     row = [label(result.method), result.noise]
     if result.error:
-        return row + [result.error] + [""] * (len(COLUMNS) - 3)
+        cells = row + [""] * (len(COLUMNS) - 2)
+        cells[COLUMNS.index("ms")] = result.error
+        return cells
     return row + [
-        f"{result.seconds * 1000:.0f}",
-        f"{result.noise_floor_db:+.1f}",
-        f"{result.lufs:+.1f}" if np.isfinite(result.lufs) else "—",
         _fmt(result.si_sdr_db, "{:+.2f}"),
         _fmt(result.delta_snr_db, "{:+.2f}"),
         _fmt(result.pesq, "{:.2f}"),
         _fmt(result.stoi, "{:.3f}"),
+        f"{result.seconds * 1000:.0f}",
+        f"{result.noise_floor_db:+.1f}",
+        f"{result.lufs:+.1f}" if np.isfinite(result.lufs) else "—",
     ]
 
 

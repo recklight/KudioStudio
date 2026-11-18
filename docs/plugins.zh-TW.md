@@ -20,7 +20,7 @@
 - 它的 `icon_svg` 無法解析成 SVG、沒有配上 `icon` 名稱，或用了內建圖示的名稱；
 - 它的建構子拋出例外；
 - 它沒有 `id`，或它的 `id` 已經在工具列上：另一個外掛的，或內建工具的，包括 `inspect`；
-- 它的 `id` 是 `markers`，這是視窗本身標記指令用的名稱。
+- 它的 `id` 是 `markers` 或 `options`，這是視窗本身標記指令與設定指令用的名稱。
 
 視窗開啟時，狀態列會以警示色逐一指出被略過的外掛與錯誤：
 
@@ -53,7 +53,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rms-panel"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["kudiostudio>=2.0", "numpy"]
 
 [project.entry-points."kudiostudio.panels"]
@@ -150,7 +150,7 @@ class RmsPanel(WebPanel):
 
 | 屬性 | 意義 |
 |---|---|
-| `id` | 面板的代號：頁面呼叫它的指令時，用的名稱是 `rms.describe` 與 `rms.measure`。請取一個自己的；內建工具的 id，包括 `inspect`，都已經被用掉了，`markers` 也不行，視窗本身的指令用了它 |
+| `id` | 面板的代號：頁面呼叫它的指令時，用的名稱是 `rms.describe` 與 `rms.measure`。請取一個自己的；內建工具的 id，包括 `inspect`，都已經被用掉了，`markers` 和 `options` 也不行，視窗本身的指令用了它們 |
 | `title` | 工具列上的名稱，用英文寫，由頁面翻譯 |
 | `icon` | 工具列圖示的名稱 |
 | `icon_svg` | 圖示本身，見[下文](#icon-and-translations) |
@@ -264,7 +264,7 @@ export async function mount(root, ctx) {
 
 | `ctx.` | 意義 |
 |---|---|
-| `call(name, args, kwargs)` | 執行這個面板的指令 `name`，結果為它的回傳值 |
+| `call(name, args, kwargs)` | 執行這個面板的指令 `name`，結果為它的回傳值。若回傳的是面板狀態（像 `describe` 那樣含 `busy` 的 dict），而面板之後又以同樣方式發布了較新的狀態（`self.publish(info=...)`），結果就是 `null`：較快完成的工作結果先到，會留在畫面上。過時的 `describe` 則會重新詢問 |
 | `window(name, args, kwargs)` | 執行視窗本身的指令，例如以 `[1.0, 2.5]` 呼叫 `set_selection` |
 | `ui` | 控制項，見下文 |
 | `t(text)` | 英文的 *text* 在視窗目前語言下的文字 |

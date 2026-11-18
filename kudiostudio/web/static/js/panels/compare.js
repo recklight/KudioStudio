@@ -42,8 +42,11 @@ export async function mount(root, ctx) {
   noise.value = memory.noise;
   noise.addEventListener("change", () => { memory.noise = noise.value; sync(); });
   const runDir = ui.path({ kind: "folder", title: "Select a kudioenhance run directory",
-                           placeholder: "optional: a kudioenhance run directory",
-                           readOnly: false, onChange: (p) => { memory.runDir = p; sync(); } });
+                           placeholder: info.published.length
+                             ? "optional: a run directory, or published weights: " + info.published.join(", ")
+                             : "optional: a kudioenhance run directory",
+                           readOnly: false, suggestions: info.published,
+                           onChange: (p) => { memory.runDir = p; sync(); } });
   if (memory.runDir) runDir.value = memory.runDir;
   form.row("Reference", reference);
   form.row("File", file);
@@ -76,7 +79,9 @@ export async function mount(root, ctx) {
     th.addEventListener("click", () => {
       const [current, descending] = memory.sort ?? [-1, false];
       const heard = JSON.stringify(chosen());
-      memory.sort = [column, current === column ? !descending : column >= 5];
+      // the scores best first, the rest lowest first
+      memory.sort = [column, current === column ? !descending
+                                                : info.reference_columns.includes(column)];
       render();
       // the loop plays the rows top to bottom, so a sort that moved them
       // plays them again in their new order; one that did not, leaves it be
@@ -134,13 +139,21 @@ export async function mount(root, ctx) {
       const tr = document.createElement("tr");
       tr.classList.toggle("selected", selected.has(keyOf(row)));
       tr.classList.toggle("warn", row.error);
-      row.cells.forEach((cell, i) => {
+      (row.error ? row.cells.slice(0, 2) : row.cells).forEach((cell, i) => {
         const td = document.createElement("td");
         td.textContent = i === 0 ? t(cell) : cell;
         td.className = i >= 2 ? "num mono" : "";
         td.hidden = hidden.has(i);
         tr.append(td);
       });
+      if (row.error) {
+        // across every score column shown: it starts where the scores do,
+        // and in one of them it sat past the right edge of a 1366 px window
+        const td = document.createElement("td");
+        td.textContent = row.message;
+        td.colSpan = row.cells.length - 2 - hidden.size;
+        tr.append(td);
+      }
       tr.addEventListener("click", (e) => pick(row, rows, e));
       body.append(tr);
     }

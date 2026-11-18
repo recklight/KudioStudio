@@ -21,9 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 22.04 for 3.9: newer runner images no longer carry a CPython 3.9
-          - os: ubuntu-22.04
-            python-version: "3.9"
+          - os: ubuntu-latest
+            python-version: "3.10"
           - os: ubuntu-latest
             python-version: "3.11"
           - os: ubuntu-latest

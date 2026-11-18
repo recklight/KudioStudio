@@ -25,7 +25,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-需要 Python 3.9 以上。[入門](getting-started.md)列出各個選用套件組、Linux 需要的東西，
+需要 Python 3.10 以上。[入門](getting-started.md)列出各個選用套件組、Linux 需要的東西，
 以及從開啟檔案到存檔的第一次操作。
 
 ## 各面板 {#the-panels}

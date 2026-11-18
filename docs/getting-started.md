@@ -6,9 +6,9 @@
 pip install kudiostudio
 ```
 
-KudioStudio needs Python 3.9 or newer, and kudio 4.0.0 or newer, the first
-with every measure the [Metrics](panels/metrics.md) panel shows; pip brings
-it along. The window is a page the program serves to itself, drawn through
+KudioStudio needs Python 3.10 or newer, and kudio 4.1.0 or newer, which has
+every measure the [Metrics](panels/metrics.md) panel shows and writes the
+`.aif` that Save As offers; pip brings it along. The window is a page the program serves to itself, drawn through
 [pywebview](https://pywebview.flowrl.com/) by the web view the system already
 has: WebView2 on Windows 10 and 11, WebKit on macOS.
 There is no GUI toolkit to install on those two.
@@ -53,8 +53,10 @@ kudiostudio --reset            # forget the saved settings
 ```
 
 `--port` picks the local port the page is served on (any free one by
-default), `--debug` opens the window's developer tools, and `-v` logs at debug
-level.
+default), `--debug` opens the window's developer tools, and `-v` logs
+KudioStudio's and kudio's own messages at debug level, leaving other
+libraries at info. `--version` prints the versions of KudioStudio and of the
+kudio it runs on.
 
 The page in a browser does what the window does, apart from two things only
 the window can do. An open or save dialog becomes a box to type the path into,
@@ -67,9 +69,9 @@ window, that waits for a running job; a second ++ctrl+c++ does not.
 
 ### Language
 
-The interface comes in English and Traditional Chinese. The menu at the top
-right switches between them at once, open panels included, and the choice is
-remembered. With no choice saved, the system's language is used when there is
+The interface comes in English and Traditional Chinese. **Language / 語言**,
+first in **Edit → Settings…** (++ctrl+comma++), switches between them at once,
+open panels included, and the choice is remembered. With no choice saved, the system's language is used when there is
 a translation for it.
 
 The kudio parameter names, the values kudio itself takes (method names, noise
@@ -81,8 +83,9 @@ the like.
 
 ### Saved settings
 
-The window remembers the language, the analysis view with its settings, and
-the folder you last opened or saved something in. They live in one small JSON
+The window remembers the language, the analysis view with its settings, the
+folder you last opened or saved something in, the file last open, and
+everything in [Settings](window.md#settings). They live in one small JSON
 file:
 
 - Windows: `%APPDATA%\Kudio\KudioStudio\window.json`
@@ -110,7 +113,11 @@ file:
 5. ++ctrl+b++ swaps between your edit and the file as it was opened, while it
    plays if you like, levelled to the same loudness so that neither wins by
    being louder.
-6. **File → Save As…** (++ctrl+shift+s++) writes a 16-bit WAV, and
+6. **File → Save As…** (++ctrl+shift+s++) writes WAV, FLAC or AIFF by the
+   name's suffix (a name without one gets `.wav`), 16-bit unless
+   [Settings](window.md#settings) says otherwise, and the clip goes by the new
+   name from then on, in the **Files** list too. In a browser, a name that is
+   already a file asks before it is written over, with Cancel ready for Enter.
    **File → Export edits as Python script…** writes the steps you took as a
    script that makes the same samples from the original file.
 

@@ -150,6 +150,13 @@ the normalisation statistics in `stats.npz`, and the checkpoint. All three
 come from the same run, so inference cannot quietly disagree with training
 about the frame or the scaling.
 
+It also takes the name of weights kudioenhance publishes, which the field
+offers as you type: `gtcrn-vbd16k`, GTCRN trained on VoiceBank-DEMAND at
+16 kHz. The first Denoise downloads them into kudioenhance's cache, checked
+against their SHA-256, and later ones read them from there. A folder of the
+same name wins over the published weights, as it does in
+`Enhancer.load`.
+
 The first Denoise or Preview loads the model, which means importing PyTorch
 and reading the checkpoint, and takes seconds. The model is then kept, and
 later presses on the same directory reuse it. It is kept for the directory as
@@ -178,7 +185,7 @@ rather than denoise with different weights; see
 | The status bar says | Because |
 |---|---|
 | Learned models need the kudioenhance package and PyTorch: … | one of the two is not installed |
-| Select a kudioenhance run directory first. | **run_dir** is empty, or is not a folder |
+| Select a kudioenhance run directory, or type the name of published weights (…), first. | **run_dir** is empty, or is neither a folder nor a published name |
 | learned model (…) failed — FileNotFoundError: … | the folder is not a complete run: it has no `config.yaml` or `stats.npz`, or no checkpoint named after the model the config describes (`no model at …`) |
 | learned model (…) failed — FileNotFoundError, naming a `.keras` file | the run holds Keras weights, which PyTorch cannot read. Train it again; the config and the data splits in the folder can be reused as they are |
 | learned model (…) failed — ValueError: … | the checkpoint was trained as a different model from the one `config.yaml` describes |

@@ -54,6 +54,9 @@ SHAPES: Dict[str, str] = {
     "metrics": '<path d="M4 20h16M7 16.5v-4M12 16.5V6M17 16.5v-7"/>',
     "batch": '<rect x="8" y="8" width="12.5" height="12.5" rx="2"/>'
              '<path d="M16 8V5.5a2 2 0 0 0-2-2H5.5a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2H8"/>',
+    "claude": '<path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v9a1.5 1.5 0 0 1-1.5 1.5H10'
+              'l-4.5 3.5V17h-1A1.5 1.5 0 0 1 3 15.5v-9A1.5 1.5 0 0 1 4.5 5z"/>'
+              '<path d="M7.5 9.5h9M7.5 12.5h6"/>',
     # the close mark on the panel view over the plots
     "close": '<path d="M7 7l10 10M17 7 7 17"/>',
 }

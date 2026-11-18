@@ -360,3 +360,26 @@ def test_nothing_is_dropped_when_there_was_no_contour(studio):
     events = drain()
     assert [e for e in events if e["type"] == "overlay"] == []
     assert [e for e in events if e["type"] == "panel" and e["panel"] == "pitch"] == []
+
+
+def test_a_span_voiced_to_the_end_ends_with_the_clip(tmp_path, monkeypatch):
+    """A 3 s sweep tracked from 250 to 1800 Hz is voiced to its last frame,
+    whose run kudio ends a hop later, at 3.010 s."""
+    monkeypatch.setattr(kudio, "play_audio", lambda y, rate=None, **_: None)
+    sr = 16000
+    t = np.arange(3 * sr) / sr
+    path = tmp_path / "sweep.wav"
+    kudio.save_wave(path, (0.3 * np.sin(2 * np.pi * (250 * t + 100 * t ** 2))
+                           ).astype(np.float32), sr)
+    s = Studio(prefs=Prefs(tmp_path / "window.json"), language="en")
+    try:
+        s.call("open_files", [[str(path)]])
+        _track(s, 250, 1800, 2048, 10)
+        s.call("pitch.add_markers")
+        assert s.session.markers[-1].end == pytest.approx(3.0)
+        s.call("set_selection", [1.0, 2.0])
+        _track(s, 250, 1800, 2048, 10)
+        s.call("pitch.add_markers")
+        assert s.session.markers[-1].end == pytest.approx(2.0)
+    finally:
+        s.shutdown()

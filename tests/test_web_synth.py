@@ -305,3 +305,25 @@ def test_the_rail_has_synthesize_ready(studio):
     assert entry["script"] == "js/panels/synth.js"
     assert Path(__file__).parents[1].joinpath("kudiostudio", "web", "static",
                                               entry["script"]).is_file()
+
+
+def test_the_answer_to_a_refused_run_is_older_than_its_result(studio, tmp_path):
+    """kudio refuses a folder that is not empty at once, and the result says
+    so before the click is answered. The answer carries the state from when
+    the run began, numbered below that result, so the page drops it instead
+    of putting the run before's line back."""
+    clean, noise = _corpus(tmp_path)
+    out = tmp_path / "mix"
+    studio.call("synthesize.run", [clean, noise, str(out), "0"])
+    assert studio.jobs.wait(60)
+    q = studio.events.subscribe()
+    answer = studio.call("synthesize.run", [clean, noise, str(out), "0"])
+    assert studio.jobs.wait(60)
+    events = []
+    while not q.empty():
+        e = q.get_nowait()
+        if e["type"] == "panel" and e["panel"] == "synthesize":
+            events.append(e)
+    assert answer["result"] == "—"
+    assert events[-1]["info"]["result"].startswith(f"0 file(s) written to {out}")
+    assert answer["serial"] < events[-1]["serial"]

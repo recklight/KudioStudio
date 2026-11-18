@@ -24,6 +24,7 @@ import webbrowser
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+import kudio
 from kudiostudio import __version__, i18n, plugins, theme
 from kudiostudio.desktop import set_windows_app_id
 from kudiostudio.web.server import LocalServer
@@ -156,8 +157,11 @@ def dress_native_window(window) -> None:
 def serve_in_browser(server: LocalServer, studio: Studio) -> None:
     """The page in the default browser, until Ctrl+C -- which waits for a
     running job, as closing the window does (`stop_when_idle`)."""
-    print(f"KudioStudio {__version__} on {server.url}")
-    print("Ctrl+C to stop.")
+    # flushed: written to a file or a pipe (an IDE's console, Git Bash), the
+    # lines sit in the buffer for as long as the server runs, and the address
+    # with its token is the only way back in once the browser tab is closed
+    print(f"KudioStudio {__version__} on {server.url}", flush=True)
+    print("Ctrl+C to stop.", flush=True)
     webbrowser.open(server.url)
     try:
         while True:
@@ -203,7 +207,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="leave out the panels other packages add")
     parser.add_argument("--reset", action="store_true",
                         help="forget saved settings: the language, the analysis "
-                             "view and the folders last used")
+                             "view, the folders and file last used, and everything "
+                             "in Settings")
     parser.add_argument("--browser", action="store_true",
                         help="open the page in the default browser instead of "
                              "a window of its own")
@@ -211,13 +216,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="the local port (default: any free one)")
     parser.add_argument("--debug", action="store_true",
                         help="the window's developer tools")
-    parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="debug logging from KudioStudio and kudio")
+    parser.add_argument("--version", action="version",
+                        version=f"KudioStudio {__version__} (kudio {kudio.__version__})")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S")
+    if args.verbose:
+        # KudioStudio's own and kudio's loggers only, as `kudio -v` does: on
+        # the root logger one start-up logged 597 lines, most of them numba's
+        # compiler, and buried the traceback the flag is there for
+        for name in ("kudiostudio", "kudio"):
+            logging.getLogger(name).setLevel(logging.DEBUG)
 
     if args.no_plugins:
         os.environ[plugins.DISABLE_ENV] = "1"
@@ -231,6 +245,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     server.start()
     if args.files:
         studio.call("open_files", [list(args.files)])
+    else:
+        with studio.lock:
+            studio.reopen_last()
     try:
         if args.browser:
             serve_in_browser(server, studio)

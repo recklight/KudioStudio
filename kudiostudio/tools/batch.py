@@ -26,6 +26,8 @@ from public `kudio` calls rather than added to the library:
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import zlib
 from dataclasses import dataclass
@@ -196,18 +198,32 @@ class BatchOutcome:
     loudness: Optional[LoudnessCheck] = None
     levelled: Optional[Levelling] = None
 
+    def failures(self) -> List[Tuple[str, Path, str]]:
+        """Every ``(pass, path, reason)`` a pass gave up on, in the order they
+        ran; the pass as the result names it."""
+        found: List[Tuple[str, Path, str]] = []
+        denoised = self.converted is not None and self.converted is not self.result
+        if denoised:
+            found += [("conversion", p, r) for p, r in self.converted.failed]
+        found += [("denoise" if denoised else "conversion", p, r)
+                  for p, r in self.result.failed]
+        if self.levelled is not None:
+            found += [("levelling", p, r) for p, r in self.levelled.failed]
+        if self.rooms is not None:
+            found += [("reverberant copy", p, r) for p, r in self.rooms.failed]
+        return found
+
     @property
     def failed(self) -> List[Tuple[Path, str]]:
         """Every ``(path, reason)`` a pass gave up on, in the order they ran."""
-        failed: List[Tuple[Path, str]] = []
-        if self.converted is not None and self.converted is not self.result:
-            failed += list(self.converted.failed)
-        failed += list(self.result.failed)
-        if self.levelled is not None:
-            failed += list(self.levelled.failed)
-        if self.rooms is not None:
-            failed += list(self.rooms.failed)
-        return failed
+        return [(path, reason) for _, path, reason in self.failures()]
+
+    def unlisted_failures(self) -> List[Tuple[str, Path, str]]:
+        """The failures the loudness report does not already list: a file
+        it lists, with its reason in plain words, is not counted or listed
+        a second time in kudio's."""
+        listed = {miss.path for miss in self.loudness.misses} if self.loudness else set()
+        return [f for f in self.failures() if Path(f[1]) not in listed]
 
 
 def file_seed(base: int, relative) -> int:
@@ -300,17 +316,48 @@ def level_files(files: Sequence[Path], target: float, *, mode: str = "LUFS",
     """
     written: List[Path] = []
     failed: List[Tuple[Path, str]] = []
-    for path in map(Path, files):
-        try:
-            y, sr = kudio.file_load(path, sr=None, mono=False)
-            y = (kudio.normalize(y, peak=target) if mode == "peak"
-                 else kudio.normalize_lufs(y, sr, lufs=target))
-            kudio.save_wave(path, y, sr, subtype=subtype)
-            written.append(path)
-        except Exception as e:                                  # noqa: BLE001
-            failed.append((path, f"{type(e).__name__}: {e}"))
+    with rewriting(files):
+        for path in map(Path, files):
+            try:
+                y, sr = kudio.file_load(path, sr=None, mono=False)
+                y = (kudio.normalize(y, peak=target) if mode == "peak"
+                     else kudio.normalize_lufs(y, sr, lufs=target))
+                kudio.save_wave(path, y, sr, subtype=subtype)
+                written.append(path)
+            except Exception as e:                              # noqa: BLE001
+                failed.append((path, f"{type(e).__name__}: {e}"))
     return Levelling(target=float(target), written=tuple(written),
                      failed=tuple(failed), mode=mode)
+
+
+class _Rewriting(logging.Filter):
+    """Drops kudio's "Existing file will be overwritten" for *paths*, files a
+    pass writes back over themselves on purpose: one warning a file in the
+    terminal reads as something gone wrong. Any other file, and any other
+    message, still gets through."""
+
+    def __init__(self, paths) -> None:
+        super().__init__()
+        # kudio names a file as it writes it, with .wav for its suffix
+        self.paths = {str(form) for p in map(Path, paths)
+                      for form in (p, p.with_suffix(".wav"))}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (isinstance(record.msg, str)
+                    and record.msg.startswith("Existing file will be overwritten")
+                    and record.args and str(record.args[0]) in self.paths)
+
+
+@contextlib.contextmanager
+def rewriting(paths):
+    """Keep kudio quiet about writing over *paths* while the block runs."""
+    quiet = _Rewriting(paths)
+    io_log = logging.getLogger("kudio.core.io")
+    io_log.addFilter(quiet)
+    try:
+        yield
+    finally:
+        io_log.removeFilter(quiet)
 
 
 def shared_folder(files: Sequence[Path]) -> Path:
@@ -422,9 +469,10 @@ def run_batch(plan: BatchPlan) -> BatchOutcome:
         # pass over the folder would denoise those again and count them.
         # The subtype is passed on, or a FLOAT tree comes back 16-bit.
         written = list(converted.outputs)
-        result = kudio.enhance_folder(
-            written, shared_folder(written), plan.denoise, noise=plan.noise,
-            subtype=subtype, overwrite=True, report=True)
+        with rewriting(written):
+            result = kudio.enhance_folder(
+                written, shared_folder(written), plan.denoise, noise=plan.noise,
+                subtype=subtype, overwrite=True, report=True)
 
     lufs = plan.lufs
     levelled = None
@@ -650,17 +698,16 @@ def result_lines(outcome: BatchOutcome, dst: str) -> List[str]:
         lines.append(f"Levelled to {levelled.target:g} LUFS after the denoise "
                      f"pass, which takes level out with the noise.")
     check = outcome.loudness
-    listed: set = set()
     if check is not None:
         lines += ["", describe_loudness(check)]
-        listed = {miss.path for miss in check.misses}
-    # a file the loudness report already lists, with its reason in plain
-    # words, is not listed a second time in kudio's
-    failed = [(path, reason) for path, reason in outcome.failed
-              if Path(path) not in listed]
+    failed = outcome.unlisted_failures()
     if failed:
         lines += ["", f"{len(failed)} failed:"]
-        lines += [f"{Path(path).name}: {reason}" for path, reason in failed[:5]]
+        # the pass is named: a file the denoise wrote can still have failed
+        # to be levelled, and "written" and "failed" side by side read as a
+        # contradiction otherwise
+        lines += [f"{Path(path).name} — {stage}: {reason}"
+                  for stage, path, reason in failed[:5]]
         if len(failed) > 5:
             lines.append(f"… and {len(failed) - 5} more")
     return lines
@@ -669,8 +716,13 @@ def result_lines(outcome: BatchOutcome, dst: str) -> List[str]:
 def status_text(outcome: BatchOutcome) -> str:
     """The status line once a Run is done."""
     result, check = outcome.result, outcome.loudness
-    message = (f"Batch complete — {result.written}/{result.total} written, "
-               f"{len(outcome.failed)} failed")
-    if check is not None and check.misses:
-        message += f", {len(check.misses)} missed the loudness target"
+    failed = len(outcome.unlisted_failures())
+    missed = len(check.misses) if check is not None else 0
+    message = f"Batch complete — {result.written}/{result.total} written"
+    # counted as the result lists them: a file the loudness report names is
+    # one of the misses, not a failure as well
+    if failed or not missed:
+        message += f", {failed} failed"
+    if missed:
+        message += f", {missed} missed the loudness target"
     return message + "."

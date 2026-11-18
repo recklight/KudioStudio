@@ -28,7 +28,8 @@ from kudiostudio.events import Signal
 
 log = logging.getLogger(__name__)
 
-#: Nothing deeper is worth keeping in RAM for an interactive editor.
+#: Undo steps kept unless Settings says otherwise. Each is a copy of the
+#: clip, so for long takes more costs memory quickly.
 UNDO_DEPTH = 20
 
 #: Milliseconds of crossfade at every splice. A hard cut leaves a step in the
@@ -229,6 +230,9 @@ class AudioSession:
         self._name: str = ""
         self._path: Optional[Path] = None
         self._undo: List[Tuple[np.ndarray, int, str, Tuple[Marker, ...]]] = []
+        #: what undo took back, newest last, with the step it took out of the
+        #: history; any new edit empties it
+        self._redo: List[Tuple[np.ndarray, int, str, Tuple[Marker, ...], EditStep]] = []
         self._original: Optional[Tuple[np.ndarray, int]] = None
         self._sel: Tuple[float, float] = (0.0, 0.0)
         self._comparing: bool = False
@@ -239,7 +243,8 @@ class AudioSession:
         self._clipboard: Optional[Tuple[np.ndarray, int]] = None
         self._markers: Tuple[Marker, ...] = ()
         self._crossfade_ms: float = DEFAULT_CROSSFADE_MS
-        #: the edits since the baseline, as code. Not trimmed to UNDO_DEPTH
+        self._undo_depth: int = UNDO_DEPTH
+        #: the edits since the baseline, as code. Not trimmed to the undo depth
         #: like the snapshots: an edit too old to undo is still in the audio.
         self._history: List[EditStep] = []
         self._origin: Optional[_Origin] = None
@@ -282,6 +287,9 @@ class AudioSession:
     def can_undo(self) -> bool:
         return bool(self._undo)
 
+    def can_redo(self) -> bool:
+        return bool(self._redo)
+
     @property
     def history(self) -> Tuple[EditStep, ...]:
         """Every edit since the audio was loaded, recorded or reverted."""
@@ -319,6 +327,7 @@ class AudioSession:
         self._path = path
         self._original = (np.array(y, copy=True), int(rate))
         self._undo.clear()
+        self._redo.clear()
         self._history.clear()
         self._held = {_resolved(path): (0, None)}
         # what the script repeats to get the same samples back, so it records
@@ -356,6 +365,7 @@ class AudioSession:
         if not keep_original:
             self._original = (np.array(y, copy=True), int(sr))
             self._undo.clear()
+            self._redo.clear()
             self._history.clear()
             self._origin = _Origin(None, int(sr), take=next(self._takes))
             self._path = None
@@ -382,8 +392,10 @@ class AudioSession:
         # move them back, and recomputing the inverse shift is guesswork
         self._undo.append((np.array(self._y, copy=True), self._sr, label,
                            self._markers))
-        del self._undo[:-UNDO_DEPTH]
+        del self._undo[:-self._undo_depth]
         self._history.append(EditStep(label, code))
+        # a new edit branches off: what was undone cannot follow it
+        self._redo.clear()
 
     @staticmethod
     def _stored_as(code: Optional[str], y) -> Optional[str]:
@@ -405,10 +417,26 @@ class AudioSession:
         y, sr, label, markers = self._undo.pop()
         # every snapshot was pushed together with its step, and the two lists
         # are only ever cleared together, so the last step is this edit's
-        self._history.pop()
+        step = self._history.pop()
+        self._redo.append((np.array(self._y, copy=True), self._sr, label, self._markers, step))
         self._set_markers(markers)
         self._apply(y, sr, self._name)
         self.message.emit(f"Undo: {label}")
+        return True
+
+    def redo(self) -> bool:
+        """Put back the edit the last undo took out: its audio, its markers
+        and its step in the history, the same step object, so a file saved
+        after that edit holds the audio again."""
+        if not self._redo:
+            return False
+        y, sr, label, markers, step = self._redo.pop()
+        self._undo.append((np.array(self._y, copy=True), self._sr, label, self._markers))
+        del self._undo[:-self._undo_depth]
+        self._history.append(step)
+        self._set_markers(markers)
+        self._apply(y, sr, self._name)
+        self.message.emit(f"Redo: {label}")
         return True
 
     def revert(self) -> bool:
@@ -417,6 +445,7 @@ class AudioSession:
             return False
         y, sr = self._original
         self._undo.clear()
+        self._redo.clear()
         self._history.clear()
         self._set_markers(())
         self._apply(np.array(y, copy=True), sr, self._name)
@@ -562,6 +591,18 @@ class AudioSession:
         self._crossfade_ms = max(0.0, float(value))
         return self._crossfade_ms
 
+    @property
+    def undo_depth(self) -> int:
+        """How many edits Undo can take back."""
+        return self._undo_depth
+
+    def set_undo_depth(self, steps: int) -> int:
+        """Keep *steps* undo steps, at least one, dropping the oldest of the
+        ones kept now when there are more."""
+        self._undo_depth = max(1, int(steps))
+        del self._undo[:-self._undo_depth]
+        return self._undo_depth
+
     def _crossfade_for(self, override):
         """The length this edit will actually use, in milliseconds.
 
@@ -671,7 +712,7 @@ class AudioSession:
         # has to be the positions from *before* this edit moved them
         self.set_audio(merged, self._sr, undo_label=undo_label,
                        keep_original=True, code=script)
-        self._shift_markers(sel[1], delta)
+        self._shift_markers(sel[1], delta, replaced_from=sel[0])
 
     def _selection_code(self, code: Optional[str], sl: slice, parts,
                         converted: bool, crossfade_ms: Optional[float]
@@ -764,7 +805,7 @@ class AudioSession:
                 f"  # {_span(sl.start, sl.stop, self._sr)}")
         self.set_audio(merged, self._sr, undo_label=undo_label,
                        keep_original=True, code=code)
-        self._shift_markers(sel[1], -(removed + lost))
+        self._shift_markers(sel[1], -(removed + lost), replaced_from=sel[0])
         self.message.emit(
             f"Deleted {removed:.3f}s{self._crossfade_note(1, crossfade_ms)}")
         return True
@@ -876,8 +917,7 @@ class AudioSession:
         """Add a point (``end=None``) or a range, kept sorted by start time."""
         end = start if end is None else max(start, end)
         marker = Marker(start=float(start), end=float(end), label=label)
-        self._set_markers(tuple(sorted(self._markers + (marker,),
-                                       key=lambda m: (m.start, m.end))))
+        self._mark(tuple(sorted(self._markers + (marker,), key=lambda m: (m.start, m.end))))
         return marker
 
     def mark_selection(self, label: str = "") -> Optional[Marker]:
@@ -890,7 +930,7 @@ class AudioSession:
     def remove_marker(self, index: int) -> bool:
         if not 0 <= index < len(self._markers):
             return False
-        self._set_markers(self._markers[:index] + self._markers[index + 1:])
+        self._mark(self._markers[:index] + self._markers[index + 1:])
         return True
 
     def rename_marker(self, index: int, label: str) -> bool:
@@ -898,15 +938,23 @@ class AudioSession:
             return False
         markers = list(self._markers)
         markers[index] = replace(markers[index], label=label)
-        self._set_markers(tuple(markers))
+        self._mark(tuple(markers))
         return True
 
     def clear_markers(self) -> None:
-        self._set_markers(())
+        self._mark(())
 
     def set_markers(self, markers: Sequence[Marker]) -> None:
         """Replace the whole list — e.g. with the output of ``kudio.vad``."""
-        self._set_markers(tuple(sorted(markers, key=lambda m: (m.start, m.end))))
+        self._mark(tuple(sorted(markers, key=lambda m: (m.start, m.end))))
+
+    def _mark(self, markers: Tuple[Marker, ...]) -> None:
+        """A change to the list by hand. Redo would put back the list as it
+        was before it, and a marker added after an Undo went with the next
+        Redo, so the change ends Redo as a new edit does."""
+        if markers != self._markers:
+            self._redo.clear()
+        self._set_markers(markers)
 
     # ------------------------------------------------------ marker persistence
 
@@ -972,21 +1020,29 @@ class AudioSession:
             self.markers_changed.emit()
 
     def _shift_markers(self, after: float, delta: float,
-                       window: Optional[Tuple[float, float]] = None) -> None:
+                       window: Optional[Tuple[float, float]] = None,
+                       replaced_from: Optional[float] = None) -> None:
         """Move markers to follow an edit at *after* that changed length by *delta*.
 
-        Markers before the edit stay put. Markers after it move. A marker that
-        straddles a deletion is clamped rather than dropped — it was placed on
-        something, and silently losing it is worse than showing it shortened.
-        *window* additionally discards anything now outside ``(lo, hi)``, which
-        is what cropping needs.
+        Markers before the edit stay put. Markers after it move. For an edit
+        that replaced the range ``(replaced_from, after)``, a delete or a
+        paste over a selection, a position inside that range is held to where
+        the range now ends: a marker that straddles a deletion is clamped
+        rather than dropped -- it was placed on something, and silently
+        losing it is worse than showing it shortened. *window* additionally
+        discards anything now outside ``(lo, hi)``, which is what cropping
+        needs.
         """
         if not self._markers:
             return
         lo, hi = window if window is not None else (float('-inf'), float('inf'))
 
         def move(value: float) -> float:
-            return value + delta if value > after else value
+            if value > after:
+                return value + delta
+            if replaced_from is not None and value > replaced_from:
+                return min(value, max(replaced_from, after + delta))
+            return value
 
         moved = []
         for marker in self._markers:
@@ -1007,6 +1063,10 @@ class AudioSession:
         kudio.save_wave(path, self._y, self._sr, subtype=subtype)
         self._wrote(path)
         self._held[_resolved(path)] = self._point()
+        # the clip is that file now, as after Save As in any editor: its name
+        # goes on the tab, and its markers beside it. Where the audio came
+        # from for the script (`origin`) does not change.
+        self._path, self._name = path, path.name
         self.message.emit(f"Saved {path.name}")
         return path
 

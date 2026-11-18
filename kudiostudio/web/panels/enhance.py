@@ -78,29 +78,33 @@ class EnhancePanel(WebPanel):
             if self.session.y is not ran_on:
                 # made from the audio before the edit: committed, it would put
                 # that audio back over the edit
-                self._result = "—"
+                self._show("—")
                 self.report(f"The audio changed while {label} ran, so its result was "
                             f"dropped: it was made from the audio before the change. "
                             f"Run it again.")
-                self.publish(info=self.info())
                 return
             out = np.asarray(out, dtype=np.float32)
             # wavelet reconstruction can return one extra sample on odd lengths
             n = min(len(out), len(before))
             self.session.set_audio(out[:n], self.session.sr, undo_label=label,
                                    keep_original=True, code=code)
-            self._result = tools.distance(before[:n], out[:n])
+            self._show(tools.distance(before[:n], out[:n]))
             self.report(f"{label} finished.")
-            self.publish(info=self.info())
 
         def failed(message: str) -> None:
-            self._result = "—"
+            self._show("—")
             self.report(f"{label} failed — {message}")
-            self.publish(info=self.info())
 
         self.report(f"Running {label} …")
-        self.start_job("Denoising…", fn, *args, on_done=finished, on_failed=failed, **kwargs)
+        if self.start_job("Denoising…", fn, *args, on_done=finished, on_failed=failed,
+                          **kwargs):
+            # the last run's figures would read as this one's until it is done
+            self._show(f"Running {label} …")
         return self.info()
+
+    def _show(self, result: str) -> None:
+        self._result = result
+        self.publish(info=self.info())
 
     # ------------------------------------------------------------- preview
 

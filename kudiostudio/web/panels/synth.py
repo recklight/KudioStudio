@@ -87,6 +87,10 @@ class SynthPanel(WebPanel):
         if not self.start_job("Synthesizing…", tools.synthesize, plan,
                               on_done=self._finished, on_failed=self._failed):
             self.report("A synthesis job is already running.")
+        else:
+            # the last run's line would read as this one's until it is done
+            self._result = None
+            self.publish(info=self.info())
         return self.info()
 
     def _finished(self, result: tools.SynthResult) -> None:

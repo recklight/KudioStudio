@@ -80,7 +80,7 @@ class RecordPanel(WebPanel):
     def devices(self, streaming: bool) -> Dict:
         found = tools.stream_devices() if streaming else tools.input_devices()
         if len(found) <= 1:
-            self.report("No input devices found — is kudio[audio] installed?")
+            self.report(tools.no_devices_reason(bool(streaming)))
         return {"devices": [[label, index] for label, index in found],
                 "space": tools.device_space(bool(streaming))}
 

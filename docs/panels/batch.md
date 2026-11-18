@@ -126,8 +126,9 @@ on target, too little headroom:
   out/c/plosive.wav   -23.0 LUFS  true peak +0.4 dBTP, over the -1.0 dBTP ceiling
 ```
 
-The status line adds it up: `Batch complete — 4/5 written, 1 failed, 4 missed
-the loudness target.`
+The status line adds it up: `Batch complete — 4/5 written, 4 missed the
+loudness target.` `short.wav` is one of the four rather than a failure as
+well, since the list already says why it was not written.
 
 It is measured from disk rather than from what was handed to `save_wave`,
 because the disk is where it goes wrong. A fixed-point file clips everything

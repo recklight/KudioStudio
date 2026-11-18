@@ -11,6 +11,7 @@
 import { data } from "./api.js";
 import { hertz, ticks } from "./format.js";
 import { TimePlot, monoFont } from "./timeplot.js";
+import { pointIn } from "./zoom.js";
 
 /** How far the vertical axis can be narrowed: this share of its height. */
 const MIN_Y_SHARE = 1 / 256;
@@ -40,9 +41,13 @@ export class SpectrogramPlot extends TimePlot {
     this.requestDraw();
   }
 
-  async loadColormap() {
-    const response = await fetch("/colormap.bin");
+  /** The colours: the map Settings has, or *name*, after which the image
+   *  is fetched and coloured again. */
+  async loadColormap(name) {
+    const response = await fetch(name ? `/colormap.bin?map=${encodeURIComponent(name)}`
+                                      : "/colormap.bin");
     this.lut = new Uint8Array(await response.arrayBuffer());
+    if (name && this.version >= 0) this.fetchSoon(0);
   }
 
   setAudio(version) {
@@ -246,9 +251,7 @@ export class SpectrogramPlot extends TimePlot {
   // ------------------------------------------------------------- input
 
   wheel(e) {
-    const r = this.canvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
+    const { x, y } = pointIn(e, this.canvas);
     const onAxis = x < this.area.x;
     if (!(onAxis || e.ctrlKey) || !this.view.duration) { super.wheel(e); return; }
     e.preventDefault();
@@ -260,7 +263,7 @@ export class SpectrogramPlot extends TimePlot {
   }
 
   doubleClick(e) {
-    const x = e.clientX - this.canvas.getBoundingClientRect().left;
+    const { x } = pointIn(e, this.canvas);
     if (x < this.area.x) this.setYRange(0, this.yMax);
     else super.doubleClick(e);
   }

@@ -181,13 +181,23 @@ export function check(text, { checked = false, onChange } = {}) {
 }
 
 /** A path with a Browse… button; the dialog is the window's own. */
+let pathLists = 0;
+
 export function path({ kind = "open", title = "", types = [], placeholder = "",
-                       onChange, readOnly = true } = {}) {
+                       onChange, readOnly = true, suggestions = [] } = {}) {
   const wrap = el("div", "path-field");
   const input = el("input", "mono");
   input.type = "text";
   input.readOnly = readOnly;
   input.placeholder = t(placeholder);
+  if (suggestions.length && !readOnly) {
+    // names that are not paths, offered as the field is typed in
+    const list = el("datalist");
+    list.id = `path-suggestions-${++pathLists}`;
+    for (const s of suggestions) list.append(new Option(s, s));
+    input.setAttribute("list", list.id);
+    wrap.append(list);
+  }
   const browse = el("button", "btn subtle", t("Browse…"));
   browse.type = "button";
   let full = "";

@@ -21,6 +21,10 @@ the status bar asking for one.
   where you cannot see them.
 - **Insert silence…** asks for a length in seconds, and goes in the same way:
   over the selection, or at the playhead.
+- To put either somewhere else, right-click that point on a plot and choose
+  **Paste here** or **Insert silence here…**: it goes in at the point and
+  leaves the selection's audio as it was
+  ([The right-click menu](window.md#the-right-click-menu)).
 - The clipboard keeps **its own sample rate**. An 8 kHz snippet pasted into a
   16 kHz clip is resampled on the way in, rather than played at double speed.
 
@@ -32,16 +36,23 @@ and all.
 ## Every join crossfades
 
 A hard cut leaves a step in the waveform, and a step is a click. So every cut,
-delete, paste and insert blends the two sides over a few milliseconds, 5 ms by
-default. The status line after each edit says how much was applied, including
+delete, paste and insert blends the two sides over a few milliseconds, 5 ms
+until you set another length. The status line after each edit says how much was applied, including
 when the answer is none: changing audio without saying so is worse than a
 click.
+
+A crossfade overlaps the two sides, so each join takes its length off the
+clip. At 5 ms, deleting 1 s shortens it by 1.005 s, inserting 0.5 s of silence
+lengthens it by 0.490 s, and pasting a 1 s clip over a 1 s selection takes a
+7 s file to 6.990 s.
 
 The length is on the transport, as **Splice xf**, rather than behind a dialog,
 because the right length depends on the edit. 5 ms inside a word and 200 ms
 between two takes are different jobs, and a setting that takes a dialog to
 change is one nobody changes. **Edit → Splice crossfade…** types an exact
-value into the same control, and 0 turns it off.
+value into the same control, and 0 turns it off. Whichever way it is set, the
+length is kept for the next start, and [Settings](window.md#settings) shows the
+same value.
 
 Applying an effect to a selection is not crossfaded. The effect replaces the
 range with a processed copy of itself, and blending the edges back would leave
@@ -49,9 +60,13 @@ range with a processed copy of itself, and blending the edges back would leave
 
 ## Undo and Revert
 
-++ctrl+z++ undoes the last edit, back through the last 20. **Revert to
-original** goes straight back to the file as it was opened: it drops every
-edit at once, clears the markers, and cannot be undone.
+++ctrl+z++ undoes the last edit, back through the last 20 (Settings keeps 1 to
+100), and **Edit → Redo** (++ctrl+y++ or ++ctrl+shift+z++) puts back what
+Undo took out, markers and all, until a new edit is made or a marker is
+added, renamed or removed: Redo would bring back the marker list from before
+that change. **Revert to original** goes straight back to the file as it was
+opened: it drops every edit at once, clears the markers, and cannot be
+undone.
 
 The edits behind a script export are kept in full, so an edit too old for the
 undo list is still in the [script](#your-edits-as-a-script). It is still in
@@ -66,7 +81,9 @@ it was opened or last saved or a take never written to a file, the window
 asks first, **Open another file?** for a file and **Record over the open
 clip?** for a take, and **Cancel** leaves everything as it was. A clip just
 opened or saved, or one undone back to a point a file holds, is replaced
-without a question, because nothing would be lost.
+without a question, because nothing would be lost. **Ask before unsaved audio
+is replaced** in [Settings](window.md#settings) turns the question off for
+everything.
 
 ## A/B against the original
 
@@ -180,7 +197,8 @@ Markers are named points and ranges that stay.
 ![The marker list](images/sidebar_markers.png){ .shot .side }
 
 - **＋ At playhead** adds a point where the playhead is, or where playback has
-  got to while the clip plays.
+  got to while the clip plays. **Add a marker here** in a plot's right-click
+  menu adds one where you clicked.
 - **＋ Selection** turns the selection into a range.
 - **Find speech** fills the list with every span `kudio.vad` finds speech in.
   It replaces the list rather than adding to it, so a second run, after an

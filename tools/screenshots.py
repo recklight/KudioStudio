@@ -40,6 +40,9 @@ IMAGES = ROOT / "docs" / "images"
 # the guide shows the window a clone of this repository builds, not the
 # plugins this machine happens to have installed
 os.environ["KUDIOSTUDIO_NO_PLUGINS"] = "1"
+# nor a key of mine: Settings shows a saved key's last four characters
+for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+    os.environ.pop(name, None)
 sys.path.insert(0, str(ROOT))
 
 import numpy as np                                          # noqa: E402
@@ -321,6 +324,7 @@ def main(argv=None) -> int:
     with tempfile.TemporaryDirectory() as raw:
         scratch = Path(raw)
         studio = Studio(prefs=Prefs(scratch / "window.json"), language=args.lang)
+        studio.panel("claude").keys = NoKey()
         server = LocalServer(studio, 0)
         server.start()
         process, tools = open_browser(scratch / "profile")
@@ -333,6 +337,19 @@ def main(argv=None) -> int:
             studio.shutdown()
     print("done")
     return 0
+
+
+class NoKey:
+    """A credential store with nothing in it, whatever this machine's has."""
+
+    def get(self) -> str:
+        return ""
+
+    def set(self, key: str) -> bool:
+        return False
+
+    def delete(self) -> None:
+        pass
 
 
 def open_demo(page: Page, studio: Studio, clip: Path) -> None:
@@ -365,6 +382,34 @@ def shoot(page: Page, studio: Studio, server: LocalServer, scratch: Path) -> Non
         page.save(f"analysis_{mode}", element=STAGE)
     page.click("document.querySelector('#view-mode button[data-mode=\"stft\"]')")
     page.settle(1.0)
+
+    print("right-click menu and Settings")
+    # inside the selection, half way along the waveform, so the menu has
+    # both the point's items and the selection's
+    page.js("""(() => {
+        const r = document.getElementById('wave').getBoundingClientRect();
+        document.getElementById('wave').dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true, button: 2,
+            clientX: r.left + r.width * 0.55, clientY: r.top + r.height * 0.45 }));
+    })()""")
+    page.wait("document.querySelector('.context-menu')", what="the right-click menu")
+    page.settle(0.3)
+    page.save("context_menu", rect="""(() => {
+        const a = document.getElementById('stage').getBoundingClientRect();
+        const b = document.querySelector('.context-menu').getBoundingClientRect();
+        const x = Math.min(a.left, b.left), y = Math.min(a.top, b.top);
+        return [x, y, Math.max(a.right, b.right) + 12 - x, Math.max(a.bottom, b.bottom) + 12 - y];
+    })()""")
+    page.js("document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))")
+    # tall enough that the dialog shows every group without scrolling
+    page.size(WINDOW_SIZE[0], 1400)
+    page.js("import('/static/js/settings.js').then((m) => { m.openSettings(); return true; })")
+    page.wait("document.querySelector('form.settings select')", what="Settings")
+    page.settle(0.5)
+    page.save("settings", element="document.querySelector('form.settings')")
+    page.js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+    page.wait("!document.querySelector('form.settings')", what="Settings to close")
+    page.size(*WINDOW_SIZE)
 
     print("tool panels")
     page.size(WINDOW_SIZE[0], PANEL_HEIGHT)

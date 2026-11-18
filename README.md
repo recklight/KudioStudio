@@ -5,7 +5,7 @@
 **English** | [繁體中文](https://github.com/recklight/KudioStudio/blob/master/README.zh-TW.md)
 
 [![PyPI](https://img.shields.io/pypi/v/kudiostudio.svg)](https://pypi.org/project/kudiostudio/)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/GUI-pywebview-1fc6f0.svg)](https://pywebview.flowrl.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioStudio/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
@@ -29,7 +29,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-KudioStudio needs Python 3.9 or newer and kudio 4.0.0 or newer, which pip
+KudioStudio needs Python 3.10 or newer and kudio 4.1.0 or newer, which pip
 installs with it. The window is drawn by the web view the
 system already has, through [pywebview](https://pywebview.flowrl.com/):
 WebView2 on Windows 10 and 11, WebKit on macOS. Linux needs GTK or Qt for
@@ -69,11 +69,17 @@ kudiostudio --lang zh_TW       # the interface in Traditional Chinese
 | [Pitch](https://recklight.github.io/KudioStudio/panels/pitch/) | the f0 contour over the spectrogram, and the voiced spans as markers |
 | [Metrics](https://recklight.github.io/KudioStudio/panels/metrics/) | what is wrong with a recording without a reference, and scores with one |
 | [Batch](https://recklight.github.io/KudioStudio/panels/batch/) | a whole folder converted, normalised or denoised, with the files that missed named |
+| [Claude](https://recklight.github.io/KudioStudio/panels/ask-claude/) | the clip's figures read back in words by Claude, on your own API key, with next steps |
 
 Around them: cut, copy and paste with a crossfade at every join, A/B against
 the file as it was opened, markers that outlive the session, and the whole edit
 history written out as a Python script that makes the same samples
 ([Editing and markers](https://recklight.github.io/KudioStudio/editing/)).
+The window's size, its fonts and text colours, the bit depth Save As writes and
+a few more are in **Edit → Settings…**
+([Settings](https://recklight.github.io/KudioStudio/window/#settings)), and a
+right click on either plot offers what can be done at that point
+([The right-click menu](https://recklight.github.io/KudioStudio/window/#the-right-click-menu)).
 Other packages can add panels of their own
 ([Writing a panel](https://recklight.github.io/KudioStudio/plugins/)).
 

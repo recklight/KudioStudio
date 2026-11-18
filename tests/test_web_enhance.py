@@ -192,3 +192,23 @@ def test_switching_preview_off_drops_a_render_in_flight(studio, monkeypatch):
     gate.set()
     studio.jobs.wait(60)
     assert studio.call("state")["previewing"] == ""
+
+
+def test_a_run_clears_the_last_runs_figures_until_its_own_are_in(studio):
+    """While trad_enhance runs, the readout still said what log-MMSE had
+    done, and could be copied down as this run's."""
+    q = studio.events.subscribe()
+    studio.call("enhance.denoise", ["logmmse", {}])
+    assert studio.jobs.wait(60)
+    studio.call("enhance.denoise", ["trad", {}])
+    assert studio.jobs.wait(60)
+    shown = []
+    while not q.empty():
+        e = q.get_nowait()
+        if e["type"] == "panel" and e.get("panel") == "enhance" and "info" in e:
+            shown.append((e["serial"], e["info"]["result"].split(" ·")[0]))
+    serials = [s for s, _ in shown]
+    assert serials == sorted(serials) and len(set(serials)) == len(serials)
+    results = [r for _, r in shown]
+    assert results[0].startswith("Running") and results[1].startswith("SNR")
+    assert results[2] == "Running trad_enhance …" and results[3].startswith("SNR")

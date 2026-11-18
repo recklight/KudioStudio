@@ -7,7 +7,9 @@
 import { call } from "./api.js";
 import { t } from "./i18n.js";
 
-function modal(build) {
+/** A box over the window, built by *build(form, done)*; resolves to what
+ *  `done` is given, or null on Escape or a click outside. */
+export function modal(build) {
   return new Promise((resolve) => {
     const backdrop = document.createElement("div");
     backdrop.className = "prompt-backdrop";
@@ -29,17 +31,21 @@ function modal(build) {
     backdrop.addEventListener("mousedown", (e) => { if (e.target === backdrop) done(null); });
     build(form, done);
     document.body.append(backdrop);
-    form.querySelector("input, button[type=submit]")?.focus();
+    // without scrolling to it: a box taller than the window, as Settings
+    // is, opened at its Close button with its first rows out of sight
+    (form.querySelector("[data-focus]") || form.querySelector("input, button[type=submit]"))
+      ?.focus({ preventScroll: true });
   });
 }
 
-function buttons(form, done, submitText) {
+function buttons(form, done, submitText, focusCancel = false) {
   const row = document.createElement("div");
   row.className = "button-row";
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "btn subtle";
   cancel.textContent = t("Cancel");
+  if (focusCancel) cancel.dataset.focus = "";
   cancel.addEventListener("click", () => done(null));
   const ok = document.createElement("button");
   ok.type = "submit";
@@ -69,8 +75,10 @@ export function ask({ title, value = "", placeholder = "", submit = t("OK") }) {
   });
 }
 
-/** A question; resolves to true when it is answered with *submit*. */
-export async function confirm({ title, text = "", submit = t("OK") }) {
+/** A question; resolves to true when it is answered with *submit*. With
+ *  *focusCancel* Enter answers Cancel, for a question whose yes cannot be
+ *  taken back, such as writing over a file. */
+export async function confirm({ title, text = "", submit = t("OK"), focusCancel = false }) {
   const answer = await modal((form, done) => {
     const h = document.createElement("h3");
     h.textContent = title;
@@ -80,7 +88,7 @@ export async function confirm({ title, text = "", submit = t("OK") }) {
       p.textContent = text;
       form.append(p);
     }
-    buttons(form, done, submit);
+    buttons(form, done, submit, focusCancel);
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       done(true);
@@ -89,10 +97,19 @@ export async function confirm({ title, text = "", submit = t("OK") }) {
   return answer === true;
 }
 
+let askBeforeReplacing = true;
+
+/** Settings' "Ask before unsaved audio is replaced"; off, confirmReplace
+ *  answers yes without asking. */
+export function setAskBeforeReplacing(on) {
+  askBeforeReplacing = Boolean(on);
+}
+
 /** Before something replaces the open clip while no file holds all of it
  *  (the window's state says `unsaved`); *title* and *submit* name what is
  *  about to happen. Resolves to true to go on. */
 export function confirmReplace({ title, submit }) {
+  if (!askBeforeReplacing) return Promise.resolve(true);
   return confirm({ title, submit, text: t("It replaces the clip that is open, and what no file holds goes with it: its edits since it was last saved, or the whole of a take never written to a file.") });
 }
 

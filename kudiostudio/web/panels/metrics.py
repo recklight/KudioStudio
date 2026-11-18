@@ -30,6 +30,8 @@ class MetricsPanel(WebPanel):
     def __init__(self, studio) -> None:
         super().__init__(studio)
         self._rows: List[Tuple[str, str]] = []
+        #: the audio version the rows were measured on
+        self._rows_version = -1
         #: what the last inspection found, in kudio's words; None before one
         self._problems: Optional[List[str]] = None
         #: (text, warn) under the DNSMOS button
@@ -68,7 +70,13 @@ class MetricsPanel(WebPanel):
 
     def _fill(self, rows) -> None:
         self._rows = list(rows)
+        self._rows_version = self.studio.version
         self.publish(info=self.info())
+
+    def rows_for(self, version: int) -> List[Tuple[str, str]]:
+        """The table, when it was made on audio *version*; [] when it was
+        made on another, which the Claude panel must not send as this one's."""
+        return list(self._rows) if self._rows_version == version else []
 
     # ---------------------------------------------------------- no reference
 

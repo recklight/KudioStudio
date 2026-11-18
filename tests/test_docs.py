@@ -116,3 +116,15 @@ def test_every_screenshot_is_there_in_the_pages_language(page):
 
 def test_the_help_menu_opens_the_site_mkdocs_builds():
     assert GUIDE_URL == _config()["site_url"]
+
+
+def test_a_mistyped_address_gets_the_english_404_page(tmp_path):
+    """Each language's build writes 404.html at the root, the Chinese one
+    last, and GitHub Pages shows that file for any address it does not have."""
+    hooks = _hooks()
+    page = tmp_path / "404.html"
+    page.write_text('<html lang="en">not found', encoding="utf-8")
+    hooks.on_post_build({"site_dir": str(tmp_path), "theme": {"language": "en"}})
+    page.write_text('<html lang="zh-TW">找不到', encoding="utf-8")
+    hooks.on_post_build({"site_dir": str(tmp_path), "theme": {"language": "zh-TW"}})
+    assert page.read_text(encoding="utf-8") == '<html lang="en">not found'

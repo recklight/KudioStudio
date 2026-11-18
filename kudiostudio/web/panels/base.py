@@ -35,6 +35,8 @@ class WebPanel:
 
     def __init__(self, studio) -> None:
         self.studio = studio
+        #: the number of the last state this panel published; see `publish`
+        self._serial = 0
 
     @property
     def session(self):
@@ -53,7 +55,18 @@ class WebPanel:
         return False
 
     def publish(self, **data) -> None:
-        """Something for this panel's page module, as a ``panel`` event."""
+        """Something for this panel's page module, as a ``panel`` event.
+
+        An event that carries the panel's state, a dict with ``busy`` in it
+        as ``info`` and ``view`` are, is numbered, and the answer to each of
+        the panel's commands carries the number as it stands
+        (`Studio.call`). A quick job publishes its result before the click
+        that started it is answered, and the page drops an answer numbered
+        below an event it has already shown (js/fresh.js).
+        """
+        if any(isinstance(v, dict) and "busy" in v for v in data.values()):
+            self._serial = getattr(self, "_serial", 0) + 1
+            data["serial"] = self._serial
         self.studio.events.publish("panel", panel=self.id, **data)
 
     def start_job(self, label: str, fn, *args, **kwargs) -> bool:

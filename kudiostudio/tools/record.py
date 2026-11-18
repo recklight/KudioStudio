@@ -15,6 +15,7 @@ PyAudio. So the device list follows the mode, and says which space it shows.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 from typing import List, Optional, Tuple
 
@@ -49,6 +50,10 @@ TAKE_NOTE = ("The recording replaces the current audio and becomes the new basel
 MONITOR_OFF = "off — show what the microphone sends"
 #: the first until-stopped choice when PyAudio names no default input
 NO_DEFAULT_INPUT = "Last input device (PyAudio names no default)"
+
+NO_BACKEND = "No input devices found — is kudio[audio] installed?"
+NO_INPUTS = ("{} is installed but the system offers it no input device: check that a "
+             "microphone is connected and enabled in the sound settings.")
 
 
 def rms_db(block: np.ndarray, previous: float, smoothing: float = 0.7) -> float:
@@ -89,7 +94,10 @@ def stream_devices() -> List[Tuple[str, Optional[int]]]:
         with kudio.CheckDevice() as check:
             for d in check.system_devices():
                 if d.get("in", 0):
-                    devices.append((f"[{d['index']}] {d['Device']}", d["index"]))
+                    # the host API tells apart the same microphone under MME,
+                    # WASAPI and WDM-KS, each with its own index
+                    api = f" ({d['api']})" if d.get("api") else ""
+                    devices.append((f"[{d['index']}] {d['Device']}{api}", d["index"]))
             try:
                 default = int(check.p.get_default_input_device_info()["index"])
             except Exception as e:  # noqa: BLE001 - PyAudio raises OSError for none
@@ -98,6 +106,16 @@ def stream_devices() -> List[Tuple[str, Optional[int]]]:
         log.warning("PyAudio device enumeration failed: %s", e)
     first = ("System default", default) if default is not None else (NO_DEFAULT_INPUT, None)
     return [first] + devices
+
+
+def no_devices_reason(streaming: bool) -> str:
+    """Why a device list holds no input: the backend missing, or the backend
+    there and the system giving it nothing. Telling someone with PyAudio
+    installed to install it sends them the wrong way."""
+    backend = "pyaudio" if streaming else "sounddevice"
+    if importlib.util.find_spec(backend) is None:
+        return NO_BACKEND
+    return NO_INPUTS.format("PyAudio" if streaming else "sounddevice")
 
 
 def device_space(streaming: bool) -> str:
@@ -152,6 +170,7 @@ def monitor_text(label: str, raw_db: float, clean_db: float, latency_s: float) -
 
 
 __all__ = ["COMMON_RATES", "METER_FLOOR_DB", "METER_INTERVAL_MS", "MODES", "MODE_FIXED",
-           "MODE_STREAM", "MONITOR_OFF", "MONITOR_TIP", "NO_DEFAULT_INPUT", "TAKE_NOTE",
+           "MODE_STREAM", "MONITOR_OFF", "MONITOR_TIP", "NO_BACKEND", "NO_DEFAULT_INPUT",
+           "NO_INPUTS", "TAKE_NOTE", "no_devices_reason",
            "call_text", "check_take", "device_space", "input_devices", "mono",
            "monitor_text", "rms_db", "stream_devices", "take_text"]

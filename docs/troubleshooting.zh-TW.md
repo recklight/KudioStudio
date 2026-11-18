@@ -97,8 +97,8 @@ M4A（也就是 AAC）不在其中；在 `All files (*.*)` 下選它，或把它
 
 ### 從乾淨的設定重新開始 {#starting-from-clean-settings}
 
-視窗會記住介面語言、分析圖的種類與參數，以及上次開啟與存檔所在的資料夾。這些都存在一個小小的
-JSON 檔裡：
+視窗會記住介面語言、分析圖的種類與參數、上次開啟與存檔所在的資料夾、上次開著的檔案，
+以及[設定](window.md#settings)裡的一切。這些都存在一個小小的 JSON 檔裡：
 
 - Windows：`%APPDATA%\Kudio\KudioStudio\window.json`
 - 其他系統：`$XDG_CONFIG_HOME/Kudio/KudioStudio/window.json`，沒有設定這個變數時是
@@ -115,7 +115,7 @@ JSON 檔裡：
 按下播放，狀態列寫著：
 
 ```text
-播放失敗 — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install kudio[audio]
+播放失敗 — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install "kudio[audio]"
 ```
 
 播放是透過 sounddevice。當 sounddevice 無法播放時，可能是沒有輸出裝置，或在 Linux 上缺少 PortAudio
@@ -131,7 +131,7 @@ JSON 檔裡：
 「模式」設為「錄到停止為止」，按「● 開始」，會看到：
 
 ```text
-錄音失敗 — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install kudio[audio]
+錄音失敗 — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install "kudio[audio]"
 ```
 
 「裝置」清單裡只有一個選項，狀態列寫著「找不到輸入裝置 — 是否已安裝 kudio[audio]？」。
@@ -146,6 +146,16 @@ pip install "kudiostudio[audio]"
 ```
 
 編譯時還需要 C 編譯器。
+
+若 PyAudio 已經裝了，清單是空的時候會改說：
+
+```text
+PyAudio 已經安裝，但系統沒有提供任何輸入裝置給它：請確認麥克風已接上，並在音效設定中啟用。
+```
+
+這時再裝什麼都沒有用。清單列出 PortAudio 看得到的每個輸入，並標出各自的 host API：在沒有設定
+預設錄音裝置的 Windows 上，MME、DirectSound 與 WASAPI 一個也不提供，麥克風只出現在
+Windows WDM-KS 底下。
 
 ### 沒有錄到任何東西 {#nothing-was-captured}
 
@@ -184,7 +194,7 @@ kudiostudio
 
 ```text
 DependencyError: 'onnxruntime' is required for this feature. Install it with:
-pip install kudio[dnsmos]
+pip install "kudio[dnsmos]"
 ```
 
 用 `pip install "kudiostudio[dnsmos]"` 安裝即可。

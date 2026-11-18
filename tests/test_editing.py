@@ -281,6 +281,31 @@ def test_markers_move_with_a_deletion(session):
     assert marker.end == pytest.approx(0.7 - FADE, abs=1e-3)
 
 
+def test_a_marker_reaching_into_a_deletion_ends_where_it_was_cut(session):
+    """Spans as Find speech leaves them, and 0.30-0.50 deleted: the first
+    loses what ran into the cut, the second keeps the part after it, and
+    neither becomes a point inside the third."""
+    session.add_marker(0.00, 0.36, "speech 1")
+    session.add_marker(0.39, 0.62, "speech 2")
+    session.add_marker(0.66, 0.80, "speech 3")
+    session.set_selection(0.30, 0.50)
+    session.delete()
+    spans = [(m.start, m.end) for m in session.markers]
+    assert spans[0] == pytest.approx((0.00, 0.30), abs=1e-3)
+    assert spans[1] == pytest.approx((0.30, 0.42 - FADE), abs=1e-3)
+    assert spans[2] == pytest.approx((0.46 - FADE, 0.60 - FADE), abs=1e-3)
+
+
+def test_a_paste_over_a_longer_selection_holds_the_markers_inside_it(session):
+    session.set_selection(0.0, 0.1)
+    session.copy()
+    session.add_marker(0.2, 0.45, "inside")
+    session.set_selection(0.2, 0.6)
+    session.paste()
+    (marker,) = session.markers
+    assert (marker.start, marker.end) == pytest.approx((0.2, 0.3 - 2 * FADE), abs=1e-3)
+
+
 def test_markers_before_an_edit_stay_put(session):
     session.add_marker(0.1, 0.15)
     session.set_selection(0.5, 0.7)
@@ -422,3 +447,62 @@ def test_every_splicing_edit_takes_the_override():
     session.insert_silence(0.1, at=0.2, crossfade_ms=40.0)
     assert "40 ms" in messages[-1]
     assert session.crossfade_ms == DEFAULT_CROSSFADE_MS
+
+
+# ------------------------------------------------------------------- redo
+
+def test_redo_puts_back_what_undo_took_out(session):
+    session.add_marker(0.8)
+    session.set_selection(0.2, 0.4)
+    session.delete()
+    after, markers, history = session.y.copy(), session.markers, session.history
+    assert not session.can_redo()
+    session.undo()
+    assert session.can_redo()
+    assert session.redo() is True
+    assert np.array_equal(session.y, after)
+    assert session.markers == markers
+    assert session.history == history
+    assert session.redo() is False
+
+
+def test_an_edit_after_an_undo_leaves_nothing_to_redo(session):
+    session.set_selection(0.2, 0.4)
+    session.delete()
+    session.undo()
+    session.set_selection(0.1, 0.2)
+    session.delete()
+    assert not session.can_redo()
+
+
+def test_a_marker_added_after_an_undo_is_not_taken_by_a_redo(session):
+    """Redo puts back the marker list from before the undo, and the marker
+    added in between went with it."""
+    session.set_selection(0.2, 0.4)
+    session.delete()
+    session.undo()
+    session.add_marker(0.5, label="after undo")
+    assert not session.can_redo()
+    assert session.redo() is False
+    assert [m.label for m in session.markers] == ["after undo"]
+    # the list as Undo leaves it is not a change by hand
+    session.set_selection(0.2, 0.4)
+    session.delete()
+    session.undo()
+    assert session.can_redo()
+
+
+def test_redo_to_a_saved_edit_is_saved_again(session, tmp_path):
+    """The file holds the audio after the delete; redo brings back that very
+    step, so replacing the clip then loses nothing."""
+    session.set_selection(0.2, 0.4)
+    session.delete()
+    session.save(tmp_path / "cut.wav")
+    session.set_selection(0.1, 0.2)
+    session.delete()
+    session.undo()
+    session.undo()
+    session.redo()
+    assert not session.has_unsaved_audio()
+    session.redo()
+    assert session.has_unsaved_audio()

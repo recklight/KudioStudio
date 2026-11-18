@@ -542,3 +542,17 @@ def test_a_files_seed_depends_on_its_path_not_its_name():
     assert file_seed(7, "a/take.wav") == file_seed(7, Path("a") / "take.wav")
     assert file_seed(7, "a/take.wav") != file_seed(8, "a/take.wav")
     assert file_seed(2 ** 31 - 1, "x.wav") >= 0
+
+
+def test_a_failure_the_result_lists_names_its_pass():
+    """Beside "2/2 written", a bare "1 failed" reads as a contradiction; the
+    line says it was the levelling, after the file was written."""
+    from types import SimpleNamespace
+
+    from kudiostudio.tools import batch
+
+    written = SimpleNamespace(written=2, total=2, failed=())
+    outcome = batch.BatchOutcome(result=written, levelled=batch.Levelling(
+        target=-23.0, failed=((Path("out/a/x.wav"), "FeatureError: too short"),)))
+    assert "x.wav — levelling: FeatureError: too short" in batch.result_lines(outcome, "out")
+    assert batch.status_text(outcome) == "Batch complete — 2/2 written, 1 failed."

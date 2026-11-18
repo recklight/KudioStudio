@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 import kudio
 from kudiostudio import i18n
@@ -95,7 +97,7 @@ def _edit(studio):
 def test_the_rail_has_every_panel(studio):
     titles = [e["title"] for e in studio.call("rail")]
     assert titles == ["Inspect", "Effects", "Enhance", "Compare", "Record", "Synthesize",
-                      "Manifest", "Pitch", "Metrics", "Batch"]
+                      "Manifest", "Pitch", "Metrics", "Batch", "Claude"]
 
 
 def test_the_window_carries_the_application_icon(studio):
@@ -234,6 +236,16 @@ def test_the_status_line_names_the_loudness_gap(opened):
     opened.call("set_match_loudness", [False])
     message = _messages(drain())[-1]
     assert "Match loudness" in message and "+6.0 LU" in message, message
+
+
+def test_an_edit_that_leaves_the_loudness_alone_applies_plus_zero(opened):
+    """A flipped polarity measures exactly as loud, and the gap of 0.0 came
+    out as -0.0 LU applied."""
+    s = opened.session
+    s.set_audio(-s.y, s.sr, undo_label="flip", keep_original=True)
+    drain = _listen(opened)
+    opened.call("set_compare", [True])
+    assert "(+0.0 LU applied)" in _messages(drain())[-1]
 
 
 # ------------------------------------------------------------------- previews
@@ -767,3 +779,279 @@ def test_quitting_the_application_mid_job_exits_cleanly(tmp_path):
     assert done.returncode == 0, done.stderr[-2000:]
     assert "Quitting when Batch finishes" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+def test_redo_follows_the_session(opened):
+    _edit(opened)
+    assert opened.call("state")["can_redo"] is False
+    assert opened.call("undo")["can_redo"] is True
+    state = opened.call("redo")
+    assert (state["can_undo"], state["can_redo"]) == (True, False)
+
+
+def test_ctrl_shift_z_and_ctrl_y_redo_rather_than_undo():
+    """Ctrl+Shift+Z is Redo in most editors; read as Ctrl+Z it took a second
+    edit back."""
+    page = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+    redo = page.index('handled(); command("redo")')
+    undo = page.index('else if (ctrl && key === "z") { handled(); command("undo"); }')
+    branch = page[page.rindex("else if", 0, redo):redo]
+    assert 'key === "y"' in branch and 'e.shiftKey && key === "z"' in branch
+    assert redo < undo, "the Shift branch has to be tried before plain Ctrl+Z"
+
+
+def test_an_answer_older_than_its_panels_last_event_is_dropped():
+    """js/fresh.js, which panels.js puts between every panel command and the
+    page: a quick job's event first, the answer to its click second."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    module = (STATIC / "js" / "fresh.js").as_uri()
+    script = (f"const {{ Freshness }} = await import({json.dumps(module)});\n"
+              "const f = new Freshness();\n"
+              "const seen = [f.stale('enhance', { busy: true, serial: 3 })];\n"
+              "f.heard({ type: 'panel', panel: 'enhance', serial: 4, info: {} });\n"
+              "f.heard({ type: 'panel', panel: 'enhance', preview: false });\n"
+              "seen.push(f.stale('enhance', { busy: true, serial: 3 }),\n"
+              "          f.stale('enhance', { busy: true, serial: 4 }),\n"
+              "          f.stale('synthesize', { busy: true, serial: 0 }),\n"
+              "          f.stale('enhance', { on: true }), f.stale('enhance', null));\n"
+              "console.log(JSON.stringify(seen));\n")
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == [False, True, False, False, False, False]
+
+
+def test_a_panel_hears_its_events_and_asks_describe_again_when_it_is_stale():
+    """panels.js itself, on a stand-in document: the events it is given
+    reach the check, a stale answer to a click is null, and a stale describe
+    is asked again, since a panel mounts on it. Dropped as null, it failed
+    the mount with a TypeError, most likely after a change of language,
+    which mounts every panel again."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    module = (STATIC / "js" / "panels.js").as_uri()
+    script = (
+        "const element = () => ({ addEventListener() {}, replaceChildren() {}, hidden: true });\n"
+        "globalThis.document = { querySelector: () => ({ content: 'token' }),\n"
+        "                        getElementById: element, createElement: element };\n"
+        f"const {{ Panels }} = await import({json.dumps(module)});\n"
+        "const panels = new Panels({ apply() {}, status() {}, state: () => null });\n"
+        "const ctx = panels.context({ id: 'enhance' });\n"
+        "let answers = [];\n"
+        "const asked = [];\n"
+        "panels.run = async (name) => { asked.push(name); return answers.shift(); };\n"
+        "panels.event({ type: 'panel', panel: 'enhance', serial: 4, info: {} });\n"
+        "const seen = [];\n"
+        "answers = [{ busy: true, serial: 3 }];\n"
+        "seen.push(await ctx.call('denoise'));\n"
+        "answers = [{ busy: false, serial: 3 }, { busy: false, serial: 4 }];\n"
+        "seen.push(await ctx.call('describe'));\n"
+        "answers = [1, 2, 3].map(() => ({ busy: false, serial: 2 }));\n"
+        "seen.push(await ctx.call('describe'));\n"
+        "answers = [''];\n"
+        "seen.push(await ctx.call('set_level'));\n"
+        "console.log(JSON.stringify({ seen, asked }));\n")
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {
+        "seen": [None, {"busy": False, "serial": 4}, {"busy": False, "serial": 2}, ""],
+        "asked": ["enhance.denoise"] + ["enhance.describe"] * 5 + ["enhance.set_level"]}
+
+
+def test_the_empty_window_names_every_format_open_takes():
+    """The open dialog offers AIFF, and the line under Open audio… left it
+    out, so someone with .aif files might not have tried."""
+    from kudiostudio.web.studio import AUDIO_TYPES
+
+    offered = {s.lstrip("*.").upper() for s in re.findall(r"\*\.\w+", AUDIO_TYPES[0])}
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    listed = re.search(r'<p class="hint mono">([^<]*)</p>', page).group(1).split(" · ")
+    assert offered - {"AIF"} == set(listed)
+
+
+# ------------------------------------------------------------------ save as
+
+def test_save_as_in_a_browser_asks_before_writing_over_a_file(opened, tone):
+    """The suggested name is the file the clip came from, and in a browser
+    Enter in the path box wrote over it with no question."""
+    before = tone.read_bytes()
+    _edit(opened)
+    answer = opened.call("save_as", [str(tone)])
+    assert answer["confirm_replace"] == {"path": str(tone), "source": True}
+    assert tone.read_bytes() == before
+    assert "confirm_replace" not in opened.call("save_as", [str(tone), True])
+    assert tone.read_bytes() != before
+
+
+def test_save_as_takes_wav_flac_and_aiff_and_says_no_to_the_rest(opened, tmp_path):
+    said = []
+    opened.events.subscribe()
+    original = opened.say
+    opened.say = lambda text: (said.append(text), original(text))
+    out = tmp_path / "out"
+    out.mkdir()
+    opened.call("save_as", [str(out / "plain")])
+    opened.call("save_as", [str(out / "dot.")])
+    opened.call("save_as", [str(out / "take.flac")])
+    opened.call("save_as", [str(out / "take.aif")])
+    opened.call("save_as", [str(out / "take.ogg")])
+    assert sorted(p.name for p in out.iterdir()) == [
+        "dot.wav", "plain.wav", "take.aif", "take.flac"]
+    assert kudio.audio_info(out / "take.flac").sr == opened.session.sr
+    # soundfile writes .aiff by its name and .aif only when told the format
+    assert sf.info(str(out / "take.aif")).format == "AIFF"
+    assert said[-1] == "Saved as WAV, FLAC or AIFF only — take.ogg asks for .ogg."
+
+
+def test_after_save_as_the_clip_goes_by_its_new_name(opened, tmp_path):
+    state = opened.call("save_as", [str(tmp_path / "renamed.wav")])
+    assert (state["name"], state["path"]) == ("renamed.wav", str(tmp_path / "renamed.wav"))
+    # and the Files list has it, as the open one: the list marks the file
+    # whose path is the state's, and the saved file was in neither
+    assert state["path"] in [f["path"] for f in state["files"]]
+
+
+def test_enter_does_not_write_over_a_file_in_a_browser():
+    """The Replace question had Replace focused, so the Enter that typed the
+    path and a second one wrote over the file it was opened from. Cancel is
+    focused for that question, and the button that answers yes elsewhere."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    script = r"""
+class El {
+  constructor(tag) { Object.assign(this, { tag, kids: [], dataset: {}, type: "", textContent: "" }); }
+  append(...kids) { this.kids.push(...kids); }
+  addEventListener() {}
+  remove() {}
+  focus() { globalThis.focused = this.textContent; }
+  *all() { for (const k of this.kids) { yield k; yield* k.all(); } }
+  querySelector(selector) {
+    const fits = selector === "[data-focus]" ? (e) => "focus" in e.dataset
+      : (e) => e.tag === "input" || (e.tag === "button" && e.type === "submit");
+    for (const e of this.all()) if (fits(e)) return e;
+    return null;
+  }
+}
+globalThis.document = { createElement: (tag) => new El(tag), body: new El("body"),
+                        addEventListener() {}, removeEventListener() {},
+                        querySelector: () => ({ content: "token" }) };
+const { confirm } = await import(__DIALOGS__);
+const seen = [];
+for (const focusCancel of [true, false]) {
+  confirm({ title: "Replace take.wav?", submit: "Replace", focusCancel });
+  seen.push(globalThis.focused);
+}
+console.log(JSON.stringify(seen));
+""".replace("__DIALOGS__", json.dumps((STATIC / "js" / "dialogs.js").as_uri()))
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == ["Cancel", "Replace"]
+    page = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+    asked = page[page.index("async function saveTo"):page.index("const saveAs")]
+    assert "focusCancel: true" in asked
+
+
+def test_the_save_dialogs_offer_every_format_save_as_writes():
+    from kudiostudio.web.editing import SAVE_SUFFIXES
+
+    page = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+    offered = re.search(r"const AUDIO_SAVE_TYPES = \[([^\]]*)\]", page).group(1)
+    assert set(re.findall(r"\*(\.\w+)", offered)) == set(SAVE_SUFFIXES)
+
+
+def test_a_new_language_says_the_status_line_again_in_it(opened):
+    """The line from before the switch stayed in English until the next
+    action, which read as a switch that had not taken."""
+    drain = _listen(opened)
+    opened.call("set_language", ["zh_TW"])
+    try:
+        assert _messages(drain())[-1].startswith("已載入 tone.wav")
+    finally:
+        opened.call("set_language", ["en"])
+
+
+def test_every_tool_on_the_rail_has_a_name_assistive_technology_reads():
+    """An icon over a small caption: read as an accessibility tree, each of
+    the rail's buttons had no name. The rail built by panels.js on a
+    stand-in document, from what the server lists, in Chinese."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js = STATIC / "js"
+    script = r"""
+class El {
+  constructor(tag) {
+    Object.assign(this, { tag, kids: [], dataset: {}, attributes: {}, className: "",
+                          classList: { toggle() {} } });
+  }
+  append(...kids) { this.kids.push(...kids); }
+  replaceChildren() { this.kids = []; }
+  addEventListener() {}
+  setAttribute(name, value) { this.attributes[name] = value; }
+  *all() { for (const k of this.kids) { yield k; yield* k.all(); } }
+  querySelectorAll(selector) {
+    const key = selector.match(/^\[data-([\w-]+)\]$/)?.[1]
+      .replace(/-(\w)/g, (_, c) => c.toUpperCase());
+    return [...this.all()].filter((e) => key ? key in e.dataset : e.tag === selector);
+  }
+}
+const ids = new Map();
+globalThis.document = {
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => ids.get(id) ?? ids.set(id, new El("div")).get(id),
+  querySelector: () => ({ content: "token" }),
+};
+globalThis.fetch = async () => ({ json: async () => ({ ok: true, result: [
+  { id: "inspect", title: "Inspect", icon: "inspect" },
+  { id: "enhance", title: "Enhance", icon: "enhance" }] }) });
+const i18n = await import(__I18N__);
+i18n.load(__TABLE__);
+const { Panels } = await import(__PANELS__);
+await new Panels({ apply() {}, status() {}, state: () => null }).load();
+const rail = document.getElementById("rail");
+console.log(JSON.stringify(rail.querySelectorAll("button").map((b) => b.attributes["aria-label"])));
+"""
+    script = (script.replace("__I18N__", json.dumps((js / "i18n.js").as_uri()))
+              .replace("__PANELS__", json.dumps((js / "panels.js").as_uri()))
+              .replace("__TABLE__", json.dumps(i18n.table("zh_TW"), ensure_ascii=False)))
+    done = subprocess.run([node, "--input-type=module"], input=script, check=False,
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    names = json.loads(done.stdout)
+    assert names == [i18n.translate("Inspect", "zh_TW"), i18n.translate("Enhance", "zh_TW")]
+    assert names[0] != "Inspect"
+
+
+def test_files_of_the_same_name_are_told_apart_by_their_folders(studio, tmp_path, tone):
+    """clean/spk1_01.wav and noisy/spk1_01.wav both read spk1_01.wav, and
+    the reference was easy to pick wrong."""
+    import shutil
+    from kudiostudio.web.studio import shown_names
+
+    for side in ("clean", "noisy"):
+        (tmp_path / side).mkdir()
+        shutil.copy(tone, tmp_path / side / "spk1_01.wav")
+    studio.call("open_files", [[str(tmp_path / "clean" / "spk1_01.wav"),
+                                str(tmp_path / "noisy" / "spk1_01.wav"), str(tone)]])
+    assert [f["name"] for f in studio.call("state")["files"]] == [
+        "clean/spk1_01.wav", "noisy/spk1_01.wav", "tone.wav"]
+    assert shown_names(["a/x/take.wav", "b/x/take.wav", "c/y/take.wav"]) == [
+        "a/x/take.wav", "b/x/take.wav", "y/take.wav"]
+    # a root brings its own separator, and C:\/take.wav was what showed
+    assert shown_names(["/take.wav", "/a/take.wav"]) == ["/take.wav", "a/take.wav"]
+    if sys.platform == "win32":
+        assert shown_names(["C:\\take.wav", "D:\\take.wav"]) == ["C:/take.wav", "D:/take.wav"]

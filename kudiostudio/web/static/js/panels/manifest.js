@@ -21,8 +21,8 @@ export async function mount(root, ctx) {
   const pathBox = ui.text({ placeholder: "no manifest open" });
   pathBox.readOnly = true;
   const openFile = ui.button("Open…", { onClick: pick });
-  const reload = ui.button("Reload", { tip: info.tips.reload,
-                                       onClick: async () => applyView(await ctx.call("reload")) });
+  // the read runs on a job and the table fills in from the view it publishes
+  const reload = ui.button("Reload", { tip: info.tips.reload, onClick: () => ctx.call("reload") });
   const picker = document.createElement("div");
   picker.className = "path-field";
   picker.append(pathBox, openFile, reload);
@@ -301,7 +301,10 @@ export async function mount(root, ctx) {
   async function pick() {
     const path = await ctx.dialogs.choosePath("open", { title: t("Open a corpus manifest"),
                                                         types: info.types });
-    if (path) applyView(await ctx.call("load", [path]));
+    // not the view load() answers with: that is the one from before the
+    // read, and a small manifest is read before the answer arrives, so
+    // applying it would empty the table the read has just filled
+    if (path) await ctx.call("load", [path]);
   }
 
   async function open() {

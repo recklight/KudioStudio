@@ -108,6 +108,7 @@ NO_FIGURE = (("reference is digital silence", "n/a — the reference is silent")
              ("no more peaked than Gaussian", "n/a — the noise is not Gaussian, or "
                                               "drowns the speech"),
              ("sparser than", "n/a — next to no noise to measure"),
+             ("too loud to square", "n/a — too loud to compute in float64"),
              ("is silent", "silence"),
              ("samples are zero", "silence"),
              ("empty", "silence"))
@@ -159,6 +160,12 @@ def _why_none(caught) -> str:
     for clue, reason in NO_FIGURE:
         if clue in said:
             return reason
+    # a reason the table does not know yet: kudio's own sentence, from the
+    # warning that says nan, without the function name it opens with
+    told = [str(w.message) for w in caught]
+    told = [m for m in told if "nan" in m.lower()] or told
+    if told:
+        return "n/a — " + told[0].split("(): ", 1)[-1]
     return "n/a"
 
 
@@ -304,9 +311,10 @@ def composite_rows(ref: np.ndarray, deg: np.ndarray, sr: int,
         if value is None:
             return [(label, "could not be computed for this pair")]
         given = {"pesq": value}
+    caught = []
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             rated = kudio.composite(ref, deg, sr, **given)
     except kudio.DependencyError:
         # looked for once per run, so a package removed since then ends here
@@ -314,8 +322,10 @@ def composite_rows(ref: np.ndarray, deg: np.ndarray, sr: int,
     except Exception as e:  # noqa: BLE001
         log.debug("composite failed on the pair: %s", e)
         rated = None
-    if rated is None or not np.isfinite(rated.csig):
+    if rated is None:
         return [(label, "could not be computed for this pair")]
+    if not np.isfinite(rated.csig):
+        return [(label, _why_none(caught))]
     return [("CSIG (signal)", f"{rated.csig:.2f} / 5"),
             ("CBAK (background)", f"{rated.cbak:.2f} / 5"),
             ("COVL (overall)", f"{rated.covl:.2f} / 5"),

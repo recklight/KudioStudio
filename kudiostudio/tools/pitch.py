@@ -74,10 +74,15 @@ def summary(track) -> str:
             f"{len(track.voiced_segments())} span(s)")
 
 
-def voiced_spans(track, offset: float) -> List[Tuple[float, float]]:
+def voiced_spans(track, offset: float, length: float) -> List[Tuple[float, float]]:
     """The voiced runs on the clip's own timeline: a selection's track is
-    put back where the selection sits."""
-    return [(start + offset, end + offset) for start, end in track.voiced_segments()]
+    put back where the selection sits.
+
+    A run ends a hop after its last frame's centre, so one voiced to the end
+    would end past the *length* seconds the track was made from (3.010 s on
+    a 3 s sweep at a 10 ms hop); it ends there instead."""
+    return [(start + offset, min(end, length) + offset)
+            for start, end in track.voiced_segments()]
 
 
 __all__ = ["CUSTOM_RANGE", "FMAX_RANGE", "FMIN_RANGE", "FRAME_LENGTHS", "FRAME_TIP",

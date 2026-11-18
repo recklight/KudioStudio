@@ -91,6 +91,31 @@ def test_the_call_follows_the_mode(studio):
         "kudio.StreamRecorder(device=3, sr=44100, channels=2)")
 
 
+def test_an_empty_device_list_says_whether_the_backend_or_the_system_is_missing(
+        studio, monkeypatch):
+    """With PyAudio installed and no input offered -- a Windows with no
+    default recording device lists none under MME -- installing kudio[audio]
+    again changes nothing, so that is not what the status bar says."""
+    reported = []
+    monkeypatch.setattr(studio.panel("record"), "report", reported.append)
+    specs = {"pyaudio": object(), "sounddevice": None}
+    monkeypatch.setattr(tools.importlib.util, "find_spec", specs.get)
+    studio.call("record.devices", [True])
+    studio.call("record.devices", [False])
+    assert reported == [tools.NO_INPUTS.format("PyAudio"), tools.NO_BACKEND]
+
+
+def test_a_device_is_listed_with_its_host_api(studio, monkeypatch):
+    class WithApis(FakeCheckDevice):
+        def system_devices(self):
+            return [{**d, "api": "Windows WDM-KS"} for d in super().system_devices()]
+
+    monkeypatch.setattr(kudio, "CheckDevice", WithApis)
+    monkeypatch.setattr(FakeCheckDevice, "inputs", [(7, "Microphone (USB Audio)")])
+    assert studio.call("record.devices", [True])["devices"][1] == \
+        ["[7] Microphone (USB Audio) (Windows WDM-KS)", 7]
+
+
 def test_the_device_list_says_which_index_space_it_is_in(studio):
     # the two backends number devices independently; the label has to say which
     assert "PyAudio" in studio.call("record.devices", [True])["space"]

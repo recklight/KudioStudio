@@ -57,4 +57,9 @@ export function translatePage(root = document) {
   for (const el of root.querySelectorAll("[data-t-title]")) {
     el.title = t(el.dataset.tTitle);
   }
+  // a name for assistive technology, where the visible text alone does not
+  // reach it: the rail's buttons are an icon over a caption
+  for (const el of root.querySelectorAll("[data-t-label]")) {
+    el.setAttribute("aria-label", t(el.dataset.tLabel));
+  }
 }

@@ -150,7 +150,7 @@ def test_the_misses_and_the_status_line_follow_the_language(studio, tree, tmp_pa
     studio.call("batch.run", [_settings(tree, tmp_path / "out", normalize="LUFS",
                                         target=-23.0)])
     assert studio.jobs.wait(60)
-    assert said()[-1] == "批次完成 — 已寫入 2/2 個，0 個失敗，1 個未達響度目標。"
+    assert said()[-1] == "批次完成 — 已寫入 2/2 個，1 個未達響度目標。"
     misses = studio.call("batch.describe")["misses"]
     assert misses.startswith("未能達標：\n  out/a/spiky.wav")
     assert "削波" in misses and "clipped" not in misses
@@ -168,7 +168,8 @@ def test_the_result_follows_the_language(studio, tree, tmp_path):
 def test_every_tool_on_the_rail_has_its_page(studio):
     rail = studio.call("rail")
     assert [e["id"] for e in rail] == ["inspect", "effects", "enhance", "compare", "record",
-                                       "synthesize", "manifest", "pitch", "metrics", "batch"]
+                                       "synthesize", "manifest", "pitch", "metrics", "batch",
+                                       "claude"]
     assert all(e["script"] for e in rail[1:])
 
 
@@ -180,3 +181,25 @@ def test_the_seed_box_takes_any_seed_a_run_draws(studio):
 console.log(JSON.stringify(row("seed").given.max));
 """)
     assert top >= 2 ** 31 - 1
+
+
+def test_a_file_the_loudness_report_names_is_not_also_counted_as_failed(
+        studio, tree, tmp_path, caplog):
+    """A 0.3 s file and a silent one cannot be levelled after the denoise.
+    The loudness report lists both with the reason, and the status line
+    counted them a second time as failures the result never named; the
+    levelling pass also left one "will be overwritten" warning a file."""
+    import logging
+
+    kudio.save_wave(tree / "a" / "short.wav", np.full(int(0.3 * SR), 0.1, np.float32), SR)
+    kudio.save_wave(tree / "a" / "silent.wav", np.zeros(SR, np.float32), SR)
+    said = _said(studio)
+    with caplog.at_level(logging.WARNING, logger="kudio"):
+        studio.call("batch.run", [_settings(tree, tmp_path / "out", normalize="LUFS",
+                                            target=-23.0, denoise="logmmse")])
+        assert studio.jobs.wait(120)
+    status = said()[-1]
+    result = studio.call("batch.describe")["result"]
+    assert status == "Batch complete — 4/4 written, 3 missed the loudness target.", status
+    assert "failed:" not in result
+    assert not [r.getMessage() for r in caplog.records if "will be overwritten" in r.getMessage()]

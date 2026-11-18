@@ -83,11 +83,14 @@ export async function mount(root, ctx) {
     if (state.inspect) inspected.show(state.inspect[0], state.inspect[1] ? "warn" : "");
     scored.hidden = !state.dnsmos;
     if (state.dnsmos) scored.show(t(state.dnsmos[0]), state.dnsmos[1] ? "warn" : "");
-    evaluate.disabled = state.busy;
   }
 
   sync();
   show(info);
+  // From here on the job events say when the buttons work. The answer to a
+  // click says "busy" as the job starts, and a job that fails at once, as
+  // DNSMOS does without its models, has ended before that answer arrives.
+  evaluate.disabled = info.busy;
 
   return {
     state(s) {

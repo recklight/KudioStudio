@@ -27,7 +27,8 @@ A panel is left out, and the window opens without it, when:
 - its constructor raises;
 - it has no `id`, or one already on the rail: another plugin's, or a
   built-in tool's, `inspect` included;
-- its `id` is `markers`, the name the window's own marker commands go by.
+- its `id` is `markers` or `options`, the names the window's own marker and
+  Settings commands go by.
 
 The status bar names each one as the window opens, in the warning colour,
 with the error:
@@ -63,7 +64,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rms-panel"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["kudiostudio>=2.0", "numpy"]
 
 [project.entry-points."kudiostudio.panels"]
@@ -161,7 +162,7 @@ The class attributes are what the window reads before it builds anything:
 
 | Attribute | What it is |
 |---|---|
-| `id` | the panel's key: its commands are `rms.describe` and `rms.measure` on the wire. Pick one of your own; the built-in ids, `inspect` among them, are taken, and so is `markers`, which the window's own commands use |
+| `id` | the panel's key: its commands are `rms.describe` and `rms.measure` on the wire. Pick one of your own; the built-in ids, `inspect` among them, are taken, and so are `markers` and `options`, which the window's own commands use |
 | `title` | its label on the rail, in English; the page translates it |
 | `icon` | the name its rail icon goes by |
 | `icon_svg` | the icon itself; [below](#icon-and-translations) |
@@ -288,7 +289,7 @@ nothing: everything it needs comes in `ctx`, and since it is loaded from
 
 | `ctx.` | What it is |
 |---|---|
-| `call(name, args, kwargs)` | runs this panel's command `name` and resolves to what it returned |
+| `call(name, args, kwargs)` | runs this panel's command `name` and resolves to what it returned. When that is the panel's state, a dict with `busy` in it as `describe` returns, and the panel has since published a newer state the same way (`self.publish(info=...)`), it resolves to `null`: a quick job's result arrived first and stays on screen. A stale `describe` is asked again instead |
 | `window(name, args, kwargs)` | runs one of the window's own commands, such as `set_selection` with `[1.0, 2.5]` |
 | `ui` | the controls, below |
 | `t(text)` | the English *text* in the window's language |

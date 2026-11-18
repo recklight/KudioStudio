@@ -114,8 +114,9 @@ Convert it to WAV or FLAC with another program and open that.
 
 ### Starting from clean settings
 
-The window remembers the language, the analysis view and its settings, and
-the folders you last opened and saved in. They are in one small JSON file:
+The window remembers the language, the analysis view and its settings, the
+folders you last opened and saved in, the file last open, and everything in
+[Settings](window.md#settings). They are in one small JSON file:
 
 - Windows: `%APPDATA%\Kudio\KudioStudio\window.json`
 - elsewhere: `$XDG_CONFIG_HOME/Kudio/KudioStudio/window.json`, or
@@ -133,7 +134,7 @@ the terminal, and the window goes on without remembering.
 Press play, and the status bar says:
 
 ```text
-Playback failed — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install kudio[audio]
+Playback failed — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install "kudio[audio]"
 ```
 
 Playback goes through sounddevice. When sounddevice cannot play, because
@@ -152,7 +153,7 @@ Installing the `[audio]` extra changes the message, not the missing device.
 With **Mode** on `until stopped`, **● Start** says:
 
 ```text
-Recording failed — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install kudio[audio]
+Recording failed — DependencyError: 'PyAudio' is required for this feature. Install it with: pip install "kudio[audio]"
 ```
 
 and the **Device** list holds a single choice, with
@@ -170,6 +171,17 @@ pip install "kudiostudio[audio]"
 ```
 
 The compile needs a C compiler as well.
+
+With PyAudio installed, an empty list says so instead:
+
+```text
+PyAudio is installed but the system offers it no input device: check that a microphone is connected and enabled in the sound settings.
+```
+
+Installing anything again changes nothing then. The list holds every input
+PortAudio sees, each with its host API: on a Windows machine with no default
+recording device, MME, DirectSound and WASAPI offer none, and the
+microphones appear under Windows WDM-KS alone.
 
 ### Nothing was captured
 
@@ -215,7 +227,7 @@ With the model found and onnxruntime missing, the line says instead:
 
 ```text
 DependencyError: 'onnxruntime' is required for this feature. Install it with:
-pip install kudio[dnsmos]
+pip install "kudio[dnsmos]"
 ```
 
 `pip install "kudiostudio[dnsmos]"` installs it.

@@ -28,7 +28,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-It needs Python 3.9 or newer. [Getting started](getting-started.md) lists the
+It needs Python 3.10 or newer. [Getting started](getting-started.md) lists the
 extras and what Linux needs, and walks through a first session from opening a
 file to saving it.
 

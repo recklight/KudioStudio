@@ -7,8 +7,7 @@
 **The top bar** holds the menus, the name, sample rate and length of the clip
 that is open, and the buttons used most: **Open**, then five icons whose
 tooltips name them, **Save audio as**, **Undo**, **Revert to original**,
-**Zoom to selection** and **Zoom out to whole clip**. The language menu is at
-the far right.
+**Zoom to selection** and **Zoom out to whole clip**.
 
 **Files**, on the left, lists every file opened in this session. Click one to
 switch to it, and its **×** to take it off the list. The folder button beside
@@ -55,6 +54,11 @@ Select
     and end into **Selection** in the Inspect panel. ++ctrl+a++ selects
     everything and ++esc++ clears the selection.
 
+    ++shift++ + click carries the selection to the click, from whichever end
+    is further away; with nothing selected, it selects from the playhead to
+    the click. Click at the start, then ++shift++ + click at the end, is
+    easier than a long drag on a zoomed plot.
+
 Move the playhead
 :   Click either plot. Clicking while it plays carries on playing from there.
     ++home++ goes back to the start.
@@ -75,6 +79,40 @@ Scroll
 :   ++shift++ + wheel, a sideways swipe on a touchpad, a drag with the middle
     button or with ++alt++ held, ++arrow-left++ and ++arrow-right++, or the
     overview strip.
+
+## The right-click menu
+
+A right click on the waveform or the analysis image opens a menu for that
+point. "Here" in it is where you clicked, wherever the playhead is:
+
+![The right-click menu inside a selection](images/context_menu.png){ .shot }
+
+- **Play from here**, or **Stop** while it plays; **Play the selection**;
+  **Move the playhead here**.
+- With a selection: cut, copy, delete, crop and save it as its own file.
+- With something copied: **Paste over the selection**, which is ++ctrl+v++,
+  and **Paste here**, which inserts at the point and leaves what is selected
+  alone; what was pasted is then the selection. **Insert silence here…** asks
+  for the length and inserts it at the point the same way.
+- **Add a marker here**, and **Mark the selection**, which makes the
+  selection a region marker.
+- Zoom to the selection, zoom out, select all, clear the selection.
+- **Copy** with the time and the value under the pointer: the sample value
+  on the waveform, the frequency, Mel band or MFCC coefficient on the
+  analysis image. It goes to the clipboard as text, for notes or a
+  spreadsheet.
+- **Reset the frequency range**, when the vertical axis is zoomed.
+
+What does not apply, cutting with nothing selected for one, is left out
+rather than greyed, so the menu stays short. Each item runs the same command
+as the menu bar and the keys, so it can be undone and goes into the exported
+script, and the keys are shown beside the items that have one.
+
+On the analysis image's vertical axis the menu is the axis's own: reset the
+range; **Finer frequency detail** and **Finer time detail**, which double or
+halve n_fft and the hop with it, so the overlap between frames stays as it
+was; and STFT, Mel or MFCC. MFCC has no n_fft to change, so only the view is
+offered there.
 
 ## Playing
 
@@ -105,6 +143,7 @@ milliseconds: [Every join crossfades](editing.md#every-join-crossfades).
 | ++ctrl+shift+e++ | Save the selection as its own file |
 | ++ctrl+q++ | Quit, after a running job, never in the middle of one |
 | ++ctrl+z++ | Undo the last edit |
+| ++ctrl+y++ / ++ctrl+shift+z++ | Redo what Undo took out |
 | ++ctrl+x++ / ++ctrl+c++ / ++ctrl+v++ / ++del++ | Cut / copy / paste / delete the selection |
 | ++ctrl+t++ | Crop to the selection |
 | ++ctrl+a++ / ++esc++ | Select all / clear the selection |
@@ -115,9 +154,39 @@ milliseconds: [Every join crossfades](editing.md#every-join-crossfades).
 | ++ctrl+e++ / ++ctrl+f++ | Zoom to the selection / zoom out to the whole clip |
 | ++plus++ / ++minus++ | Zoom in / out around the playhead |
 | ++arrow-left++ / ++arrow-right++ | Scroll along the clip |
+| ++ctrl+comma++ | Settings |
+| ++ctrl+equal++ / ++ctrl+minus++ / ++ctrl+0++ | The whole window larger / smaller / at 100% |
 | ++f1++ | This guide, in the browser |
 
 The keys reach the window only when the focus is not in a field that takes
 text, a number or a choice. A window-wide ++ctrl+c++ would take copy away from
 every path field in the panels, and ++space++ would stop you typing a file name
 with a space in it.
+
+## Settings
+
+**Edit → Settings…** (++ctrl+comma++) holds what the window keeps from one
+start to the next. A change takes effect as it is made, so the dialog has no
+OK button: **Close** closes it, and **Restore defaults** puts every setting
+here back but the language. The analysis view is kept as well, and set where
+it is used, above the spectrogram.
+
+![Edit → Settings…](images/settings.png){ .shot }
+
+| Setting | What it does | Starts at |
+|---|---|---|
+| **Language / 語言** | English or Traditional Chinese. The window switches at once, open panels included, and the dialog opens again in the new language. Named in both, so it can be found from either | the system's language when there is a translation for it, else English |
+| **Size** | Makes the whole window larger or smaller, the plots' labels included, in five steps from 90% to 150%. ++ctrl+equal++ and ++ctrl+minus++ step through them, ++ctrl+0++ goes back to 100%. The layout needs about 1100 × 640 at the size chosen, so 150% wants a window of 1650 × 960 or more; a smaller one is enlarged only as far as it has room for, the status line says so, and making the window larger shows the rest | 100% |
+| **Text colour** | Four sets for the text, the hints and the plots' figures: Standard, Bright for a dim screen, Warm for the evening, and High contrast. Warnings stay red and passes green, since the colour is what they say | Standard |
+| **Font** | The font of the interface. Type the name of any installed font; the box shows it in that font, and a name that is not installed leaves the window's own | the window's own |
+| **Numbers font** | The font of figures, times, parameter names and code. A font whose digits are all one width keeps columns of numbers lined up | the window's own |
+| **Splice crossfade** | The crossfade at every join, the same value as **Splice xf** on the transport: [Every join crossfades](editing.md#every-join-crossfades) | 5 ms |
+| **Undo steps** | How many edits Undo can take back, 1 to 100. Each step keeps a copy of the clip, and an hour of 48 kHz mono is 690 MB, so a long take wants fewer. Fewer than are kept now drops the oldest | 20 |
+| **Bit depth** | What Save As and Save selection as write: 16-bit PCM, 24-bit PCM or 32-bit float. FLAC holds no floating point, so float to a `.flac` name is written as 24-bit and the status line says so. The exported script writes the same depth | 16-bit PCM |
+| **Colours** | The spectrogram's colour map. inferno, magma, viridis and cividis get lighter evenly from one end to the other, so a level looks the same anywhere on the plot; gray is for printing | inferno |
+| **Open the last file at start** | Opens the file the window last had when it is started with no file named, if the file is still there | off |
+| **Ask before unsaved audio is replaced** | Off, opening a file or recording over an edit no file holds goes ahead without the question in [Before a clip is replaced](editing.md#before-a-clip-is-replaced) | on |
+| **API key**, **Model** | Claude's key and model for the [Claude](panels/ask-claude.md) panel: **Save the key**, **Test**, which lists the models the key can use, **Remove the key**, and **Get a key…** for the Console. The key goes to the system's credential store, not to this file | none; Automatic |
+
+In a browser the size is the page's own and does not touch the browser's zoom,
+which still works on top of it.

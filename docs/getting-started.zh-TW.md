@@ -6,8 +6,8 @@
 pip install kudiostudio
 ```
 
-KudioStudio 需要 Python 3.9 以上，以及 kudio 4.0.0 以上，這是第一個具備
-[指標](panels/metrics.md)面板所有指標的版本，pip 會一起裝好。視窗是程式自己提供的一個網頁，透過
+KudioStudio 需要 Python 3.10 以上，以及 kudio 4.1.0 以上：[指標](panels/metrics.md)面板的每個指標它都有，
+也能寫出另存新檔提供的 `.aif`，pip 會一起裝好。視窗是程式自己提供的一個網頁，透過
 [pywebview](https://pywebview.flowrl.com/) 用系統本來就有的網頁元件畫出來：Windows 10 與 11
 是 WebView2，macOS 是 WebKit。這兩個系統都不必另外安裝 GUI 工具組。
 
@@ -49,7 +49,8 @@ kudiostudio --reset            # 清掉儲存的設定
 ```
 
 `--port` 指定頁面使用的本機連接埠（預設任選一個空的），`--debug` 開啟視窗的開發者工具，
-`-v` 則以 debug 層級記錄日誌。
+`-v` 以 debug 層級記錄 KudioStudio 和 kudio 自己的訊息，其他函式庫維持 info。
+`--version` 印出 KudioStudio 和它所用的 kudio 的版本。
 
 在瀏覽器裡，頁面能做的事跟視窗一樣，只有兩件事非得靠視窗不可：開檔與存檔的對話框會變成
 一個讓你輸入路徑的方塊，拖進頁面的檔案也不會開啟，這時請用「開啟」。真的這樣做了，
@@ -60,7 +61,8 @@ kudiostudio --reset            # 清掉儲存的設定
 
 ### 介面語言 {#language}
 
-介面有英文與繁體中文。右上角的選單可以立即切換，已開啟的面板也會跟著換，選擇會被記住。
+介面有英文與繁體中文。「編輯 → 設定…」（++ctrl+comma++）最上面的「Language / 語言」可以立即切換，
+已開啟的面板也會跟著換，選擇會被記住。
 沒有儲存過選擇時，若系統語言有對應的翻譯，就用系統語言。
 
 兩種語言下，kudio 參數名稱、kudio 本身接受的值（方法名稱、雜訊估計器、編解碼器、
@@ -70,8 +72,8 @@ kudiostudio --reset            # 清掉儲存的設定
 
 ### 儲存的設定 {#saved-settings}
 
-視窗會記住介面語言、分析圖的種類與參數，以及上次開啟或存檔所在的資料夾。
-這些都存在一個小小的 JSON 檔裡：
+視窗會記住介面語言、分析圖的種類與參數、上次開啟或存檔所在的資料夾、上次開著的檔案，
+以及[設定](window.md#settings)裡的一切。這些都存在一個小小的 JSON 檔裡：
 
 - Windows：`%APPDATA%\Kudio\KudioStudio\window.json`
 - 其他系統：`$XDG_CONFIG_HOME/Kudio/KudioStudio/window.json`，沒有設定這個變數時是
@@ -93,7 +95,9 @@ kudiostudio --reset            # 清掉儲存的設定
    會執行的 kudio 呼叫，++ctrl+z++ 可以復原。
 5. ++ctrl+b++ 在你的編輯版本與剛開啟時的檔案之間切換，播放中也可以，而且兩者會先對齊響度，
    不會因為比較大聲就勝出。
-6. 「檔案 → 另存新檔…」（++ctrl+shift+s++）寫出 16 位元的 WAV；「檔案 → 將編輯匯出為
+6. 「檔案 → 另存新檔…」（++ctrl+shift+s++）依檔名的副檔名寫出 WAV、FLAC 或 AIFF（沒有副檔名就補上
+   `.wav`），[設定](window.md#settings)沒改就是 16 位元，之後這段音訊就用新的檔名，「檔案」清單裡也是。
+   在瀏覽器裡，檔名若已經是一個檔案，會先問過才覆寫，這時按 Enter 是取消。「檔案 → 將編輯匯出為
    Python 腳本…」則把你做過的步驟寫成一份腳本，從原始檔案產生完全相同的樣本。
 
 [編輯與標記](editing.md)會把這些講得更完整：剪貼簿、每個接合處的交叉淡化、標記，

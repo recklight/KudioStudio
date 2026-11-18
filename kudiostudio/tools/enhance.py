@@ -12,8 +12,9 @@ as the gain rule does; which of the two matters more depends on the
 recording, and Compare measures both.
 
 Learned models come from the optional `kudioenhance` package and are loaded
-from a run directory it produced. They are PyTorch networks, and PyTorch is
-imported only when one is actually used.
+from a run directory it produced, or by the name of weights it publishes,
+downloaded the first time. They are PyTorch networks, and PyTorch is imported
+only when one is actually used.
 """
 from __future__ import annotations
 
@@ -49,7 +50,8 @@ RESAMPLE_TIP = ("The clip is resampled to the rate the model was trained at, the
                 "the result is resampled back, so the session keeps its own rate.")
 INSTALLED_NOTE = ("kudioenhance is installed — point 'run_dir' at a directory it "
                   "produced (it holds the model, its normalisation statistics and "
-                  "the STFT geometry they were trained with).")
+                  "the STFT geometry they were trained with), or type the name of "
+                  "weights it publishes, downloaded the first time they are used.")
 
 
 def kudioenhance_available() -> bool:
@@ -65,6 +67,36 @@ def kudioenhance_available() -> bool:
 
 
 # --------------------------------------------------------- learned models
+
+def published_models() -> Tuple[str, ...]:
+    """The names of the weights kudioenhance publishes, which `Enhancer.load`
+    takes in place of a run directory; () without kudioenhance, or with one
+    that publishes none. kudioenhance.pretrained does not import PyTorch."""
+    try:
+        from kudioenhance.pretrained import PRETRAINED
+    except Exception:  # noqa: BLE001 - not installed, or older than 2.0
+        return ()
+    return tuple(sorted(PRETRAINED))
+
+
+def is_model(run_dir) -> bool:
+    """Is *run_dir* something `Enhancer.load` takes: a folder, or the name of
+    published weights? A folder of that name wins, as it does there."""
+    return bool(run_dir) and (Path(run_dir).is_dir() or str(run_dir) in published_models())
+
+
+def _published(run_dir) -> bool:
+    return not Path(run_dir).is_dir() and str(run_dir) in published_models()
+
+
+def model_choice_hint() -> str:
+    """What to put in 'run_dir', for a message that says it is missing."""
+    names = published_models()
+    if not names:
+        return "Select a kudioenhance run directory first."
+    return (f"Select a kudioenhance run directory, or type the name of published "
+            f"weights ({', '.join(names)}), first.")
+
 
 def _model_paths(run_dir) -> Tuple[Path, ...]:
     """The files of a run that `Enhancer.load` reads: the config, the
@@ -135,10 +167,15 @@ def learned_code(run_dir: str, state: Optional[ModelState] = None) -> str:
     checks them first. A run directory trained again since holds a different
     model under the same name, and the script would make different audio
     without a word.
+
+    Published weights go in by name: kudioenhance checks their SHA-256
+    before it reads them, so the name is the model.
     """
     where = str(Path(run_dir).absolute())
     lines = ["from kudioenhance.inference import Enhancer"]
-    if state is not None:
+    if _published(run_dir):
+        lines.append(f"enhancer = Enhancer.load({str(run_dir)!r})")
+    elif state is not None:
         lines = [
             "import hashlib",
             "from pathlib import Path",
@@ -253,6 +290,7 @@ def schema() -> Dict:
             "others": [{"name": key, "label": text} for text, key in OTHER_METHODS],
             "noise": [{"name": n, "tip": s} for n, s in kudio.NOISE_ESTIMATORS.items()],
             "fft_sizes": list(FFT_SIZES), "wavelets": list(WAVELETS),
+            "published": list(published_models()),
             "n_fft_tip": N_FFT_TIP, "resample_tip": RESAMPLE_TIP}
 
 
@@ -309,8 +347,8 @@ def operation(method: str, values: Mapping, y: np.ndarray, sr: int,
         if not (available or kudioenhance_available)():
             raise RuntimeError(INSTALL_HINT)
         run_dir = values.get("run_dir") or ""
-        if not run_dir or not Path(run_dir).is_dir():
-            raise RuntimeError("Select a kudioenhance run directory first.")
+        if not is_model(run_dir):
+            raise RuntimeError(model_choice_hint())
         return (model.enhance, (y, sr, run_dir, bool(values.get("resample", True))), {},
                 f"learned model ({Path(run_dir).name})")
     return kudio.trad_enhance, (y, sr), {}, "trad_enhance"
@@ -346,5 +384,6 @@ def distance(before: np.ndarray, out: np.ndarray) -> str:
 
 __all__ = ["FFT_SIZES", "INSTALL_HINT", "LEARNED", "LearnedModel", "ModelState",
            "OTHER_METHODS", "STATISTICAL", "TRAD", "WAVELET", "WAVELETS", "call_text",
-           "distance", "kudioenhance_available", "learned_code", "method_params",
+           "distance", "is_model", "kudioenhance_available", "learned_code",
+           "method_params", "model_choice_hint", "published_models",
            "model_fingerprint", "model_state", "operation", "schema", "script"]

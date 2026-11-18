@@ -111,6 +111,7 @@ plugins:
             Pitch: 音高
             Metrics: 指標
             Batch: 批次
+            Claude: Claude
             Writing a panel: 撰寫面板
             Troubleshooting: 疑難排解
 
@@ -139,6 +140,7 @@ nav:
       - Pitch: panels/pitch.md
       - Metrics: panels/metrics.md
       - Batch: panels/batch.md
+      - Claude: panels/ask-claude.md
   - Writing a panel: plugins.md
   - Troubleshooting: troubleshooting.md
 
