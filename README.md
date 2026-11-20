@@ -29,7 +29,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-KudioStudio needs Python 3.10 or newer and kudio 4.1.0 or newer, which pip
+KudioStudio needs Python 3.10 or newer and kudio 4.2.0 or newer, which pip
 installs with it. The window is drawn by the web view the
 system already has, through [pywebview](https://pywebview.flowrl.com/):
 WebView2 on Windows 10 and 11, WebKit on macOS. Linux needs GTK or Qt for
@@ -69,6 +69,7 @@ kudiostudio --lang zh_TW       # the interface in Traditional Chinese
 | [Pitch](https://recklight.github.io/KudioStudio/panels/pitch/) | the f0 contour over the spectrogram, and the voiced spans as markers |
 | [Metrics](https://recklight.github.io/KudioStudio/panels/metrics/) | what is wrong with a recording without a reference, and scores with one |
 | [Batch](https://recklight.github.io/KudioStudio/panels/batch/) | a whole folder converted, normalised or denoised, with the files that missed named |
+| [Survey](https://recklight.github.io/KudioStudio/panels/survey/) | every file of a folder checked, as a table to sort and filter, with the folders' spectra and a timeline of the takes |
 | [Claude](https://recklight.github.io/KudioStudio/panels/ask-claude/) | the clip's figures read back in words by Claude, on your own API key, with next steps |
 
 Around them: cut, copy and paste with a crossfade at every join, A/B against

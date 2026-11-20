@@ -9,10 +9,15 @@ that is open, and the buttons used most: **Open**, then five icons whose
 tooltips name them, **Save audio as**, **Undo**, **Revert to original**,
 **Zoom to selection** and **Zoom out to whole clip**.
 
-**Files**, on the left, lists every file opened in this session. Click one to
-switch to it, and its **×** to take it off the list. The folder button beside
-the heading adds more. Switching asks first when the open clip holds an edit
-or a take no file does: [Before a clip is replaced](editing.md#before-a-clip-is-replaced).
+**Files**, on the left, lists every file opened in this session. Once they
+come from more than one folder, they sit under a heading for each folder with
+the number of its files beside it, since a corpus of takes named alike reads
+as one long list otherwise. Click one to switch to it, and its **×** to take
+it off the list; ++arrow-down++ and ++arrow-up++ step to the next file and the
+one before. The folder button beside the heading adds more files, and
+**File → Open folder…** adds every audio file in a folder and its subfolders.
+Switching asks first when the open clip holds an edit or a take no file does:
+[Before a clip is replaced](editing.md#before-a-clip-is-replaced).
 
 **Markers**, under it, are named points and ranges that stay put, unlike a
 selection. [Markers](editing.md#markers), on the editing page, covers them.
@@ -154,6 +159,7 @@ milliseconds: [Every join crossfades](editing.md#every-join-crossfades).
 | ++ctrl+e++ / ++ctrl+f++ | Zoom to the selection / zoom out to the whole clip |
 | ++plus++ / ++minus++ | Zoom in / out around the playhead |
 | ++arrow-left++ / ++arrow-right++ | Scroll along the clip |
+| ++arrow-down++ / ++arrow-up++ | The next file in Files / the one before |
 | ++ctrl+comma++ | Settings |
 | ++ctrl+equal++ / ++ctrl+minus++ / ++ctrl+0++ | The whole window larger / smaller / at 100% |
 | ++f1++ | This guide, in the browser |
@@ -184,6 +190,7 @@ it is used, above the spectrogram.
 | **Undo steps** | How many edits Undo can take back, 1 to 100. Each step keeps a copy of the clip, and an hour of 48 kHz mono is 690 MB, so a long take wants fewer. Fewer than are kept now drops the oldest | 20 |
 | **Bit depth** | What Save As and Save selection as write: 16-bit PCM, 24-bit PCM or 32-bit float. FLAC holds no floating point, so float to a `.flac` name is written as 24-bit and the status line says so. The exported script writes the same depth | 16-bit PCM |
 | **Colours** | The spectrogram's colour map. inferno, magma, viridis and cividis get lighter evenly from one end to the other, so a level looks the same anywhere on the plot; gray is for printing | inferno |
+| **Output folder** | Where every save dialog starts: Save As, the exported image and script, markers, and the files panels and plugins write. **Last saved to** empties it, and the dialogs start in the folder last saved to again. A save never starts in a folder that cannot be written to, such as a read-only share of recordings: the status line names that folder once and the dialog starts in your home folder | empty |
 | **Open the last file at start** | Opens the file the window last had when it is started with no file named, if the file is still there | off |
 | **Ask before unsaved audio is replaced** | Off, opening a file or recording over an edit no file holds goes ahead without the question in [Before a clip is replaced](editing.md#before-a-clip-is-replaced) | on |
 | **API key**, **Model** | Claude's key and model for the [Claude](panels/ask-claude.md) panel: **Save the key**, **Test**, which lists the models the key can use, **Remove the key**, and **Get a key…** for the Console. The key goes to the system's credential store, not to this file | none; Automatic |

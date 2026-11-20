@@ -20,16 +20,17 @@ from kudiostudio.web.panels.manifest import ManifestPanel
 from kudiostudio.web.panels.metrics import MetricsPanel
 from kudiostudio.web.panels.pitch import PitchPanel
 from kudiostudio.web.panels.record import RecordPanel
+from kudiostudio.web.panels.survey import SurveyPanel
 from kudiostudio.web.panels.synth import SynthPanel
 
 #: panels that have their Python half here, in rail order
 PANEL_CLASSES: Tuple[type, ...] = (EffectsPanel, EnhancePanel, ComparePanel, RecordPanel,
                                    SynthPanel, ManifestPanel, PitchPanel, MetricsPanel,
-                                   BatchPanel, ClaudePanel)
+                                   BatchPanel, SurveyPanel, ClaudePanel)
 
 #: the rail's order, by id
 ORDER = ("inspect", "effects", "enhance", "compare", "record", "synthesize",
-         "manifest", "pitch", "metrics", "batch", "claude")
+         "manifest", "pitch", "metrics", "batch", "survey", "claude")
 
 
 def module_url(panel: WebPanel) -> str:

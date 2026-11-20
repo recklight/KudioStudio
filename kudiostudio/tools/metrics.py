@@ -113,6 +113,19 @@ NO_FIGURE = (("reference is digital silence", "n/a — the reference is silent")
              ("samples are zero", "silence"),
              ("empty", "silence"))
 
+#: Above this rate a recording holds more than anyone hears, and the speech
+#: measures treat it two ways. The loudness is K-weighted at the recording's
+#: own rate, and the weighting's high shelf runs on to Nyquist: at 192 kHz a
+#: 30 kHz tone reads within 0.1 LU of a 10 kHz one, so ultrasound no one
+#: hears counts in it, and WADA-SNR is worked out on the whole band too. SRMR
+#: and DNSMOS are scored on 16 kHz copies and see nothing above 8 kHz.
+SPEECH_RATE = 48000
+
+SPEECH_ONLY = ("On a {} Hz recording, loudness and WADA-SNR take in the ultrasound "
+               "no one hears: a floor above 20 kHz raises the loudness and moves the "
+               "SNR. SRMR and DNSMOS are scored on a 16 kHz copy and see nothing "
+               "above 8 kHz.")
+
 NOTHING_WRONG = ("Nothing wrong with the recording itself. This says the audio is "
                  "technically sound, not that it sounds good — for that, try the "
                  "DNSMOS button below.")
@@ -125,8 +138,48 @@ def pesq_scale(label: str) -> str:
 
 # --------------------------------------------------------- no reference
 
-def inspect_rows(report) -> Tuple[Rows, List[str]]:
-    """The table for an `audio_report`, and its problems."""
+def speech_note(sr: int) -> Rows:
+    """One row saying what the speech measures make of the band above 20
+    kHz, for a recording made above `SPEECH_RATE`; none otherwise."""
+    return [("Note", SPEECH_ONLY.format(int(sr)))] if int(sr) > SPEECH_RATE else []
+
+
+def _band_limit(report) -> Optional[str]:
+    """The band-limit row, from the fields a kudio after 4.1 adds; None
+    with one that has not got them."""
+    edge = getattr(report, "band_edge_hz", None)
+    if edge is None:
+        return None
+    if not report.band_limited:
+        return "none found"
+    rates = " or ".join(str(r) for r in report.source_rates)
+    if report.mirrored:
+        return f"mirror image above {edge:.0f} Hz — linear interpolation from {rates} Hz"
+    if rates:
+        return f"edge at {edge:.0f} Hz — upsampled from {rates} Hz, or a codec"
+    return f"edge at {edge:.0f} Hz — a codec or a filter"
+
+
+def lines_rows(found) -> Rows:
+    """The narrowband lines `kudio.tonal_lines` found: the strongest, and a
+    row for each comb."""
+    if found is None:
+        return []
+    if not found.lines:
+        return [("Narrowband lines", f"none {found.min_prominence_db:g} dB above "
+                                     f"their surroundings")]
+    top = found.strongest
+    rows = [("Narrowband lines", f"{len(found.lines)}, the strongest at {top.hz:.1f} Hz, "
+                                 f"{top.prominence_db:.0f} dB above its surroundings")]
+    for comb in found.combs:
+        rows.append(("Comb", f"{comb.fundamental_hz:.2f} Hz × {len(comb.lines)} "
+                             f"(harmonics {comb.harmonics[0]}–{comb.harmonics[-1]})"))
+    return rows
+
+
+def inspect_rows(report, lines=None) -> Tuple[Rows, List[str]]:
+    """The table for an `audio_report`, and its problems. *lines*, what
+    `kudio.tonal_lines` found in the same clip, adds its rows."""
     # no figure, and the row says which of the reasons it is: silence has no
     # level, BS.1770 needs a 400 ms block, and NaN in the clip measures as NaN
     if np.isfinite(report.lufs):
@@ -143,7 +196,9 @@ def inspect_rows(report) -> Tuple[Rows, List[str]]:
         ("RMS", f"{report.rms_dbfs:+.2f} dBFS"),
         ("Loudness (BS.1770)", lufs),
         ("Clipped samples", f"{report.clipped_samples} "
-                            f"({report.clipped_ratio * 100:.3f}%)"),
+                            f"({report.clipped_ratio * 100:.3f}%)"
+                            + (f", {report.full_scale_samples} at full scale"
+                               if hasattr(report, "full_scale_samples") else "")),
         ("DC offset", f"{report.dc_offset:+.5f}"),
         ("Silence", f"{report.silence_ratio * 100:.1f}%"),
         ("Noise floor", f"{report.noise_floor_dbfs:+.2f} dBFS"),
@@ -151,6 +206,15 @@ def inspect_rows(report) -> Tuple[Rows, List[str]]:
         ("Bandwidth", f"{report.bandwidth_hz:.0f} Hz of "
                       f"{report.sr / 2:.0f} Hz available"),
     ]
+    band = _band_limit(report)
+    if band is not None:
+        rows.append(("Band limit", band))
+    if hasattr(report, "grid_bits"):
+        rows.append(("Sample grid", f"{report.grid_bits:.1f} bits (steps of "
+                                    f"{report.sample_step * 32768:g} at 16 bits)"
+                     if report.sample_step > 0 else "not judged (float or processed audio, or fewer than 16 different values)"))
+    rows += lines_rows(lines)
+    rows += speech_note(report.sr)
     return rows, list(report.problems())
 
 
@@ -192,16 +256,16 @@ def blind_rows(y: np.ndarray, sr: int) -> Rows:
             warnings.simplefilter("always")
             value = measure()
         rows.append((name, form.format(value) if np.isfinite(value) else _why_none(caught)))
-    return rows
+    return rows + speech_note(sr)
 
 
-def dnsmos_rows(score) -> Rows:
+def dnsmos_rows(score, sr: int = 16000) -> Rows:
     """SIG and BAK move in opposite directions under denoising, so all three
     are shown rather than their average."""
     return [("SIG (speech)", f"{score.sig:.2f} / 5"),
             ("BAK (background)", f"{score.bak:.2f} / 5"),
             ("OVRL (overall)", f"{score.ovrl:.2f} / 5"),
-            ("Windows averaged", str(score.segments))]
+            ("Windows averaged", str(score.segments))] + speech_note(sr)
 
 
 # ------------------------------------------------------- with a reference

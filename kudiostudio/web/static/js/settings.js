@@ -204,6 +204,13 @@ export async function openSettings() {
     controls.bit_depth = ui.select(DEPTHS, { translate: true, onChange: (v) => put("bit_depth", v) });
     rows.row("Bit depth", controls.bit_depth,
              { tip: "What Save As writes. FLAC holds no float and gets 24-bit instead." });
+    controls.output_dir = ui.path({ kind: "folder", title: "Output folder",
+                                    onChange: (v) => put("output_dir", v) });
+    controls.output_dir.set = (v) => { controls.output_dir.value = v || ""; };
+    rows.row("Output folder", controls.output_dir,
+             { tip: "Where every save dialog starts: exports, images, scripts and the plugins' files. Empty, it is the folder last saved to." });
+    const clearOutput = ui.button("Last saved to", { onClick: () => put("output_dir", "") });
+    rows.row("", clearOutput);
 
     rows = group("Spectrogram");
     controls.spectrum_map = ui.select(info.spectrum_maps, { onChange: (v) => put("spectrum_map", v) });

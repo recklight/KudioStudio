@@ -6,9 +6,10 @@
 pip install kudiostudio
 ```
 
-KudioStudio needs Python 3.10 or newer, and kudio 4.1.0 or newer, which has
-every measure the [Metrics](panels/metrics.md) panel shows and writes the
-`.aif` that Save As offers; pip brings it along. The window is a page the program serves to itself, drawn through
+KudioStudio needs Python 3.10 or newer, and kudio 4.2.0 or newer, which has
+every measure the [Metrics](panels/metrics.md) panel shows and every check
+the [Survey](panels/survey.md) panel runs, and writes the `.aif` that Save As
+offers; pip brings it along. The window is a page the program serves to itself, drawn through
 [pywebview](https://pywebview.flowrl.com/) by the web view the system already
 has: WebView2 on Windows 10 and 11, WebKit on macOS.
 There is no GUI toolkit to install on those two.
@@ -45,12 +46,19 @@ A panel that needs a missing extra says which one, rather than failing.
 kudiostudio                    # an empty session
 kudiostudio clip.wav           # open a file on start-up
 kudiostudio a.wav b.wav        # several: all go into the file list, the first opens
+kudiostudio takes/             # a folder: every audio file in it and its subfolders
+kudiostudio "takes/*_s1.wav"   # a pattern, matched here rather than by the shell
 kudiostudio manifest.json      # a corpus manifest opens in the Manifest panel
 kudiostudio --browser          # the same page in the default browser
 kudiostudio --no-plugins       # leave out the panels other packages add
 kudiostudio --lang zh_TW       # the interface in Traditional Chinese
 kudiostudio --reset            # forget the saved settings
 ```
+
+A folder or a pattern is how a corpus gets in. The shell on Windows passes a
+pattern on as it is, and a few hundred takes named in full run past the 32767
+characters a command line holds. A folder or pattern that holds no audio is
+named on the status line.
 
 `--port` picks the local port the page is served on (any free one by
 default), `--debug` opens the window's developer tools, and `-v` logs
@@ -84,7 +92,9 @@ the like.
 ### Saved settings
 
 The window remembers the language, the analysis view with its settings, the
-folder you last opened or saved something in, the file last open, and
+folder you last opened something from and the one you last saved to (kept
+apart, so exports do not follow you into a folder of recordings), the file
+last open, and
 everything in [Settings](window.md#settings). They live in one small JSON
 file:
 

@@ -28,7 +28,7 @@ pip install kudiostudio
 kudiostudio
 ```
 
-KudioStudio 需要 Python 3.10 以上，以及 kudio 4.1.0 以上，後者 pip 會一起裝好。視窗透過 [pywebview](https://pywebview.flowrl.com/)，
+KudioStudio 需要 Python 3.10 以上，以及 kudio 4.2.0 以上，後者 pip 會一起裝好。視窗透過 [pywebview](https://pywebview.flowrl.com/)，
 用系統本來就有的網頁元件畫出來：Windows 10 與 11 是 WebView2，macOS 是 WebKit。
 Linux 上 pywebview 需要 GTK 或 Qt，聲音需要 PortAudio 的函式庫；沒有網頁元件時，
 同一個頁面會改在預設瀏覽器開啟。詳細說明見[入門](https://recklight.github.io/KudioStudio/zh-TW/getting-started/)。
@@ -65,6 +65,7 @@ kudiostudio --lang zh_TW       # 以繁體中文介面啟動
 | [音高](https://recklight.github.io/KudioStudio/zh-TW/panels/pitch/) | 畫在頻譜圖上的 f0 輪廓，以及轉成標記的有聲區段 |
 | [指標](https://recklight.github.io/KudioStudio/zh-TW/panels/metrics/) | 沒有參考訊號時找出錄音本身的問題，有參考訊號時評分 |
 | [批次](https://recklight.github.io/KudioStudio/zh-TW/panels/batch/) | 整個資料夾轉檔、正規化或降噪，並列出沒能達標的檔案 |
+| [整批檢查](https://recklight.github.io/KudioStudio/zh-TW/panels/survey/) | 檢查資料夾裡的每個檔案，排成可以排序和篩選的表格，並有各資料夾的頻譜和檔案的時間軸 |
 | [Claude](https://recklight.github.io/KudioStudio/zh-TW/panels/ask-claude/) | 用你自己的 API 金鑰，請 Claude 把這段音訊的數據講成文字，並建議下一步 |
 
 此外還有：每個接合處都會交叉淡化的剪下與貼上、與剛開啟時的檔案做 A/B 比較、跨工作階段保留的標記，

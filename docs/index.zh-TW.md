@@ -42,8 +42,9 @@ kudiostudio
 | [合成](panels/synthesize.md) | 用一個乾淨語音資料夾和一個雜訊資料夾建立含噪資料集，可加上房間與電話線路 | `Synthesizer` |
 | [Manifest](panels/manifest.md) | 把那個資料集讀回來：遺失的檔案，以及雜訊 × SNR 的覆蓋情況 | `load_manifest` |
 | [音高](panels/pitch.md) | 畫在頻譜圖上的 f0 輪廓，以及轉成標記的有聲區段 | `f0` |
-| [指標](panels/metrics.md) | 沒有參考訊號時找出錄音本身的問題，有參考訊號時評分 | `audio_report`, `srmr`, `wada_snr`, `dnsmos`, `find_delay`, `eval_metrics`, `pesq`, `snr`, `si_sdr`, `segmental_snr`, `llr`, `itakura_saito`, `cepstral_distance`, `wss`, `fw_segmental_snr`, `lsd`, `composite`, `ncm`, `csii` |
+| [指標](panels/metrics.md) | 沒有參考訊號時找出錄音本身的問題，有參考訊號時評分 | `audio_report`, `tonal_lines`, `srmr`, `wada_snr`, `dnsmos`, `find_delay`, `eval_metrics`, `pesq`, `snr`, `si_sdr`, `segmental_snr`, `llr`, `itakura_saito`, `cepstral_distance`, `wss`, `fw_segmental_snr`, `lsd`, `composite`, `ncm`, `csii` |
 | [批次](panels/batch.md) | 整個資料夾轉檔、正規化、降噪，或另外做一份加了殘響的副本，並列出沒能達標的檔案 | `convert_folder`, `enhance_folder`, `rir`, `apply_rir` |
+| [整批檢查](panels/survey.md) | 檢查資料夾裡的每個檔案，排成可以排序和篩選的表格；各資料夾的頻譜疊在一起看，檔案依時間排在時間軸上並標出空檔 | `audio_report`, `tonal_lines`, `speech_ratio` |
 
 ## 接下來看哪裡 {#where-to-go-next}
 

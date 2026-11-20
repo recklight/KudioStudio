@@ -232,6 +232,16 @@ def _kudio_sentences():
                     dict(band_limited=True, bandwidth_hz=5300.0),
                     dict(silence_ratio=0.8), dict(estimated_snr_db=5.0)):
         yield from AudioReport(**{**clip, **changes}).problems()
+    # what a kudio that names the source rate and the sample grid adds; the
+    # one on PyPI may not have the fields yet
+    if "source_rates" in AudioReport.__dataclass_fields__:
+        for changes in (dict(band_limited=True, bandwidth_hz=3900.0, source_rates=(8000,)),
+                        dict(sr=48000, band_limited=True, bandwidth_hz=11500.0,
+                             source_rates=(22050, 24000)),
+                        dict(band_limited=True, bandwidth_hz=7900.0, mirrored=True,
+                             source_rates=(11025,)),
+                        dict(sample_step=2 / 4096, grid_bits=12.0)):
+            yield from AudioReport(**{**clip, **changes}).problems()
     for delay, correlation in ((0, 0.98), (128, 0.98), (-1, 0.9), (64, -0.9)):
         yield str(Alignment(delay=delay, correlation=correlation, sr=16000, overlap=16000))
     nan = float("nan")

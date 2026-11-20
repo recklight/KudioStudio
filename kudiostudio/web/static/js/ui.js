@@ -266,14 +266,16 @@ export function readout(text = "—") {
 }
 
 /** A table with a header. setRows(rows) takes arrays of cell text. */
-export function table(columns, { numeric = [] } = {}) {
+export function table(columns, { numeric = [], onSort = null } = {}) {
   const wrap = el("div", "table-wrap");
   const tableEl = el("table", "data");
   const head = el("thead");
   const tr = el("tr");
-  columns.forEach((c, i) => {
-    const th = el("th", numeric.includes(i) ? "num" : "", t(c));
+  const heads = columns.map((c, i) => {
+    const th = el("th", (numeric.includes(i) ? "num" : "") + (onSort ? " sortable" : ""), t(c));
+    if (onSort) th.addEventListener("click", () => onSort(i));
     tr.append(th);
+    return th;
   });
   head.append(tr);
   const body = el("tbody");
@@ -286,6 +288,12 @@ export function table(columns, { numeric = [] } = {}) {
         const line = el("tr", classes[r] || "");
         row.forEach((cell, i) => line.append(el("td", numeric.includes(i) ? "num mono" : "", cell)));
         body.append(line);
+      });
+    },
+    /** An arrow on the header of the column the rows are sorted by. */
+    setSorted(column, descending) {
+      heads.forEach((th, i) => {
+        th.textContent = t(columns[i]) + (i === column ? (descending ? " ▼" : " ▲") : "");
       });
     },
     body,

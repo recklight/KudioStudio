@@ -4,7 +4,7 @@
 // move the playhead there, double-click a range to select it.
 
 import { call } from "./api.js";
-import { ask, choosePath } from "./dialogs.js";
+import { ask, choosePath, modal } from "./dialogs.js";
 import { t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +39,12 @@ export class MarkerList {
     $("marker-add").addEventListener("click", () => this.run("add"));
     $("marker-mark").addEventListener("click", () => this.run("mark_selection"));
     $("marker-vad").addEventListener("click", () => this.run("find_speech"));
+    $("marker-events").addEventListener("click", async () => {
+      const asked = await askEvents(this.events);
+      if (!asked) return;
+      this.events = asked;
+      this.run("find_events", [asked.low, asked.high, asked.above]);
+    });
     $("marker-rename").addEventListener("click", () => this.rename());
     $("marker-remove").addEventListener("click", () => {
       if (this.current >= 0) this.run("remove", [this.current]);
@@ -112,4 +118,57 @@ export class MarkerList {
     $("marker-export").disabled = !has;
     $("marker-import").disabled = !state.has_audio;
   }
+}
+
+
+/** The band and the threshold for Find events, in one box: the last ones
+ *  asked for, or the whole band at 12 dB over the median. */
+function askEvents(last) {
+  const values = last || { low: 0, high: 0, above: 12 };
+  return modal((form, done) => {
+    const h = document.createElement("h3");
+    h.textContent = t("Find events");
+    form.append(h);
+    const fields = {};
+    // one grid for the three rows, so the boxes line up under each other
+    const grid = document.createElement("div");
+    grid.className = "prompt-number";
+    form.append(grid);
+    for (const [key, label, unit, max] of [["low", "From", "Hz", 1e6],
+                                            ["high", "To (0 is Nyquist)", "Hz", 1e6],
+                                            ["above", "Above the median by", "dB", 120]]) {
+      const row = document.createElement("label");
+      row.className = "grid-row";
+      const text = document.createElement("span");
+      text.textContent = t(label);
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "num mono";
+      Object.assign(input, { min: 0, max, step: key === "above" ? 1 : 100, value: values[key] });
+      const suffix = document.createElement("span");
+      suffix.className = "mono";
+      suffix.textContent = unit;
+      row.append(text, input, suffix);
+      grid.append(row);
+      fields[key] = input;
+    }
+    const row = document.createElement("div");
+    row.className = "button-row";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn subtle";
+    cancel.textContent = t("Cancel");
+    cancel.addEventListener("click", () => done(null));
+    const ok = document.createElement("button");
+    ok.type = "submit";
+    ok.className = "btn primary";
+    ok.textContent = t("Find");
+    row.append(cancel, ok);
+    form.append(row);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const got = Object.fromEntries(Object.entries(fields).map(([k, i]) => [k, Number(i.value)]));
+      if (Object.values(got).every(Number.isFinite)) done(got);
+    });
+  });
 }

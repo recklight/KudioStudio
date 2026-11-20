@@ -50,6 +50,8 @@ DEFAULTS: Dict[str, object] = {
     "spectrum_map": "inferno",
     "ask_before_replacing": True,
     "reopen_last": False,
+    # where every save dialog starts; "" is the folder last saved to
+    "output_dir": "",
     # "auto" is the model this release recommends (tools/claude.py)
     "claude_model": "auto",
 }
@@ -97,6 +99,11 @@ def checked(key: str, value):
         low, high = CROSSFADE_MS
         if not low <= value <= high:
             raise ValueError(f"a crossfade is {low:g} to {high:g} ms")
+        return value
+    if key == "output_dir":
+        value = str(value or "").strip()
+        if value and not Path(value).is_dir():
+            raise ValueError(f"{value} is not a folder")
         return value
     if key == "undo_depth":
         if isinstance(value, bool) or float(value) != int(float(value)):

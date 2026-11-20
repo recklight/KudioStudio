@@ -158,6 +158,11 @@ i[data-icon] svg { width: 100%; height: 100%; }
 }
 .side-section { padding: 12px 12px 10px; border-bottom: var(--line); }
 .side-section.grow { flex: 1; min-height: 0; display: flex; flex-direction: column; border-bottom: none; }
+/* The file list scrolls within a little over half the panel. Left to grow, a
+   folder of a few hundred takes ran it past the bottom of the window, where
+   nothing scrolls, and the markers went down with it. */
+.side-section.files { flex: 0 1 auto; min-height: 0; max-height: 55%; display: flex; flex-direction: column; }
+.side-section.files .file-list { min-height: 0; }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .section-head h2, .panel-section h3 {
   margin: 0;
@@ -188,6 +193,10 @@ i[data-icon] svg { width: 100%; height: 100%; }
   box-shadow: inset 2px 0 0 var(--primary);
 }
 .file-list .name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* a folder's heading in the Files list: not a file, so not a hover target */
+.file-list li.folder { color: var(--hint); font-size: 0.92em; cursor: default; padding-top: 6px; }
+.file-list li.folder:hover { background: none; }
+.file-list li.folder .count { color: var(--hint); margin-left: 6px; }
 .file-list .remove { visibility: hidden; color: var(--hint); }
 .file-list li:hover .remove { visibility: visible; }
 .marker-list .when { color: var(--marker); font-size: 12px; min-width: 64px; }
@@ -561,3 +570,12 @@ input[type=range]::-webkit-slider-thumb {
 .settings h4 { margin: 6px 0 -4px; font-size: 12px; font-weight: 600; color: var(--hint); }
 .settings .button-row { justify-content: space-between; }
 .font-field input { width: 100%; }
+
+/* the Survey panel's table, over the plots: one line a file, and a click on
+   it opens the file. It has the view's whole height, not the 340 px a table
+   in the panel column gets */
+.table-wrap.survey-table { max-height: none; }
+.survey-table table { font-size: 0.86em; }
+.survey-table td, .survey-table th { white-space: nowrap; }
+.survey-table tbody tr { cursor: pointer; }
+.survey-table tbody tr:hover { background: var(--hover); }

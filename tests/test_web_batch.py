@@ -135,9 +135,24 @@ def test_a_random_room_seed_is_drawn_and_named(studio, tree, tmp_path):
     assert (tmp_path / "out_reverberant" / "a" / "tone.wav").is_file()
 
 
+def test_a_192_khz_recording_can_be_brought_down_to_96_khz(studio, tmp_path):
+    """The rates offered stopped at 48 kHz, so a folder of 192 kHz recordings
+    could only be kept as it was or taken below 24 kHz of content."""
+    src = tmp_path / "in"
+    src.mkdir()
+    t = np.arange(192000) / 192000
+    kudio.save_wave(src / "take.wav", (0.3 * np.sin(2 * np.pi * 30000 * t)).astype(np.float32),
+                    192000)
+    assert {"96000", "192000"} <= set(studio.call("batch.describe")["rates"])
+    studio.call("batch.run", [_settings(src, tmp_path / "out", rate="96000")])
+    assert studio.jobs.wait(60)
+    y, sr = kudio.file_load(tmp_path / "out" / "take.wav", sr=None)
+    assert sr == 96000 and len(y) == 96000
+
+
 def test_an_unknown_choice_is_an_error_not_a_run(studio, tree, tmp_path):
     with pytest.raises(ValueError, match="unknown choice"):
-        studio.panel("batch").run(_settings(tree, tmp_path / "out", rate="96000"))
+        studio.panel("batch").run(_settings(tree, tmp_path / "out", rate="12345"))
     with pytest.raises(ValueError, match="unknown denoise method"):
         studio.panel("batch").call_text(_settings(tree, tmp_path / "out", denoise="magic"))
 
@@ -169,7 +184,7 @@ def test_every_tool_on_the_rail_has_its_page(studio):
     rail = studio.call("rail")
     assert [e["id"] for e in rail] == ["inspect", "effects", "enhance", "compare", "record",
                                        "synthesize", "manifest", "pitch", "metrics", "batch",
-                                       "claude"]
+                                       "survey", "claude"]
     assert all(e["script"] for e in rail[1:])
 
 

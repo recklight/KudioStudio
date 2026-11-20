@@ -49,7 +49,7 @@
   </header>
 
   <aside class="sidebar">
-    <section class="side-section">
+    <section class="side-section files">
       <div class="section-head">
         <h2 data-t>Files</h2>
         <button class="btn ghost icon-only small" id="add-files" data-t-title="Add files…">
@@ -70,6 +70,7 @@
       </div>
       <div class="mini-row">
         <button class="btn mini" id="marker-vad" data-t data-t-title="kudio.vad — mark every span that contains speech">Find speech</button>
+        <button class="btn mini" id="marker-events" data-t data-t-title="Mark every span where one band stands out over the clip's median level">Find events…</button>
       </div>
       <ul class="marker-list" id="marker-list"></ul>
       <p class="hint" id="markers-empty" data-t>No markers. A sidecar file next to the audio is read when it opens.</p>
@@ -140,14 +141,15 @@
         <h3 data-t>Analysis</h3>
         <div class="field-grid">
           <label data-t>n_fft</label>
-          <input class="num mono" type="number" id="n_fft" min="64" max="8192" step="64">
+          <input class="num mono" type="number" id="n_fft" min="64" max="65536" step="64">
           <label data-t>hop_length</label>
-          <input class="num mono" type="number" id="hop_length" min="16" max="4096" step="16">
+          <input class="num mono" type="number" id="hop_length" min="16" max="16384" step="16">
           <label data-t>n_mels</label>
           <input class="num mono" type="number" id="n_mels" min="8" max="256">
           <label data-t>n_mfcc</label>
           <input class="num mono" type="number" id="n_mfcc" min="4" max="128">
         </div>
+        <label class="check" id="log-freq-wrap"><input type="checkbox" id="log-freq"><span class="check-box"></span><span data-t>Log frequency axis</span></label>
         <label class="check loudness-check" id="loudness-wrap"><input type="checkbox" id="show-loudness" disabled><span class="check-box"></span><span data-t>Loudness over time</span></label>
       </section>
       <section class="panel-section" data-panel="inspect">

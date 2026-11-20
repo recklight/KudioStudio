@@ -84,13 +84,18 @@ class MetricsPanel(WebPanel):
     def inspect(self) -> Dict:
         if not self.require_audio():
             return self.info()
+        y = np.asarray(self.session.y, dtype=np.float32)
         try:
-            report = kudio.audio_report(np.asarray(self.session.y, dtype=np.float32),
-                                        self.session.sr)
+            report = kudio.audio_report(y, self.session.sr)
+            # a kudio after 4.1 has it; the lines are rows, not findings,
+            # since a held note is a comb as much as a hum is
+            lines = (kudio.tonal_lines(y, self.session.sr)
+                     if hasattr(kudio, "tonal_lines") and not report.non_finite_samples
+                     else None)
         except Exception as e:  # noqa: BLE001
             self.report(f"Inspection failed — {type(e).__name__}: {e}")
             return self.info()
-        rows, self._problems = metrics.inspect_rows(report)
+        rows, self._problems = metrics.inspect_rows(report, lines)
         self._fill(rows)
         self.report("Inspection complete.")
         return self.info()
@@ -128,7 +133,7 @@ class MetricsPanel(WebPanel):
 
     def _dnsmos_done(self, score) -> None:
         self._dnsmos = (score.summary(), False)
-        self._fill(metrics.dnsmos_rows(score))
+        self._fill(metrics.dnsmos_rows(score, self.session.sr))
         self.report(f"DNSMOS — {score}")
 
     def _dnsmos_failed(self, message: str) -> None:

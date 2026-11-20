@@ -30,8 +30,11 @@ the status bar asking for one.
 
 **File → Save selection as…** (++ctrl+shift+e++) writes just the selected
 range to a file of its own. **File → Export analysis image…** saves the
-waveform and the analysis image as a PNG, exactly as they are on screen, zoom
-and all.
+waveform and the analysis image as a PNG, exactly as they are on screen, zoom,
+selection and markers included. A header on top says what they are: the file
+with its rate and length, the kudio call behind the image, and the colour
+scale from its lowest level to its highest, so a figure pasted into a report
+still says what it shows.
 
 ## Every join crossfades
 
@@ -167,8 +170,9 @@ y = kudio.splice([y[:24000], clip, y[24000:]], sr, 0.03)  # at 1.500 s
   the script stops there and the export says why.
 - **The script checks what it runs on.** It carries the SHA-256 of the file the
   edits were made on and stops if `SOURCE` holds anything else. Save As
-  suggests the opened file's name as a `.wav`, in the folder last used, so
-  for a WAV you have just opened it suggests that very file. Once the edit has
+  suggests the opened file's name as a `.wav`, in the folder last saved to,
+  or the one the file was opened from when nothing has been saved yet; so
+  for a WAV you have just opened it can suggest that very file. Once the edit has
   been saved over it, a script that read it back would apply every edit a
   second time; the export warns about that too, as soon as it can tell. Point
   `SOURCE` at a copy of the original, or delete the check to run the same
@@ -202,9 +206,20 @@ Markers are named points and ranges that stay.
 - **＋ Selection** turns the selection into a range.
 - **Find speech** fills the list with every span `kudio.vad` finds speech in.
   It replaces the list rather than adding to it, so a second run, after an
-  edit say, does not lay a second answer over the first.
+  edit say, does not lay a second answer over the first. Above 48 kHz the
+  frames are judged on 100–4000 Hz only, so that the noise of an ultrasonic recording, which has more of its power
+  above 20 kHz than speech has in all, does not count as voice.
+- **Find events…** asks for a band and a threshold and marks every span
+  where the level in that band stands that far above the clip's median, in
+  frames of 5 ms: a knock, a click, a burst in one band. To leaves 0 for
+  Nyquist. Spans closer than 20 ms are one event. It replaces the list as
+  Find speech does, and the box remembers what was asked last.
 - Click a marker to move the playhead to it; double-click a range to select
   it. **Rename**, **Remove** and **Clear** work on the list.
+
+Each marker's name is written at the top of its line on both plots, cut
+short where the next marker or the edge of the plot comes first; the list has
+it in full.
 
 Markers are positions in time, so an edit that changes the length moves them:
 delete two seconds and everything after it shifts two seconds left. Undo puts

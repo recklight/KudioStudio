@@ -21,12 +21,17 @@ table:
 | Peak | the loudest sample, in dBFS; `silence` when every sample is zero |
 | RMS | the average level, in dBFS |
 | Loudness (BS.1770) | integrated loudness in LUFS. Without a figure the row says why: `silence` when every sample is zero, `n/a (shorter than 400 ms)` for a clip under one 400 ms gating block, and `n/a` for a clip with NaN or inf in it, or one so quiet that every block falls under BS.1770's −70 LUFS gate |
-| Clipped samples | samples on a flat top at full scale, in runs of three or more, and their share of the clip |
+| Clipped samples | samples on a flat top at full scale, in runs of three or more, and their share of the clip; then, with a kudio that counts them, every sample at full scale one by one, which is the figure tools that count single samples give |
 | DC offset | the mean sample value; a healthy recording sits at zero |
 | Silence | the share of 30 ms frames more than 40 dB below the loud ones |
 | Noise floor | the level of the quietest frames, the 10th percentile, in dBFS. `-inf dBFS` when a tenth of the frames or more are exact zeros, as in a clip with its pauses muted: then the floor really is digital silence |
 | Estimated SNR | the loud frames (95th percentile) against the noise floor, so `+inf dB` beside a floor of `-inf`. An estimate from one signal, not a measurement against a clean one |
 | Bandwidth | how high the content reaches, against what the sample rate allows |
+| Band limit | where the content stops when the file was upsampled or went through a codec, and the rate it most likely came from; `none found` when it reaches the top |
+| Sample grid | the spacing between sample values, as bits: an untouched 16-bit file gives 16, and gain raised after quantisation gives fewer, so a 16-bit file whose values all sit on every 16th step gives 12. It is not the effective number of bits, which noise and distortion set. `not judged` for float audio, audio processed after it was quantised, or fewer than 16 different values |
+| Narrowband lines | how many lines stand 20 dB or more above their surroundings, and the strongest; a hum, a whistle, a machine's tone |
+| Comb | lines at whole multiples of one frequency, its fundamental and which harmonics are there; one row a comb |
+| Note | on a recording made above 48 kHz: loudness and WADA-SNR take in the ultrasound no one hears, so a floor above 20 kHz raises the loudness and moves the SNR; SRMR and DNSMOS are scored on a 16 kHz copy and see nothing above 8 kHz |
 
 A sample or two touching full scale is not counted as clipping, and neither is
 float audio that goes past 1.0 while still tracing its waveform. Only a flat
@@ -44,7 +49,9 @@ in the warning colour:
 | `peaks at … dBFS, right against the ceiling` | a peak above −0.5 dBFS |
 | `peaks at only … dBFS — very quiet` | a peak below −30 dBFS |
 | `DC offset of …` | an offset above 0.01 either way |
-| `content stops at … Hz although the file claims … Hz` | content ending below 90% of half the sample rate, which usually means it was upsampled |
+| `content stops at … Hz, although a … Hz file holds up to … Hz` | a cliff in the spectrum: the band just under the edge stands 20 dB or more over the band just above it, and 40 dB or more over everything from there to the top. At the Nyquist frequency of a common rate it names that rate. A spectrum that falls off gently, as most microphones and rooms make it, is not a finding |
+| `the band above … Hz mirrors the band under it` | the band over the old Nyquist is the one under it, folded, at the level linear interpolation leaves: an upsampling that added nothing |
+| `every sample sits on a grid of … bits` | a grid coarser than 16 bits: a low-resolution converter, or gain raised after the audio was quantised |
 | `…% of the clip is silence` | more than 60% silence |
 | `estimated SNR around … dB` | an estimated SNR under 10 dB |
 

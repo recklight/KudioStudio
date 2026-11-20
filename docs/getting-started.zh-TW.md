@@ -6,7 +6,7 @@
 pip install kudiostudio
 ```
 
-KudioStudio 需要 Python 3.10 以上，以及 kudio 4.1.0 以上：[指標](panels/metrics.md)面板的每個指標它都有，
+KudioStudio 需要 Python 3.10 以上，以及 kudio 4.2.0 以上：[指標](panels/metrics.md)面板的每個指標、[整批檢查](panels/survey.md)面板的每項檢查它都有，
 也能寫出另存新檔提供的 `.aif`，pip 會一起裝好。視窗是程式自己提供的一個網頁，透過
 [pywebview](https://pywebview.flowrl.com/) 用系統本來就有的網頁元件畫出來：Windows 10 與 11
 是 WebView2，macOS 是 WebKit。這兩個系統都不必另外安裝 GUI 工具組。
@@ -41,12 +41,17 @@ Linux 另外需要兩樣 pip 裝不了的東西：
 kudiostudio                    # 空白工作階段
 kudiostudio clip.wav           # 啟動時開啟一個檔案
 kudiostudio a.wav b.wav        # 多個檔案：全部列進檔案清單，開啟第一個
+kudiostudio takes/             # 資料夾：裡面和子資料夾裡的每個音檔
+kudiostudio "takes/*_s1.wav"   # 萬用字元，由這裡比對，不靠 shell
 kudiostudio manifest.json      # 語料庫的 manifest 會在 Manifest 面板開啟
 kudiostudio --browser          # 改在預設瀏覽器開啟同一個頁面
 kudiostudio --no-plugins       # 不載入其他套件加入的面板
 kudiostudio --lang zh_TW       # 以繁體中文介面啟動
 kudiostudio --reset            # 清掉儲存的設定
 ```
+
+整批語料要靠資料夾或萬用字元進來。Windows 的 shell 會把萬用字元原封不動傳過來，而幾百個
+檔名全部寫出來，會超過命令列能裝的 32767 個字元。資料夾或萬用字元裡沒有音檔時，狀態列會說是哪一個。
 
 `--port` 指定頁面使用的本機連接埠（預設任選一個空的），`--debug` 開啟視窗的開發者工具，
 `-v` 以 debug 層級記錄 KudioStudio 和 kudio 自己的訊息，其他函式庫維持 info。
@@ -72,7 +77,8 @@ kudiostudio --reset            # 清掉儲存的設定
 
 ### 儲存的設定 {#saved-settings}
 
-視窗會記住介面語言、分析圖的種類與參數、上次開啟或存檔所在的資料夾、上次開著的檔案，
+視窗會記住介面語言、分析圖的種類與參數、上次開檔和上次存檔的資料夾（分開記，匯出的東西
+才不會跟著你跑進錄音資料夾）、上次開著的檔案，
 以及[設定](window.md#settings)裡的一切。這些都存在一個小小的 JSON 檔裡：
 
 - Windows：`%APPDATA%\Kudio\KudioStudio\window.json`

@@ -6,6 +6,7 @@ draws it. Rows are addressed by their index in that list.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -13,6 +14,54 @@ from typing import Dict, Optional
 import kudio
 from kudiostudio.session import Marker
 from kudiostudio.web.commands import command
+
+#: above this rate Find speech judges the frames on the speech band
+SPEECH_BAND_ABOVE = 48000
+
+#: Find events: 5 ms frames every 2.5 ms, short enough for a knock and long
+#: enough to hold a few periods of anything above 600 Hz; two events closer
+#: than 20 ms are one
+EVENT_FRAME_S, EVENT_HOP_S, EVENT_JOIN_S = 0.005, 0.0025, 0.020
+
+
+def find_events(y, sr: int, low: float, high: float, above_db: float):
+    """The spans where the level in *low*..*high* Hz stands *above_db* over
+    the median frame of the clip, in seconds. *high* 0 is Nyquist."""
+    import numpy as np
+    from kudio.effects.filters import bandpass, highpass, lowpass
+
+    y = np.asarray(y, dtype=np.float64)
+    nyquist = sr / 2.0
+    high = nyquist if not high or high >= nyquist else float(high)
+    low = max(0.0, float(low))
+    if low >= high:
+        raise ValueError(f"the band runs from low to high, got {low:g} to {high:g} Hz")
+    if low > 0 and high < nyquist:
+        y = bandpass(y, sr, low=low, high=high)
+    elif low > 0:
+        y = highpass(y, sr, cutoff=low)
+    elif high < nyquist:
+        y = lowpass(y, sr, cutoff=high)
+    size = max(4, int(round(EVENT_FRAME_S * sr)))
+    hop = max(1, int(round(EVENT_HOP_S * sr)))
+    if len(y) < size:
+        return []
+    starts = np.arange(0, len(y) - size + 1, hop)
+    running = np.concatenate(([0.0], np.cumsum(y ** 2)))
+    power = (running[starts + size] - running[starts]) / size
+    with np.errstate(divide="ignore"):
+        level = 10.0 * np.log10(np.maximum(power, 1e-30))
+    loud = level > np.median(level) + float(above_db)
+    edges = np.diff(np.concatenate(([0], loud.view(np.int8), [0])))
+    spans = [(starts[a] / sr, (starts[b - 1] + size) / sr)
+             for a, b in zip(np.nonzero(edges == 1)[0], np.nonzero(edges == -1)[0])]
+    joined = []
+    for a, b in spans:
+        if joined and a - joined[-1][1] < EVENT_JOIN_S:
+            joined[-1] = (joined[-1][0], b)
+        else:
+            joined.append((a, b))
+    return joined
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +115,14 @@ class Markers:
         s = self.session
         if not s.has_audio:
             return self._done()
+        # above 48 kHz the floor over the speech band can outweigh a voice,
+        # so the frames are judged on 100-4000 Hz where the kudio installed
+        # can do that; below, the whole band, which keeps the fricatives
+        band = {}
+        if s.sr > SPEECH_BAND_ABOVE and "band" in inspect.signature(kudio.vad).parameters:
+            band = {"band": (100.0, 4000.0)}
         try:
-            spans = kudio.vad(s.y, s.sr)
+            spans = kudio.vad(s.y, s.sr, **band)
         except Exception as e:  # noqa: BLE001
             self.studio.say(f"vad failed — {type(e).__name__}: {e}")
             return self._done()
@@ -79,7 +134,34 @@ class Markers:
         total = sum(b - a for a, b in spans)
         self.studio.say(
             f"kudio.vad — {len(spans)} span(s), {total:.2f}s of speech "
-            f"({total / max(s.duration, 1e-9) * 100:.0f}%)")
+            f"({total / max(s.duration, 1e-9) * 100:.0f}%)"
+            + (", judged on 100-4000 Hz" if band else ""))
+        return self._done()
+
+    @command
+    def find_events(self, low: float = 0.0, high: float = 0.0, above_db: float = 12.0) -> Dict:
+        """Replace the list with the spans where the level in *low*..*high*
+        Hz stands *above_db* over the clip's median frame: a knock, a
+        transient, a burst in one band. As Find speech does, it replaces
+        rather than appends."""
+        s = self.session
+        if not s.has_audio:
+            return self._done()
+        try:
+            spans = find_events(s.y, s.sr, low, high, above_db)
+        except ValueError as e:
+            self.studio.say(f"Not searched — {e}.")
+            return self._done()
+        if high:
+            band = f"{low:g}–{high:g} Hz"
+        else:
+            band = f"{low:g} Hz and up" if low else "the whole band"
+        if not spans:
+            self.studio.say(f"No event stands {above_db:g} dB over the median in {band}.")
+            return self._done()
+        s.set_markers([Marker(start=a, end=b, label=f"event {n}")
+                       for n, (a, b) in enumerate(spans, 1)])
+        self.studio.say(f"{len(spans)} event(s) {above_db:g} dB over the median in {band}.")
         return self._done()
 
     @command
@@ -117,7 +199,7 @@ class Markers:
         except Exception as e:  # noqa: BLE001
             self.studio.say(f"Export failed — {type(e).__name__}: {e}")
             return self._done()
-        self.studio.remember_dir(path)
+        self.studio.remember_save_dir(path)
         return self._done()
 
     @command

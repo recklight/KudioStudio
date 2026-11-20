@@ -237,7 +237,8 @@ def test_the_take_is_described_in_the_windows_language(studio, monkeypatch):
     assert figures_zh.split("  ·  ")[1] == figures_en.split("  ·  ")[1]    # "-13.3 LUFS"
     # and kudio's findings under the figures, one line each
     assert english.count("\n") == chinese.count("\n") > 0
-    assert "content stops" in english and "content stops" not in chinese
+    # a steady tone: every kudio says its SNR estimate cannot be read as one
+    assert "estimated SNR" in english and "estimated SNR" not in chinese
 
 
 def test_a_clipped_take_is_named_in_the_status_bar_in_the_windows_language(studio,

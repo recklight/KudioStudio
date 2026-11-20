@@ -97,7 +97,7 @@ def _edit(studio):
 def test_the_rail_has_every_panel(studio):
     titles = [e["title"] for e in studio.call("rail")]
     assert titles == ["Inspect", "Effects", "Enhance", "Compare", "Record", "Synthesize",
-                      "Manifest", "Pitch", "Metrics", "Batch", "Claude"]
+                      "Manifest", "Pitch", "Metrics", "Batch", "Survey", "Claude"]
 
 
 def test_the_window_carries_the_application_icon(studio):

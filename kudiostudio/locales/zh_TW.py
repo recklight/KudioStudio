@@ -178,6 +178,10 @@ MESSAGES = {
         '將在{}與{}完成後停止 — 執行中的工作無法中途停止。再按一次 Ctrl+C 會立刻停止，工作做到哪裡就停在哪裡。',
     'Could not open {} — {}: {}':
         '無法開啟 {} — {}: {}',
+    'Not found: {} — left out of the Files list.':
+        '找不到：{} — 沒有放進檔案清單。',
+    'Not found: {} and {} more — left out of the Files list.':
+        '找不到：{} 和另外 {} 個 — 沒有放進檔案清單。',
     'Save failed — {}: {}':
         '儲存失敗 — {}: {}',
     'Saved as WAV, FLAC or AIFF only — {} asks for {}.':
@@ -194,6 +198,187 @@ MESSAGES = {
         '請先載入音訊檔。',
     'Batch':
         '批次',
+    'Survey':
+        '整批檢查',
+    # the Survey panel
+    'A folder to survey':
+        '要檢查的資料夾',
+    'Files list':
+        '檔案清單',
+    'Survey the files in the Files list instead of a folder.':
+        '改為檢查檔案清單裡的檔案，而不是資料夾。',
+    'source':
+        '來源',
+    "Samples in a row at full scale that count as clipping: three is kudio's own; two or one match tools that count shorter runs.":
+        '連續幾個滿刻度樣本才算削波：3 是 kudio 自己的；2 或 1 對應算得比較短的工具。',
+    'Narrowband lines and combs':
+        '窄頻線和梳狀',
+    'Voice share, beside a phase-scrambled copy':
+        '人聲比例，並列相位打散的對照',
+    "The copy keeps the take's spectrum but not how it rises and falls. A share well above the copy's means the take rises and falls more than a steady sound: speech does, and so do knocks and a machine that cycles, so listen before calling it a voice.":
+        '副本保有這支檔的頻譜，但沒有它時間上的起伏。比例明顯高於副本，表示這支檔的起伏比穩定的聲音多：語音會，敲擊和循環運轉的機器也會，所以要聽過才能說是人聲。',
+    'For one recording cut into files. Takes recorded one at a time do not join, and smooth ones would all show as seams.':
+        '給一條被切成多個檔的錄音用。分開錄的檔案本來就接不上，內容平滑的話每一支都會被標成接縫。',
+    'Seams between neighbouring takes':
+        '相鄰檔案之間的接縫',
+    'Surveying…':
+        '檢查中…',
+    'Results':
+        '結果',
+    'show':
+        '顯示',
+    'all':
+        '全部',
+    'any finding':
+        '有任何發現',
+    'clipped':
+        '有削波',
+    'band-limited':
+        '頻寬受限',
+    'coarse grid':
+        '格點粗於 16 位元',
+    'narrowband lines':
+        '有窄頻線',
+    'rises and falls':
+        '有起伏',
+    'seam':
+        '有接縫',
+    'Show the table':
+        '顯示表格',
+    'Put these in the Files list':
+        '把這些放進檔案清單',
+    'The files on show replace the Files list, to go through one by one with the arrow keys.':
+        '顯示中的檔案取代檔案清單，可以用方向鍵一支一支看。',
+    'Export CSV…':
+        '匯出 CSV…',
+    'Export the survey':
+        '匯出檢查結果',
+    "Nothing here changes the files. A finding is one of audio_report's; the lines, the voice share and the seams are columns to sort the takes by: a click on a heading sorts by it, the numbers largest first, and a second click turns the order round.":
+        '這裡不會改動任何檔案。發現指的是 audio_report 的發現；窄頻線、人聲比例和接縫是用來排序檔案的欄位：點欄位標題就依那一欄排序，數字由大到小，再點一次順序反過來。',
+    'Rate':
+        '取樣率',
+    'none':
+        '沒有',
+    'repeat':
+        '重複',
+    'Seconds':
+        '秒',
+    'Clipped':
+        '削波',
+    'Full scale':
+        '滿刻度',
+    'Grid bits':
+        '格點位元',
+    'Lines':
+        '窄頻線',
+    'Voice':
+        '人聲',
+    'Join':
+        '接縫',
+    'Findings':
+        '發現',
+    '{} of {} — {}':
+        '第 {} 支，共 {} 支 — {}',
+    'Surveying {} files …':
+        '正在檢查 {} 支檔案…',
+    'Survey complete: {}.':
+        '檢查完成：{}。',
+    'Folder spectra':
+        '資料夾頻譜',
+    'detector':
+        '偵測器',
+    "kudio.speech_ratio is kudio's own frame-by-frame judgement. Silero VAD is a trained model, used here at 16 kHz on 100–4000 Hz brought to one level.":
+        'kudio.speech_ratio 是 kudio 自己逐音框的判斷。Silero VAD 是訓練過的模型，這裡把 100–4000 Hz 降到 16 kHz、調到同一個音量再給它聽。',
+    'no voice detector {} here':
+        '這裡沒有 {} 這個人聲偵測器',
+    'Timeline':
+        '時間軸',
+    "Each folder's takes averaged into one spectrum, laid over each other or taken from one of them.":
+        '每個資料夾的檔案平均成一條頻譜，疊在一起看，或是都減去其中一個資料夾。',
+    'The takes at the time their names give, one value each, with the gaps between them.':
+        '依檔名裡的時間排開每支檔，每支一個數值，並標出中間的空檔。',
+    'Point at the chart to read it, drag across it to zoom in and double-click to see it all; a click on a name in the legend hides or shows it.':
+        '滑鼠移到圖上會讀出數值，拖曳一段可以放大，雙擊回到全部；點圖例裡的名稱可以隱藏或顯示那一條。',
+    'Nothing to draw.':
+        '沒有可以畫的東西。',
+    'mean power':
+        '功率平均',
+    'median of the takes':
+        '各檔的中位數',
+    'average':
+        '平均方式',
+    'less':
+        '減去',
+    'Mean power: the loud takes weigh most, as in a model trained on the folder. Median: the typical take, which one loud take cannot move.':
+        '功率平均：大聲的檔份量最重，和用這個資料夾訓練模型時一樣。中位數：典型的一支檔，單一支大聲的檔拉不動它。',
+    'Take one folder\'s spectrum from the others: what one class of recording holds that the other does not.':
+        '其他資料夾都減去這個資料夾的頻譜：看出一類錄音有、另一類沒有的成分。',
+    'dB over {}':
+        '比 {} 高出的 dB',
+    'dB re full scale per Hz':
+        'dB（相對滿刻度，每 Hz）',
+    'No take long enough for a spectrum: run the survey first.':
+        '沒有夠長、可以算頻譜的檔：請先執行檢查。',
+    '{} folder(s) at another rate than the reference left out.':
+        '有 {} 個資料夾的取樣率和參考資料夾不同，沒有畫出來。',
+    'Band level':
+        '頻段位準',
+    'Nyquist':
+        '奈奎斯特頻率',
+    'the file name':
+        '檔名',
+    'when the file was written':
+        '檔案寫入的時間',
+    'value':
+        '數值',
+    'band from':
+        '頻段從',
+    'band to':
+        '頻段到',
+    'time from':
+        '時間取自',
+    'name pattern':
+        '檔名樣式',
+    'The file name: the date and time it holds. When the file was written: the take\'s end, so its length is taken off.':
+        '檔名：用檔名裡的日期和時間。檔案寫入的時間：那是錄音結束的時間，所以會再減去檔案長度。',
+    'A regular expression whose groups are year, month, day, hour, minute, second and, if there is one, milliseconds. Empty, it reads 20261111_143111, 2026-11-11T14:31:11 and the like.':
+        '正規表示式，群組依序是年、月、日、時、分、秒，有的話再加上毫秒。留空時可以讀 20261111_143111、2026-11-11T14:31:11 這類寫法。',
+    'Draw':
+        '畫出',
+    'A click on a take opens it. Shaded: a gap, where at least a whole take and two seconds are missing. Ringed: a take with a finding or a seam.':
+        '點一支檔就會開啟它。陰影：空檔，至少少了一整支檔而且超過兩秒。加框：有發現或接縫的檔。',
+    'time':
+        '時間',
+    '{} takes on the clock, {}.':
+        '時間軸上有 {} 支檔，{}。',
+    '{} takes on the clock, {}; {} without a time.':
+        '時間軸上有 {} 支檔，{}；{} 支讀不到時間。',
+    '{} gap(s), the longest {} s':
+        '{} 個空檔，最長 {} 秒',
+    'no gap':
+        '沒有空檔',
+    'the pattern needs six groups: year, month, day, hour, minute, second':
+        '樣式需要六個群組：年、月、日、時、分、秒',
+    '{} files, {} with a finding':
+        '{} 支檔案，{} 支有發現',
+    '{} files, {} with a finding, {} would not load':
+        '{} 支檔案，{} 支有發現，{} 支無法載入',
+    '{} files, {} with a finding — stopped before the end':
+        '{} 支檔案，{} 支有發現 — 在結束前停下',
+    '{} files, {} with a finding, {} would not load — stopped before the end':
+        '{} 支檔案，{} 支有發現，{} 支無法載入 — 在結束前停下',
+    'Survey failed — {}':
+        '檢查失敗 — {}',
+    'Nothing to survey: open some files, or pick a folder.':
+        '沒有可檢查的：先開幾支檔案，或選一個資料夾。',
+    '{} files in the Files list.':
+        '檔案清單裡有 {} 支檔案。',
+    'No file to put in the list.':
+        '沒有檔案可放進清單。',
+    'Nothing to export: run the survey first.':
+        '沒有可匯出的：先執行檢查。',
+    'Saved {} and {}.':
+        '已儲存 {} 和 {}。',
     '{}/{} file(s) written to {}':
         '已將 {}/{} 個檔案寫入 {}',
     'Batch complete — {}/{} written, {} failed':
@@ -891,6 +1076,41 @@ MESSAGES = {
         '頻寬',
     '{} Hz of {} Hz available':
         '可用 {1} Hz 中的 {0} Hz',
+    # what a kudio after 4.1 adds to the table
+    '{} ({}%), {} at full scale':
+        '{} 個（{}%），滿刻度 {} 個',
+    'Band limit':
+        '頻寬上限',
+    'none found':
+        '沒有找到',
+    'mirror image above {} Hz — linear interpolation from {} Hz':
+        '{} Hz 以上是鏡像 — 從 {} Hz 線性內插',
+    'edge at {} Hz — upsampled from {} Hz, or a codec':
+        '邊緣在 {} Hz — 從 {} Hz 升頻，或是編解碼器',
+    'edge at {} Hz — a codec or a filter':
+        '邊緣在 {} Hz — 編解碼器或濾波器',
+    '{} or {}':
+        '{} 或 {}',
+    'Sample grid':
+        '樣本格點',
+    '{} bits (steps of {} at 16 bits)':
+        '{} 位元（以 16 位元計，格距 {}）',
+    'not judged (float or processed audio, or fewer than 16 different values)':
+        '無法判斷（浮點或處理過的音訊，或不同的值少於 16 個）',
+    'Narrowband lines':
+        '窄頻線',
+    'none {} dB above their surroundings':
+        '沒有比周圍高 {} dB 的',
+    '{}, the strongest at {} Hz, {} dB above its surroundings':
+        '{} 條，最強的在 {} Hz，比周圍高 {} dB',
+    'Comb':
+        '梳狀',
+    '{} Hz × {} (harmonics {}–{})':
+        '{} Hz × {}（第 {}–{} 次諧波）',
+    'Note':
+        '附註',
+    'On a {} Hz recording, loudness and WADA-SNR take in the ultrasound no one hears: a floor above 20 kHz raises the loudness and moves the SNR. SRMR and DNSMOS are scored on a 16 kHz copy and see nothing above 8 kHz.':
+        '在 {} Hz 的錄音上，響度和 WADA-SNR 會把人聽不到的超音波也算進去：20 kHz 以上的底噪會抬高響度、影響 SNR。SRMR 和 DNSMOS 是在 16 kHz 的副本上算的，8 kHz 以上都看不到。',
     '{} unavailable — {}':
         '{} 無法使用 — {}',
     'Reference unavailable — {}':
@@ -1271,6 +1491,33 @@ MESSAGES = {
         '頻率',
     'Loudness over time':
         '響度隨時間變化',
+    'Log frequency axis':
+        '對數頻率軸',
+    'Output folder':
+        '輸出資料夾',
+    '{} cannot be written to: the save starts in the home folder. Settings → Output folder sets where every save starts.':
+        '{} 無法寫入：存檔改從家目錄開始。在「設定 → 輸出資料夾」可以指定每次存檔開始的位置。',
+    'Where every save dialog starts: exports, images, scripts and the plugins\' files. Empty, it is the folder last saved to.':
+        '每個存檔對話框開始的位置：匯出、圖片、腳本和外掛的檔案。留空時是上次存檔的資料夾。',
+    'Last saved to':
+        '上次存檔處',
+    '{} is not a folder':
+        '{} 不是資料夾',
+    'Open &folder…':
+        '開啟資料夾(&F)…',
+    'Open a folder of audio':
+        '開啟音訊資料夾',
+    'No audio in {}.':
+        '{} 裡沒有音訊。',
+    'No audio in {} and {} more.':
+        '{} 和另外 {} 個裡沒有音訊。',
+    # the header of an exported analysis image
+    'colour: {}, {} to {} {}; time in seconds':
+        '色階：{}，{} 到 {} {}；時間單位為秒',
+    'colour: {}, {} to {}; time in seconds':
+        '色階：{}，{} 到 {}；時間單位為秒',
+    'time in seconds':
+        '時間單位為秒',
     'Analysis':
         '分析',
     'Selection':
@@ -1347,6 +1594,38 @@ MESSAGES = {
         '要離開請關掉瀏覽器分頁；伺服器用 Ctrl+C 停止。',
     'kudio.vad — mark every span that contains speech':
         'kudio.vad — 把每一段含有語音的範圍標記起來',
+    'Find events…':
+        '尋找事件…',
+    "Mark every span where one band stands out over the clip's median level":
+        '把某個頻段比整段中位數位準突出的每一段都標記起來',
+    'Find events':
+        '尋找事件',
+    'From':
+        '從',
+    'To (0 is Nyquist)':
+        '到（0 表示奈奎斯特頻率）',
+    'Above the median by':
+        '比中位數高出',
+    'Find':
+        '尋找',
+    'No event stands {} dB over the median in {}.':
+        '在 {1} 沒有比中位數高 {0} dB 的事件。',
+    '{} event(s) {} dB over the median in {}.':
+        '在 {2} 有 {0} 個比中位數高 {1} dB 的事件。',
+    '{}–{} Hz':
+        '{}–{} Hz',
+    'the whole band':
+        '整個頻段',
+    '{} Hz and up':
+        '{} Hz 以上',
+    'Not searched — {}.':
+        '沒有搜尋 — {}。',
+    'the band runs from low to high, got {} to {} Hz':
+        '頻段要由低到高，收到的是 {} 到 {} Hz',
+    'kudio.vad — {} span(s), {}s of speech ({}%)':
+        'kudio.vad — {} 段，共 {} 秒語音（{}%）',
+    'kudio.vad — {} span(s), {}s of speech ({}%), judged on 100-4000 Hz':
+        'kudio.vad — {} 段，共 {} 秒語音（{}%），以 100–4000 Hz 判斷',
     'Rendering a preview…':
         '正在產生試聽…',
     'silent':
@@ -1380,6 +1659,22 @@ MESSAGES = {
         '整段有 {}% 是靜音',
     'estimated SNR around {} dB — the noise floor is close to the content':
         '估計 SNR 約 {} dB — 底噪很接近內容',
+    # the same findings as kudio words them after 4.1: the band limit judged
+    # by its edge, and the sample grid
+    'content stops at {} Hz, although a {} Hz file holds up to {} Hz — it was very likely {}, and the band above is empty':
+        '內容到 {} Hz 就沒了，但 {} Hz 的檔案可以裝到 {} Hz — 很可能是{}，上面那段是空的',
+    'upsampled from {} Hz (a codec that cuts there looks the same)':
+        '從 {} Hz 升頻而來（在那裡截頻的編解碼器看起來也一樣）',
+    'upsampled from {} or {} Hz (a codec that cuts there looks the same)':
+        '從 {} 或 {} Hz 升頻而來（在那裡截頻的編解碼器看起來也一樣）',
+    'upsampled from a lower rate, or passed through a codec or a filter that cuts there':
+        '從較低的取樣率升頻而來，或經過在那裡截頻的編解碼器或濾波器',
+    'the band above {} Hz mirrors the band under it — the file was very likely upsampled from {} Hz by linear interpolation, and that band holds nothing the original did not':
+        '{} Hz 以上的頻帶是下方頻帶的鏡像 — 檔案很可能是從 {} Hz 用線性內插升頻而來，那段頻帶裡沒有原本沒有的東西',
+    'every sample sits on a grid of {} bits — coarser than 16-bit audio, from a low-resolution converter or gain raised after the audio was quantised':
+        '每個樣本都落在 {} 位元的格點上 — 比 16 位元音訊粗，來自低解析度的轉換器，或量化之後才調大增益',
+    'estimated SNR around {} dB — noise close to the content gives that, and so does a steady sound such as hum or a running machine, whose loud and quiet frames hardly differ; the estimate cannot tell the two apart':
+        '估計 SNR 約 {} dB — 雜訊很接近內容會這樣，穩定的聲音也會，像嗡聲或運轉中的機器，它們大聲和小聲的音框幾乎沒有差別；這個估計值分不出是哪一種',
     '{}, correlation {}':
         '{}，相關係數 {}',
     '{}, correlation {}, polarity inverted':

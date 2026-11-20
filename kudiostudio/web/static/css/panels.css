@@ -197,6 +197,28 @@ table.data tbody tr:hover td { background: var(--hover); }
 table.data.selectable tbody tr { cursor: pointer; }
 table.data tr.selected td { background: var(--primary-soft); color: var(--primary-text); }
 table.data th.sortable { cursor: pointer; }
+
+/* the Survey panel's folder spectra and timeline */
+.chart-page { display: flex; flex-direction: column; gap: 10px; }
+.chart { display: flex; flex-direction: column; gap: 6px; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-svg.pickable { cursor: pointer; }
+.chart-area { fill: var(--canvas); stroke: var(--border); }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-tick { fill: var(--axis); font: 11px var(--font-mono); }
+.chart-label { fill: var(--hint); font: 11px var(--font-ui); }
+.chart-line { fill: none; stroke-width: 1.4; stroke-linejoin: round; }
+.chart-flag { stroke: var(--warn); stroke-width: 1.5; }
+.chart-span { fill: rgba(255, 180, 60, 0.13); }
+.chart-cursor { stroke: var(--hint); stroke-dasharray: 3 3; }
+.chart-ring { fill: none; stroke: var(--text); stroke-width: 1.5; }
+.chart-drag { fill: rgba(31, 198, 240, 0.12); stroke: var(--primary); stroke-width: 1; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.chart-key { --key: var(--primary); border: 0; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+.chart-key::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; background: var(--key); border-radius: 2px; }
+.chart-key.off { color: var(--disabled); }
+.chart-key.off::before { background: var(--disabled); }
+.chart-readout { min-height: 1.4em; color: var(--hint); font-size: 12px; }
 table.data th.sortable:hover { color: var(--text); }
 .compare-table { max-height: 300px; }
 /* nine columns in a panel column: 6 px a side rather than 8 leaves the four
@@ -255,6 +277,7 @@ table.data.coverage td.hole { background: var(--warn); color: var(--ink); font-w
 /* -------------------------------------------------------------- dialogs */
 
 .prompt-number { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; color: var(--hint); }
+.prompt-number > .grid-row { display: contents; }
 .prompt.about { align-items: center; text-align: center; }
 .prompt.about img { width: 72px; height: 72px; filter: drop-shadow(0 0 16px rgba(31, 198, 240, 0.5)); }
 .prompt.about h3 { font-size: 18px; }

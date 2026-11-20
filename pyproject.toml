@@ -26,11 +26,13 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Editors",
 ]
 dependencies = [
-    # 4.1.0 is the first kudio that writes the .aif Save As offers; 4.0.0
+    # 4.2.0 is the first kudio with tonal_lines, vad(band=) and the band edge,
+    # sample grid and full-scale count of audio_report, which Metrics and
+    # Survey show; 4.1.0 writes the .aif Save As offers; 4.0.0
     # brought the measures the Metrics panel shows beside PESQ, STOI and SDR:
     # LLR, IS, CEP, WSS, fwSegSNR, LSD, CSIG/CBAK/COVL, NCM, CSII, SRMR and
     # WADA-SNR
-    "kudio[viz]>=4.1.0",
+    "kudio[viz]>=4.2.0",
     # playback and fixed-length recording
     "sounddevice>=0.4.5",
     # the open-ended take, kudio.StreamRecorder. PyPI has PyAudio wheels for
@@ -55,10 +57,10 @@ dependencies = [
 # recording until stopped, on Linux and macOS: needs PortAudio's headers
 # (portaudio19-dev, or brew install portaudio) and a C compiler
 audio = ["PyAudio>=0.2.13"]
-eval = ["kudio[eval]>=4.1.0"]
+eval = ["kudio[eval]>=4.2.0"]
 # DNSMOS in the Metrics panel. The weights are NOT bundled -- see
 # kudio.find_dnsmos_model for where to get them.
-dnsmos = ["kudio[dnsmos]>=4.1.0"]
+dnsmos = ["kudio[dnsmos]>=4.2.0"]
 # learned models in the Enhance and Compare panels; pulls in PyTorch, hence
 # optional. 2.0 publishes weights the panels take by name (gtcrn-vbd16k)
 enhance = ["kudioenhance>=2.0"]

@@ -39,7 +39,9 @@ import numpy as np
 import kudio
 
 SUBTYPES = ("PCM_16", "PCM_24", "PCM_32", "FLOAT")
-RATES = ("keep", "48000", "44100", "32000", "22050", "16000", "8000")
+#: 96 and 192 kHz are there for ultrasonic recordings: 192 kHz brought down
+#: to 96, or takes at other rates brought to the 192 a corpus is kept at
+RATES = ("keep", "192000", "96000", "48000", "44100", "32000", "22050", "16000", "8000")
 NORMALIZE_MODES = ("none", "peak", "LUFS")
 #: (range, default, suffix) per mode -- a peak of -23 or a loudness of 0.99
 #: are both nonsense, so the box changes with the choice

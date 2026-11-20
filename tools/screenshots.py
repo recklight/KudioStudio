@@ -114,6 +114,39 @@ def small_corpus(root: Path) -> Path:
     return kudio.save_manifest(root / "mixed" / "manifest.json", syx.manifest())
 
 
+def survey_corpus(root: Path) -> Path:
+    """Two folders of two-second takes named by the time they began, for
+    the Survey panel. "day" runs for three minutes with a 40-second gap
+    after its 30th take and a 50 Hz hum switched on for its last 20; one
+    take is driven into the rails. "night" is quieter and has no hum, so
+    the folder spectra part at 50 Hz and its harmonics. Each take has a
+    knock in it, a decaying 800 Hz burst, so that steady noise alone does
+    not give every take a low estimated SNR and a ring on the timeline."""
+    t = np.arange(2 * SR) / SR
+    hum = sum(0.02 / k * np.sin(2 * np.pi * 50 * k * t) for k in range(1, 9))
+    for folder, level, count in (("day", 0.02, 60), ("night", 0.006, 40)):
+        (root / folder).mkdir(parents=True)
+        rng = np.random.default_rng(len(folder))
+        clock = 0
+        for i in range(count):
+            y = level * rng.standard_normal(t.size)
+            start = rng.uniform(0.2, 1.4)
+            knock = (t >= start) & (t < start + 0.4)
+            y[knock] += (20 * level * np.exp(-(t[knock] - start) / 0.1)
+                         * np.sin(2 * np.pi * 800 * t[knock]))
+            if folder == "day" and i >= count - 20:
+                y = y + hum
+            if folder == "day" and i == 12:
+                y = np.clip(40 * y, -1, 1)
+            if folder == "day" and i == 30:
+                clock += 40
+            minutes, seconds = divmod(clock, 60)
+            name = f"take_20261120_09{minutes:02d}{seconds:02d}.wav"
+            kudio.save_wave(root / folder / name, y.astype(np.float32), SR)
+            clock += 2
+    return root
+
+
 # ---------------------------------------------------------------- the browser
 
 def browser() -> str:
@@ -529,6 +562,28 @@ def shoot(page: Page, studio: Studio, server: LocalServer, scratch: Path) -> Non
     page.settle(0.8)
     page.save_panel("panel_manifest", "manifest")
     page.size(*WINDOW_SIZE)
+
+    print("surveying a folder")
+    page.size(WINDOW_SIZE[0], PANEL_HEIGHT)
+    page.tool("survey")
+    studio.call("survey.run", [str(survey_corpus(scratch / "survey"))])
+    if not studio.jobs.wait(120):
+        raise SystemExit("the survey never finished")
+    page.wait("!document.querySelector('[data-panel-host=\"survey\"] button.primary').disabled",
+              what="the survey's results")
+    page.settle(0.8)
+    page.save_panel("panel_survey", "survey")
+    page.size(*WINDOW_SIZE)
+    view = "document.getElementById('panel-view')"
+    for name, label in (("survey_table", "Show the table"), ("survey_spectra", "Folder spectra"),
+                        ("survey_timeline", "Timeline")):
+        page.click(page.button("survey", label))
+        page.wait(f"{view}.querySelector('table, svg')", what=label)
+        if name == "survey_table":
+            # sorted by the clipped samples, the page's own click on the heading
+            page.click(f"{view}.querySelectorAll('table.data th')[4]")
+        page.settle(1.0)
+        page.save(name, element=view)
 
 
 if __name__ == "__main__":

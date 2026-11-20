@@ -26,8 +26,21 @@ call, so the picture is the features a model would see:
 
 The **Analysis** fields set the call's parameters: `n_fft` and `hop_length`
 for the STFT and mel views, `n_mels` for the mel view and `n_mfcc` for the
-MFCC one. A field that does not apply to the view on screen is greyed out. The
-view and its settings are remembered for the next run.
+MFCC one, which uses `n_fft` and `hop_length` as well.
+A field that does not apply to the view on screen is greyed out. The view and
+its settings are remembered for the next run.
+
+`n_fft` goes up to 65536 and `hop_length` to 16384. At 192 kHz a 65536-point
+frame is 0.34 s, and its bins are 2.9 Hz apart, fine enough to tell two
+narrowband lines a few hertz apart. The image is capped at 64 million values;
+past that, the status line says how many frames and bins it would take and
+asks for a larger `hop_length` or a smaller `n_fft`.
+
+**Log frequency axis** spreads the low octaves of the STFT view: the axis
+starts at the first bin above 0 Hz and is marked at each decade, and at 2 and
+5 between them when there is room. It is greyed out on the other two views.
+On the mel view the axis is labelled in hertz at the bands' centres rather
+than by band number, so a mel picture can be read against an STFT one.
 
 The colours keep their scale while the clip is the same one. Denoise it or
 change its gain and the image keeps the levels it had, so less noise shows as

@@ -7,6 +7,10 @@
 // axis shows all of it again. The server cuts the bins before it pools them,
 // so a zoom into the lowest few hundred hertz gets those bins at full
 // resolution rather than a smear of a few rows.
+//
+// With the log axis on, the server spaces the rows evenly in log frequency
+// from the first bin above DC, and the axis, the zoom and the pitch curve
+// follow. A mel image is labelled with the centre frequency of its bands.
 
 import { data } from "./api.js";
 import { hertz, ticks } from "./format.js";
@@ -27,6 +31,10 @@ export class SpectrogramPlot extends TimePlot {
     this.yHi = 1;
     this.yUnits = "";
     this.label = "";
+    this.log = false;           // rows spaced evenly in log frequency
+    this.yMin = 0;              // where a log axis starts
+    this.bandsHz = null;        // a mel image's band centres, bottom first
+    this.levels = null;         // { lo, hi, unit } of the colour scale
     this.controller = null;
     this.timer = null;
     this.error = "";
@@ -113,18 +121,33 @@ export class SpectrogramPlot extends TimePlot {
     this.timer = setTimeout(() => this.fetch(), delay);
   }
 
-  /** Show *lo*..*hi* of the vertical axis, kept inside it. */
+  /** Show *lo*..*hi* of the vertical axis, kept inside it. On a log axis
+   *  the same, in log frequency. */
   setYRange(lo, hi) {
-    const span = Math.min(Math.max(hi - lo, this.yMax * MIN_Y_SHARE), this.yMax);
-    const start = Math.min(Math.max(lo, 0), this.yMax - span);
-    if (start === this.yLo && start + span === this.yHi) return;
+    let start, end;
+    if (this.log) {
+      const bottom = Math.log(this.yMin), top = Math.log(this.yMax);
+      const whole = top - bottom;
+      const span = Math.min(Math.max(Math.log(hi) - Math.log(Math.max(lo, this.yMin)),
+                                     whole * MIN_Y_SHARE), whole);
+      const from = Math.min(Math.max(Math.log(Math.max(lo, this.yMin)), bottom), top - span);
+      start = Math.exp(from);
+      end = Math.exp(from + span);
+    } else {
+      const span = Math.min(Math.max(hi - lo, this.yMax * MIN_Y_SHARE), this.yMax);
+      start = Math.min(Math.max(lo, 0), this.yMax - span);
+      end = start + span;
+    }
+    if (start === this.yLo && end === this.yHi) return;
     this.yLo = start;
-    this.yHi = start + span;
+    this.yHi = end;
     this.requestDraw();
     this.fetchSoon(40);
   }
 
-  get yZoomed() { return this.yLo > 0 || this.yHi < this.yMax; }
+  get yBottom() { return this.log ? this.yMin : 0; }
+
+  get yZoomed() { return this.yLo > this.yBottom * (1 + 1e-9) || this.yHi < this.yMax; }
 
   async fetch() {
     if (this.version < 0 || !this.width || !this.lut) return;
@@ -153,6 +176,20 @@ export class SpectrogramPlot extends TimePlot {
       }
       this.yUnits = meta.units || "";
       this.label = meta.label || "";
+      const log = meta.scale === "log";
+      const yMin = Number(meta.ymin || 0);
+      if (log !== this.log || (log && yMin !== this.yMin)) {
+        // the axis changed its scale: show all of it
+        this.log = log;
+        this.yMin = yMin;
+        this.yLo = log ? yMin : 0;
+        this.yHi = this.yMax;
+      }
+      this.bandsHz = meta["bands-hz"] ? meta["bands-hz"].split(",").map(Number) : null;
+      if (meta.levels) {
+        const [lo, hi] = meta.levels.split(",").map(Number);
+        this.levels = { lo, hi, unit: meta["level-unit"] || "" };
+      }
       this.error = "";
       if (!rows || !columns) { this.image = null; this.requestDraw(); return; }
       this.paint(new Uint8Array(buffer), rows, columns);
@@ -220,25 +257,60 @@ export class SpectrogramPlot extends TimePlot {
     ctx.restore();
   }
 
-  yOf(value, a) { return a.y + a.h - ((value - this.yLo) / (this.yHi - this.yLo)) * a.h; }
+  yOf(value, a) {
+    if (this.log) {
+      const lo = Math.log(this.yLo), hi = Math.log(this.yHi);
+      return a.y + a.h - ((Math.log(Math.max(value, 1e-9)) - lo) / (hi - lo)) * a.h;
+    }
+    return a.y + a.h - ((value - this.yLo) / (this.yHi - this.yLo)) * a.h;
+  }
 
   valueAt(y) {
     const a = this.area;
-    return this.yLo + ((a.y + a.h - y) / a.h) * (this.yHi - this.yLo);
+    const share = (a.y + a.h - y) / a.h;
+    if (this.log) return Math.exp(Math.log(this.yLo) + share * (Math.log(this.yHi) - Math.log(this.yLo)));
+    return this.yLo + share * (this.yHi - this.yLo);
+  }
+
+  /** A mel band position, 0 at the bottom edge, as the centre frequency of
+   *  the band under it, interpolated between centres. */
+  bandHz(v) {
+    const c = this.bandsHz;
+    const i = Math.min(Math.max(v - 0.5, 0), c.length - 1);
+    const k = Math.min(Math.floor(i), c.length - 2);
+    return k < 0 ? c[0] : c[k] + (c[k + 1] - c[k]) * (i - k);
+  }
+
+  /** 1, 2 and 5 of each decade, thinned to one a decade when that is all
+   *  that fits. */
+  logTicks(lo, hi, pixels) {
+    const out = [];
+    const decades = Math.log10(hi / lo);
+    const steps = pixels / Math.max(decades, 1e-9) > 90 ? [1, 2, 5] : [1];
+    for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) {
+      for (const m of steps) {
+        const v = m * 10 ** e;
+        if (v >= lo * (1 - 1e-9) && v <= hi * (1 + 1e-9)) out.push(v);
+      }
+    }
+    return out;
   }
 
   drawValueAxis(ctx, a) {
-    const { values } = ticks(this.yLo, this.yHi, a.h, 34);
+    const values = this.log ? this.logTicks(this.yLo, this.yHi, a.h)
+                            : ticks(this.yLo, this.yHi, a.h, 34).values;
     ctx.fillStyle = this.colors.axis;
     ctx.font = `11px ${monoFont()}`;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
+    const mel = this.bandsHz && this.bandsHz.length > 1;
     for (const v of values) {
       const y = this.yOf(v, a);
       if (y < a.y + 6 || y > a.y + a.h - 4) continue;
-      ctx.fillText(this.yUnits === "Hz" ? hertz(v) : String(Math.round(v)), a.x - 8, y);
+      const text = this.yUnits === "Hz" ? hertz(v) : mel ? hertz(this.bandHz(v)) : String(Math.round(v));
+      ctx.fillText(text, a.x - 8, y);
     }
-    if (this.yUnits === "Hz") {
+    if (this.yUnits === "Hz" || mel) {
       ctx.save();
       ctx.fillStyle = this.yZoomed ? this.colors.accent : this.colors.hint;
       ctx.textAlign = "right";
@@ -257,6 +329,13 @@ export class SpectrogramPlot extends TimePlot {
     e.preventDefault();
     const at = Math.min(Math.max(this.valueAt(y), this.yLo), this.yHi);
     const factor = Math.exp(e.deltaY * 0.0015);
+    if (this.log) {
+      const lo = Math.log(this.yLo), hi = Math.log(this.yHi), here = Math.log(at);
+      const fraction = (here - lo) / (hi - lo);
+      const span = (hi - lo) * factor;
+      this.setYRange(Math.exp(here - fraction * span), Math.exp(here - fraction * span + span));
+      return;
+    }
     const fraction = (at - this.yLo) / (this.yHi - this.yLo);
     const span = (this.yHi - this.yLo) * factor;
     this.setYRange(at - fraction * span, at - fraction * span + span);
@@ -264,7 +343,7 @@ export class SpectrogramPlot extends TimePlot {
 
   doubleClick(e) {
     const { x } = pointIn(e, this.canvas);
-    if (x < this.area.x) this.setYRange(0, this.yMax);
+    if (x < this.area.x) this.setYRange(this.yBottom, this.yMax);
     else super.doubleClick(e);
   }
 }

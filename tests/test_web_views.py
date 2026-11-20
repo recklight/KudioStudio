@@ -1514,3 +1514,38 @@ def test_switching_files_asks_before_an_edit_is_lost(page, studio, tone, tmp_pat
     """)
     assert agreed == 0
     assert studio.session.name == "tone.wav"
+
+
+def test_a_line_said_while_the_page_opens_is_not_replaced_by_an_older_one(studio, tmp_path):
+    """The page asks what was said before it opened, and shows the answer.
+    A line that reaches it while the question is out is newer than that
+    answer and stays; shown in its place, the answer would put a stale line
+    over it, and a page test waiting for its own checkpoint would wait in
+    vain."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    studio.say("an older line")
+    about = studio.commands["about"]
+
+    def overtaken():
+        answer = about()                      # the older line, as said so far
+        time.sleep(0.3)                       # "Ready." up long enough to be seen
+        studio.say("a newer line")            # out to the page before the answer is
+        time.sleep(0.5)
+        return answer
+
+    studio.commands["about"] = overtaken
+    server = LocalServer(studio, 0)
+    server.start()
+    page = Page(node, server, tmp_path / "page.mjs")
+    try:
+        shown = page.run("""
+            await until(() => answered.includes("about"));
+            await new Promise((done) => setTimeout(done, 200));
+            return $("status").textContent;
+        """)
+        assert shown == "a newer line"
+    finally:
+        page.close()
+        server.close()

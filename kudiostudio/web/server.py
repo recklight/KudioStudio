@@ -32,6 +32,7 @@ import logging
 import mimetypes
 import queue
 import secrets
+import socket
 import sys
 import threading
 from http import HTTPStatus
@@ -100,6 +101,18 @@ def _json_default(value):
     raise TypeError(f"{type(value).__name__} is not JSON")
 
 
+#: The ports the fetch standard blocks, which Chrome, Edge and so the
+#: window's WebView2 refuse to load a page from. Windows hands out ports from
+#: 1024 up where its dynamic range has been widened, as Hyper-V and WSL do,
+#: and a page served on 6000 or 10080 then never opens.
+BLOCKED_PORTS = frozenset({
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95,
+    101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161,
+    179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563,
+    587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060,
+    5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080})
+
+
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -110,6 +123,17 @@ class LocalServer(ThreadingHTTPServer):
         self.closing = threading.Event()
         self._colormaps: Dict[str, bytes] = {}
         super().__init__(("127.0.0.1", port), Handler)
+
+    def server_bind(self) -> None:
+        """Bind, and bind again while the port the system chose is one a
+        browser will not load from. A port asked for is kept as it is."""
+        asked = self.server_address[1]
+        super().server_bind()
+        while asked == 0 and self.server_address[1] in BLOCKED_PORTS:
+            self.socket.close()
+            self.socket = socket.socket(self.address_family, self.socket_type)
+            self.server_address = ("127.0.0.1", 0)
+            super().server_bind()
 
     @property
     def port(self) -> int:
@@ -351,8 +375,11 @@ class Handler(BaseHTTPRequestHandler):
         if img is None:
             return self._send(HTTPStatus.OK, b"", "application/octet-stream",
                               {"X-Kudio-Version": str(version), "X-Kudio-Kind": "empty"})
-        from kudiostudio.web.analysis import image_slice
-        part = image_slice(img, t0, t1, columns, rows, y0, min(y1, img.y_max))
+        from kudiostudio.web.analysis import image_slice, lowest_log_hz
+        settings = self.server.studio.settings
+        log_axis = bool(settings.log_freq) and img.y_units == "Hz"
+        scale, unit = {"stft": (10.0, "dB"), "mel": (1.0, "dB")}.get(settings.mode, (1.0, ""))
+        part = image_slice(img, t0, t1, columns, rows, y0, min(y1, img.y_max), log=log_axis)
         headers = {
             "X-Kudio-Version": str(version),
             "X-Kudio-Kind": "image",
@@ -365,7 +392,17 @@ class Handler(BaseHTTPRequestHandler):
             "X-Kudio-Ymax": repr(img.y_max),
             "X-Kudio-Label": img.y_label,
             "X-Kudio-Units": img.y_units or "",
+            "X-Kudio-Scale": "log" if part.log else "linear",
+            # the colour scale, for the exported image's key: the STFT is
+            # log10 of the power, ten of them to a decibel
+            "X-Kudio-Levels": ",".join(f"{v * scale:.2f}" for v in img.levels),
+            "X-Kudio-Level-Unit": unit,
+            "X-Kudio-Ymin": repr(lowest_log_hz(img) if log_axis else 0.0),
         }
+        if img.bands_hz:
+            # a mel axis labelled in Hz: the centre of each band, a few
+            # kilobytes for 256 bands
+            headers["X-Kudio-Bands-Hz"] = ",".join(f"{f:.1f}" for f in img.bands_hz)
         self._send(HTTPStatus.OK, part.pixels.tobytes(), "application/octet-stream", headers)
 
     # ------------------------------------------------------------ events

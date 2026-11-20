@@ -781,3 +781,139 @@ def test_a_request_the_page_gave_up_on_prints_no_traceback(server, capsys):
     except ValueError:
         server.handle_error(None, ("127.0.0.1", 1))
     assert "a real fault" in capsys.readouterr().err
+
+
+# ------------------------------------------------ the analysis at high rates
+
+def test_the_frame_reaches_65536_points_and_no_further():
+    """2.9 Hz a bin at 192 kHz, fine enough to part the lines of a 50 Hz hum;
+    the box stopped at 8192, 23 Hz."""
+    assert analysis.Settings(n_fft=65536, hop_length=16384).checked().n_fft == 65536
+    with pytest.raises(ValueError, match="n_fft"):
+        analysis.Settings(n_fft=131072).checked()
+
+
+def test_an_image_too_large_to_hold_is_refused_with_what_to_change():
+    y = np.zeros(192000 * 60, np.float32)
+    with pytest.raises(ValueError, match="raise hop_length or lower n_fft"):
+        analysis.image(y, 192000, analysis.Settings(n_fft=65536, hop_length=64))
+
+
+def test_a_log_axis_spaces_the_rows_evenly_in_log_frequency():
+    """Bins 1 Hz apart, 0-1000 Hz; lit at 10 and at 100 Hz. On a log axis
+    from 1 to 1000 Hz each decade takes a third of the rows, so the two are
+    a third of the height apart, where a linear axis puts them 9% apart."""
+    data = np.zeros((10, 1000), np.float32)
+    data[:, 10] = data[:, 100] = 1.0
+    img = analysis.Image(data, 1.0, 1000.0, "Frequency", "Hz", (0.0, 1.0))
+    part = analysis.image_slice(img, 0.0, 1.0, columns=10, rows=300, log=True)
+    assert part.log and part.y0 == pytest.approx(1000 / 999) and part.y1 == 1000.0
+    lit = np.flatnonzero(part.pixels[:, 0])
+    rows_up = 300 - 1 - lit                 # counted from the bottom
+    for hz in (10, 100):
+        expected = 300 * np.log(hz / part.y0) / np.log(part.y1 / part.y0)
+        assert np.any(np.abs(rows_up - expected) <= 3), (hz, rows_up)
+    assert not analysis.image_slice(img, 0.0, 1.0, columns=10, rows=300).log
+
+
+def test_a_log_axis_is_left_to_images_in_hz():
+    img = analysis.Image(np.ones((10, 64), np.float32), 1.0, 64.0, "Mel band", None, (0.0, 1.0))
+    assert not analysis.image_slice(img, 0.0, 1.0, columns=10, rows=64, log=True).log
+
+
+def test_a_mel_image_carries_the_frequency_of_each_band():
+    sr = 16000
+    y = (0.1 * np.random.default_rng(0).standard_normal(sr)).astype(np.float32)
+    img = analysis.image(y, sr, analysis.Settings(mode="mel", n_mels=32))
+    assert len(img.bands_hz) == 32
+    assert 0 < img.bands_hz[0] < img.bands_hz[-1] < sr / 2
+    assert np.all(np.diff(img.bands_hz) > 0)
+
+
+def test_the_mfcc_takes_the_frame_where_kudio_passes_it_on(monkeypatch):
+    sr = 16000
+    y = (0.1 * np.random.default_rng(0).standard_normal(sr)).astype(np.float32)
+    settings = analysis.Settings(mode="mfcc", n_mfcc=20, n_fft=1024, hop_length=160)
+    if analysis.mfcc_takes_fft():
+        assert "n_fft=1024, hop_length=160" in settings.call()
+        assert analysis.image(y, sr, settings).data.shape[0] == 1 + sr // 160
+    monkeypatch.setattr(analysis, "mfcc_takes_fft", lambda: False)
+    assert settings.call() == "kudio.mfcc(y, sr, n_mfcc=20)"
+    assert analysis.image(y, sr, settings).data.shape[0] == 1 + sr // 512
+
+
+def test_the_log_axis_comes_with_where_it_starts(server, tone):
+    _post(server, "open_files", {"args": [[str(tone)]]})
+    _post(server, "set_analysis", {"kwargs": {"log_freq": True}})
+    headers = {"X-Kudio-Token": server.token}
+    response, body = _get(server, "/data/image?t0=0&t1=1&columns=64&rows=32", headers)
+    assert response.getheader("X-Kudio-Scale") == "log"
+    assert float(response.getheader("X-Kudio-Ymin")) == pytest.approx(8000 / 256)
+    _post(server, "set_analysis", {"kwargs": {"mode": "mel"}})
+    response, _ = _get(server, "/data/image?t0=0&t1=1&columns=64&rows=32", headers)
+    assert response.getheader("X-Kudio-Scale") == "linear"
+    assert len(response.getheader("X-Kudio-Bands-Hz").split(",")) == 64
+
+
+@pytest.mark.parametrize("mode, takes_fft", [("mel", True), ("mfcc", True), ("mfcc", False)])
+def test_the_size_guard_counts_the_full_stft_every_view_starts_from(monkeypatch, mode, takes_fft):
+    """librosa computes all n_fft // 2 + 1 bins before the mel or MFCC
+    image keeps a few dozen rows of it, so the guard has to count those:
+    60 s at 192 kHz, mel, n_fft 65536 and a hop of 256 keeps 64 rows but
+    computes a complex64 STFT of 45,001 x 32,769, about 11.8 GB."""
+    from kudiostudio.web import analysis
+
+    really_takes_fft = analysis.mfcc_takes_fft()
+    monkeypatch.setattr(analysis, "mfcc_takes_fft", lambda: takes_fft)
+    # 1 s at 16 kHz: 32 frames of 1025 bins at n_fft 2048 and hop 512, 32,800
+    # values; the 64 mel rows or 40 coefficients alone are 2,048 or 1,280
+    monkeypatch.setattr(analysis, "MAX_IMAGE_VALUES", 10_000)
+    y = np.random.default_rng(0).standard_normal(16000).astype(np.float32)
+    settings = analysis.Settings(mode=mode, n_fft=2048, hop_length=512)
+    with pytest.raises(ValueError, match="32 frames of 1025 STFT bins") as refused:
+        analysis.image(y, 16000, settings)
+    # kudio 4.1's MFCC takes neither, so only a shorter clip helps there
+    fixed = mode == "mfcc" and not takes_fft
+    assert ("raise hop_length" in str(refused.value)) is not fixed
+    if mode == "mfcc" and takes_fft and not really_takes_fft:
+        return                  # the kudio installed cannot make this one
+    monkeypatch.setattr(analysis, "MAX_IMAGE_VALUES", 40_000)
+    assert analysis.image(y, 16000, settings).data.size > 0
+
+
+def test_a_port_a_browser_will_not_load_from_is_given_back(monkeypatch):
+    """Where Windows hands out ports from 1024 up, the system can choose
+    6000 or 10080, from which Chrome, WebView2 and node will not load the
+    page. The server binds again until it has one they will."""
+    from kudiostudio.web import server as server_module
+
+    class FirstThreeBlocked:
+        def __init__(self):
+            self.seen = []
+
+        def __contains__(self, port):
+            self.seen.append(port)
+            return len(self.seen) <= 3
+
+    blocked = FirstThreeBlocked()
+    monkeypatch.setattr(server_module, "BLOCKED_PORTS", blocked)
+    local = server_module.LocalServer(None, 0)
+    try:
+        assert len(blocked.seen) == 4 and local.port == blocked.seen[-1]
+        assert local.socket.getsockname()[1] == local.port
+    finally:
+        local.server_close()
+
+
+def test_a_port_asked_for_is_kept_even_if_a_browser_would_refuse_it(monkeypatch):
+    from kudiostudio.web import server as server_module
+
+    free = server_module.LocalServer(None, 0)
+    port = free.port
+    free.server_close()
+    monkeypatch.setattr(server_module, "BLOCKED_PORTS", frozenset({port}))
+    local = server_module.LocalServer(None, port)
+    try:
+        assert local.port == port
+    finally:
+        local.server_close()

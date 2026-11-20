@@ -165,7 +165,9 @@ class Editing:
         # as the open one, as it would be had the file been opened
         if str(target) not in self.studio.files:
             self.studio.files.append(str(target))
+            self.studio.files_version += 1
         self.studio.remember_dir(str(target))
+        self.studio.remember_save_dir(str(target))
         return self._done()
 
     @command
@@ -184,7 +186,7 @@ class Editing:
             return self._done()
         if note:
             self.studio.say(note)
-        self.studio.remember_dir(str(target))
+        self.studio.remember_save_dir(str(target))
         return self._done()
 
     @command
@@ -208,7 +210,7 @@ class Editing:
         except Exception as e:  # noqa: BLE001
             self.studio.say(f"Export failed — {type(e).__name__}: {e}")
             return self._done()
-        self.studio.remember_dir(path)
+        self.studio.remember_save_dir(path)
         steps = len(s.history)
         warnings = s.edit_script_warnings()
         if warnings:
@@ -238,7 +240,7 @@ class Editing:
             log.warning("image not written: %s", e)
             self.studio.say(f"Could not write {path.name}")
             return self._done()
-        self.studio.remember_dir(path)
+        self.studio.remember_save_dir(path)
         self.studio.say(f"Exported {path.name}")
         return self._done()
 

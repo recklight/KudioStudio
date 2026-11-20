@@ -123,8 +123,11 @@ def test_mfcc_of_a_clip_shorter_than_its_coefficients_stays_upright():
     is longer turns a clip of fewer frames than coefficients on its side."""
     sr = 8000
     y = (0.3 * np.sin(2 * np.pi * 300 * np.arange(sr) / sr)).astype(np.float32)
-    img = analysis.image(y, sr, analysis.Settings(mode="mfcc", n_mfcc=20))
-    frames = np.shape(kudio.mfcc(y, sr, n_mfcc=20))[1]
+    settings = analysis.Settings(mode="mfcc", n_mfcc=20, n_fft=2048, hop_length=1024)
+    img = analysis.image(y, sr, settings)
+    # with the frame the kudio installed passes on, or at librosa's own
+    given = dict(n_fft=2048, hop_length=1024) if analysis.mfcc_takes_fft() else {}
+    frames = np.shape(kudio.mfcc(y, sr, n_mfcc=20, **given))[1]
     assert frames < 20                      # the case a guess gets wrong
     assert img.data.shape == (frames, 20)
     assert img.y_max == 20

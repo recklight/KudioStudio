@@ -17,7 +17,7 @@ why I use this panel instead of a loop in a script.
 |---|---|---|
 | `input` | a folder | every WAV file in it and in its subfolders |
 | `output` | a folder | where the converted tree goes, laid out like the input |
-| `sr` | `keep`, 48000, 44100, 32000, 22050, 16000, 8000; `keep` | resamples every file |
+| `sr` | `keep`, 192000, 96000, 48000, 44100, 32000, 22050, 16000, 8000; `keep` | resamples every file; the two highest are there for ultrasonic recordings |
 | `subtype` | `PCM_16`, `PCM_24`, `PCM_32`, `FLOAT`; `PCM_16` | how the files are written |
 | `top_db` | 1–90 dB; 30 | for trimming: audio this far below the peak counts as silence |
 | `normalize` | `none`, `peak`, `LUFS`; `none` | levels every file, to the target beside it; [below](#lufs-or-peak) |

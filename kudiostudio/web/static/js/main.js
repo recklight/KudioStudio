@@ -13,6 +13,7 @@ import { Overview } from "./overview.js";
 import { Panels } from "./panels.js";
 import { applyOptions, nextZoom, openSettings, setLanguageHandler } from "./settings.js";
 import { SpectrogramPlot } from "./spectrogram.js";
+import { monoFont } from "./timeplot.js";
 import { TimeView } from "./view.js";
 import { WaveformPlot } from "./waveform.js";
 
@@ -160,11 +161,11 @@ function plotMenu(e, at) {
         status(error.message, true);
       }
     },
-    resetY: () => spec.setYRange(0, spec.yMax),
+    resetY: () => spec.setYRange(spec.yBottom, spec.yMax),
     // n_fft and the hop together, so the frames overlap as much as before
     resolution: (factor) => command("set_analysis", [], {
       n_fft: Math.round(s.nFft * factor),
-      hop_length: Math.min(Math.max(Math.round(s.hop * factor), 16), 4096) }),
+      hop_length: Math.min(Math.max(Math.round(s.hop * factor), 16), 16384) }),
     mode: (mode) => command("set_analysis", [], { mode }),
   }));
 }
@@ -205,8 +206,22 @@ const saveSelection = () => state?.can_copy
 const exportScript = () => state?.has_history
   && saveTo("script", "export_script", "Export edits as Python script", ["Python (*.py)"]);
 
-/** The plots as they are on screen, into one PNG: the zoom, the selection
- *  and the playhead included. */
+/** The lines over the exported image: what the file is, the kudio call
+ *  behind the picture, and what its colours and time axis mean. */
+function imageHeader() {
+  const lines = [`${state.name} — ${state.sr} Hz, ${state.duration.toFixed(3)} s`,
+                 live?.call || state.call];
+  const lv = spec.levels;
+  const map = state.options?.spectrum_map || "";
+  lines.push(t(lv ? `colour: ${map}, ${lv.lo.toFixed(1)} to ${lv.hi.toFixed(1)}`
+                      + `${lv.unit ? ` ${lv.unit}` : ""}; time in seconds`
+                    : "time in seconds"));
+  return lines;
+}
+
+/** The plots as they are on screen, into one PNG: the zoom, the selection,
+ *  the markers and the playhead included, under a header that says what
+ *  file, what analysis and what colour scale they are. */
 async function exportImage() {
   if (!state?.has_audio) { status(t("Nothing to export.")); return; }
   const suggested = await call("suggest_name", ["image"]);
@@ -217,14 +232,39 @@ async function exportImage() {
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(...parts.map((c) => c.width));
   const gap = Math.round(10 * dpr);
-  const height = parts.reduce((sum, c) => sum + c.height, 0) + gap * (parts.length + 1);
+  const lineHeight = Math.round(16 * dpr);
+  const header = imageHeader();
+  const top = gap + header.length * lineHeight + gap;
+  const height = top + parts.reduce((sum, c) => sum + c.height, 0) + gap * parts.length;
+  const font = `${Math.round(12 * dpr)}px ${monoFont()}`;
   const out = document.createElement("canvas");
-  out.width = width + gap * 2;
+  let ctx = out.getContext("2d");
+  ctx.font = font;
+  // as wide as the longest line of the header, or the plots, whichever is wider
+  const textWidth = Math.max(...header.map((line) => ctx.measureText(line).width));
+  const barRoom = Math.round(180 * dpr);
+  out.width = Math.ceil(Math.max(width, textWidth + barRoom)) + gap * 2;
   out.height = height;
-  const ctx = out.getContext("2d");
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--base").trim();
+  ctx = out.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  ctx.fillStyle = css.getPropertyValue("--base").trim();
   ctx.fillRect(0, 0, out.width, out.height);
-  let y = gap;
+  ctx.fillStyle = css.getPropertyValue("--text").trim() || "#ddd";
+  ctx.font = font;
+  ctx.textBaseline = "top";
+  header.forEach((line, i) => ctx.fillText(line, gap, gap + i * lineHeight));
+  if (spec.levels && spec.lut) {
+    // the colour bar, low to high, after the last line
+    const barWidth = Math.round(160 * dpr);
+    const x0 = out.width - gap - barWidth;
+    const y0 = gap + (header.length - 1) * lineHeight;
+    for (let i = 0; i < barWidth; i++) {
+      const k = Math.round((i / (barWidth - 1)) * 255) * 3;
+      ctx.fillStyle = `rgb(${spec.lut[k]}, ${spec.lut[k + 1]}, ${spec.lut[k + 2]})`;
+      ctx.fillRect(x0 + i, y0, 1, Math.round(12 * dpr));
+    }
+  }
+  let y = top;
   for (const c of parts) {
     ctx.drawImage(c, gap, y);
     y += c.height + gap;
@@ -252,6 +292,7 @@ const has = () => Boolean(state?.has_audio);
 const MENUS = [
   { title: "&File", items: [
     { label: "&Open…", keys: "Ctrl+O", run: open },
+    { label: "Open &folder…", run: openFolder },
     { label: "Open &manifest…", run: openManifest },
     { label: "Save &As…", keys: "Ctrl+Shift+S", run: saveAs, enabled: has },
     { label: "Save &selection as…", keys: "Ctrl+Shift+E", run: saveSelection,
@@ -312,6 +353,15 @@ function toggleCompare() {
 
 function applyState(next) {
   const previous = state;
+  // a reply that leaves the Files list out has not changed it; one whose
+  // list is not the one this page holds sends for it
+  if (!("files" in next)) {
+    next.files = previous?.files ?? [];
+    if (previous && next.files_version !== previous.files_version) {
+      next.files_version = previous.files_version;
+      call("state").then(applyState);
+    }
+  }
   state = next;
   app.dataset.state = next.has_audio ? "ready" : "empty";
   applyOptions(next.options, {
@@ -359,7 +409,8 @@ function applyState(next) {
   if (document.activeElement !== $("crossfade")) $("crossfade").value = next.crossfade_ms;
   setGain(next.gain_db, false);
 
-  renderFiles(next);
+  if (!previous || previous.files !== next.files || previous.path !== next.path
+      || previous.language !== next.language) renderFiles(next);
   markers.render(next);
   // while a take runs the plots show it, and the clip's marks are not on it
   for (const plot of plots) plot.setMarkers(live ? [] : next.markers);
@@ -399,21 +450,54 @@ function applyState(next) {
     loudness = null;
     applyLoudness();
     refreshLevels();
-  } else if (previous.call !== next.call) {
+  } else if (previous.call !== next.call
+             || previous.analysis.log_freq !== next.analysis.log_freq) {
     spec.refresh();
   }
   if (!playback) setPlayhead(next.playhead);
 }
 
+/** The folder part of *path*, and its last two folders for a heading. */
+function folderOf(path) {
+  const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  const folder = cut > 0 ? path.slice(0, cut) : "";
+  const parts = folder.split(/[\\/]/).filter(Boolean);
+  return { folder, short: parts.slice(-2).join("/") || folder };
+}
+
 function renderFiles(s) {
   const list = $("file-list");
   list.replaceChildren();
+  // a heading for each folder, with its count, when the list spans more
+  // than one: a corpus folder after folder of takes named alike otherwise
+  // reads as one long list of the same name
+  const counts = new Map();
   for (const file of s.files) {
+    const { folder } = folderOf(file.path);
+    counts.set(folder, (counts.get(folder) || 0) + 1);
+  }
+  const grouped = counts.size > 1;
+  let heading = null;
+  let current = null;
+  for (const file of s.files) {
+    const { folder, short } = folderOf(file.path);
+    if (grouped && folder !== heading) {
+      heading = folder;
+      const head = document.createElement("li");
+      head.className = "folder";
+      head.title = folder;
+      head.innerHTML = `<span class="name"></span><span class="count mono"></span>`;
+      head.querySelector(".name").textContent = short;
+      head.querySelector(".count").textContent = String(counts.get(folder));
+      list.append(head);
+    }
     const li = document.createElement("li");
     li.classList.toggle("current", file.path === s.path);
+    if (file.path === s.path) current = li;
     li.title = file.path;
     li.innerHTML = `<span class="name"></span><button class="btn ghost icon-only small remove"></button>`;
-    li.querySelector(".name").textContent = file.name;
+    // under its folder's heading the file's own name is enough
+    li.querySelector(".name").textContent = grouped ? file.path.slice(folder.length + 1) : file.name;
     const remove = li.querySelector(".remove");
     remove.innerHTML = svg("close", 2.2);
     remove.title = t("Remove from the list");
@@ -424,6 +508,22 @@ function renderFiles(s) {
     list.append(li);
   }
   $("files-empty").hidden = s.files.length > 0;
+  current?.scrollIntoView?.({ block: "nearest" });
+}
+
+/** The file *step* places down the list from the open one, or up. */
+async function stepFile(step) {
+  const files = state?.files || [];
+  if (!files.length) return;
+  const at = files.findIndex((f) => f.path === state.path);
+  const next = files[Math.min(Math.max((at < 0 ? -1 : at) + step, 0), files.length - 1)];
+  if (next && next.path !== state.path && await mayOpenOver()) command("load", [next.path]);
+}
+
+async function openFolder() {
+  if (!(await mayOpenOver())) return;
+  const path = await choosePath("folder", { title: t("Open a folder of audio") });
+  if (path) command("open_files", [[path]]);
 }
 
 function renderAnalysis(s) {
@@ -435,9 +535,12 @@ function renderAnalysis(s) {
     const input = $(name);
     if (document.activeElement !== input) input.value = a[name];
   }
-  const spectral = a.mode === "stft" || a.mode === "mel";
+  // the MFCC takes the frame too, where the kudio installed passes it on
+  const spectral = a.mode === "stft" || a.mode === "mel" || (a.mode === "mfcc" && s.mfcc_takes_fft);
   $("n_fft").disabled = !spectral;
   $("hop_length").disabled = !spectral;
+  $("log-freq").checked = Boolean(a.log_freq);
+  $("log-freq").disabled = a.mode !== "stft";
   $("n_mels").disabled = a.mode !== "mel";
   $("n_mfcc").disabled = a.mode !== "mfcc";
   const call = live?.call || s.call;
@@ -702,6 +805,7 @@ function bind() {
   for (const name of ["n_fft", "hop_length", "n_mels", "n_mfcc"]) {
     $(name).addEventListener("change", (e) => command("set_analysis", [], { [name]: Number(e.target.value) }));
   }
+  $("log-freq").addEventListener("change", (e) => command("set_analysis", [], { log_freq: e.target.checked }));
   for (const id of ["sel-start", "sel-end"]) {
     $(id).addEventListener("change", () => {
       const a = Number($("sel-start").value);
@@ -769,6 +873,8 @@ function keyDown(e) {
   else if (ctrl && e.key === "0") { handled(); command("options.set", ["zoom", 1]); }
   else if (!ctrl && (e.key === "+" || e.key === "=")) { handled(); view.zoomAt(playhead, 0.5); }
   else if (!ctrl && e.key === "-") { handled(); view.zoomAt(playhead, 2); }
+  else if (e.key === "ArrowDown" && !ctrl) { handled(); stepFile(1); }
+  else if (e.key === "ArrowUp" && !ctrl) { handled(); stepFile(-1); }
   else if (e.key === "ArrowLeft") { handled(); view.pan(-view.span * 0.15); }
   else if (e.key === "ArrowRight") { handled(); view.pan(view.span * 0.15); }
 }
@@ -805,9 +911,12 @@ async function boot() {
     if (table) await applyLanguage(table);
   });
   bind();
+  // how many lines the window has sent the status bar since this page
+  // opened, so a line said before it opened cannot replace a newer one
+  let heard = 0;
   listen((event) => {
     if (event.type === "state") applyState(event.state);
-    else if (event.type === "message") status(event.text);
+    else if (event.type === "message") { heard += 1; status(event.text); }
     else if (event.type === "playback") onPlayback(event);
     else if (event.type === "job") { onJob(event); panels.event(event); }
     else if (event.type === "overlay") spec.setOverlay(event.curve);
@@ -820,7 +929,12 @@ async function boot() {
   for (const owner of state.busy) onJob({ owner, busy: true, label: "" });
   await panels.load();
   status(t("Ready."));
-  const { left_out: leftOut } = await call("about");
+  // what the window said before this page was there to hear it -- a file
+  // named on the command line that would not open, say. A line that
+  // arrives while the question is out is newer than the answer to it
+  const before = heard;
+  const { left_out: leftOut, said } = await call("about");
+  if (said && heard === before) status(said);
   if (leftOut.length) status(leftOut.join("; "), true);
 }
 

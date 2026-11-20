@@ -584,3 +584,77 @@ def test_the_composite_row_says_why_it_has_no_ratings(monkeypatch):
     voice = _syllables(16000)
     assert metrics.composite_rows(voice, voice, 16000, {"PESQ": True}, pesq=2.0) == [
         ("CSIG / CBAK / COVL", "n/a — too loud to compute in float64")]
+
+
+# ------------------------------------------- what a kudio after 4.1 adds
+
+def _report(**changes):
+    from kudio.core.report import AudioReport
+    clip = dict(sr=16000, duration=2.0, peak_dbfs=-6.0, rms_dbfs=-20.0, lufs=-23.0,
+                clipped_samples=0, clipped_ratio=0.0, dc_offset=0.0, silence_ratio=0.1,
+                noise_floor_dbfs=-60.0, estimated_snr_db=30.0, bandwidth_hz=8000.0,
+                band_limited=False, non_finite_samples=0)
+    return AudioReport(**{**clip, **changes})
+
+
+needs_new_report = pytest.mark.skipif(
+    not hasattr(kudio, "tonal_lines"), reason="the kudio installed has no band edge or grid")
+
+
+@needs_new_report
+@pytest.mark.parametrize("changes, shown", [
+    (dict(), "none found"),
+    (dict(band_limited=True, band_edge_hz=3816.0, source_rates=(8000,)),
+     "edge at 3816 Hz — upsampled from 8000 Hz, or a codec"),
+    (dict(sr=48000, band_limited=True, band_edge_hz=11531.0, source_rates=(22050, 24000)),
+     "edge at 11531 Hz — upsampled from 22050 or 24000 Hz, or a codec"),
+    (dict(band_limited=True, band_edge_hz=19504.0), "edge at 19504 Hz — a codec or a filter"),
+    (dict(band_limited=True, mirrored=True, band_edge_hz=5512.5, source_rates=(11025,)),
+     "mirror image above 5512 Hz — linear interpolation from 11025 Hz"),
+])
+def test_the_band_limit_has_a_row_of_its_own(changes, shown):
+    rows, _ = metrics.inspect_rows(_report(**changes))
+    assert dict(rows)["Band limit"] == shown
+
+
+@needs_new_report
+def test_the_sample_grid_and_the_full_scale_count_are_in_the_table():
+    rows = dict(metrics.inspect_rows(_report(sample_step=16 / 32768, grid_bits=12.0,
+                                             clipped_samples=20, clipped_ratio=0.001,
+                                             full_scale_samples=31))[0])
+    assert rows["Sample grid"] == "12.0 bits (steps of 16 at 16 bits)"
+    assert rows["Clipped samples"] == "20 (0.100%), 31 at full scale"
+    assert dict(metrics.inspect_rows(_report())[0])["Sample grid"] == (
+        "not judged (float or processed audio, or fewer than 16 different values)")
+
+
+@needs_new_report
+def test_a_hum_shows_as_lines_and_a_comb(studio):
+    sr = 48000
+    t = np.arange(2 * sr) / sr
+    y = sum(0.05 / k * np.sin(2 * np.pi * 50 * k * t) for k in range(1, 11))
+    y = (y + 0.003 * np.random.default_rng(0).standard_normal(t.size)).astype(np.float32)
+    studio.session.set_audio(y, sr, name="hum")
+    rows = _rows(studio.call("metrics.inspect"))
+    assert rows["Narrowband lines"].startswith("10, the strongest at ")
+    assert rows["Comb"] == "50.00 Hz × 10 (harmonics 1–10)"
+
+
+def test_above_48_khz_a_note_says_what_the_speech_measures_make_of_ultrasound():
+    rows = dict(metrics.inspect_rows(_report(sr=192000, bandwidth_hz=96000.0))[0])
+    assert rows["Note"].startswith("On a 192000 Hz recording, loudness and WADA-SNR take in")
+    assert "see nothing above 8 kHz" in rows["Note"]
+    assert "Note" not in dict(metrics.inspect_rows(_report(sr=48000))[0])
+    score = kudio.DnsmosScore(sig=3.0, bak=3.0, ovrl=3.0, segments=4)
+    assert dict(metrics.dnsmos_rows(score, 96000))["Note"].startswith("On a 96000 Hz")
+
+
+def test_the_loudness_counts_ultrasound_as_the_note_says():
+    """K-weighting at the recording's own rate: its high shelf runs on to
+    Nyquist, so a 30 kHz tone at 192 kHz is as loud as a 10 kHz one."""
+    sr = 192000
+    t = np.arange(2 * sr) / sr
+    level = {hz: kudio.audio_report((0.1 * np.sin(2 * np.pi * hz * t)).astype(np.float32),
+                                    sr).lufs for hz in (10000, 30000)}
+    assert np.isfinite(level[30000])
+    assert abs(level[30000] - level[10000]) < 0.1

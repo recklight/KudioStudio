@@ -58,8 +58,40 @@ SAME_CLIP_S = 0.05
 AUDIO_TYPES = ("Audio files (*.wav;*.flac;*.ogg;*.mp3;*.aiff;*.aif)",
                "All files (*.*)")
 
+#: the endings a folder given to `open_files` is searched for, the ones the
+#: open dialog lists
+AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".aiff", ".aif")
+
 #: the dialogs `choose_path` can show
 PATH_KINDS = ("open", "open_many", "save", "folder")
+
+
+def expand_paths(paths: Sequence[str]) -> Tuple[List[str], List[str]]:
+    """*paths* with each folder replaced by the audio files under it, sorted,
+    and each pattern (``*``, ``?``, ``[``) by the files it matches; and the
+    folders and patterns that came to nothing.
+
+    The shell on Windows passes a pattern on as it is, and a few hundred
+    takes named in full run past the 32767 characters a command line holds,
+    so a folder or a pattern is how a corpus gets in.
+    """
+    import glob
+
+    out: List[str] = []
+    empty: List[str] = []
+    for p in paths:
+        if any(c in p for c in "*?["):
+            found = sorted(f for f in glob.glob(p, recursive=True) if Path(f).is_file())
+        elif Path(p).is_dir():
+            found = sorted(str(f) for f in Path(p).rglob("*")
+                           if f.suffix.lower() in AUDIO_SUFFIXES and f.is_file())
+        else:
+            out.append(p)
+            continue
+        out.extend(found)
+        if not found:
+            empty.append(p)
+    return out, empty
 
 #: the user guide; its Chinese pages are under zh-TW/ (mkdocs.yml)
 GUIDE_URL = "https://recklight.github.io/KudioStudio/"
@@ -154,6 +186,18 @@ def shown_names(paths: Sequence[str]) -> List[str]:
             depth[i] += 1
 
 
+def writable(folder: str) -> bool:
+    """Whether a file can be made in *folder*. Tried rather than asked:
+    on Windows os.access reads only the read-only attribute, and a share
+    mounted read-only, or a folder whose rights forbid writing, has none."""
+    import tempfile
+    try:
+        with tempfile.TemporaryFile(dir=folder):
+            return True
+    except OSError:
+        return False
+
+
 def _lu(value: float) -> str:
     """A loudness difference to 0.1 LU, signed. Rounded first and then
     added to 0.0, so that a gap of nothing, or of -0.04, reads +0.0 rather
@@ -183,6 +227,12 @@ class Studio:
         except (TypeError, ValueError):
             self.settings = analysis.Settings()
         self.files: List[str] = []
+        #: bumped when the list changes; a state that leaves the list out
+        #: says which list the page should still have
+        self.files_version = 0
+        #: folders a save dialog was kept out of, said once each
+        self._unwritable: set = set()
+        self._files_pushed = -1
         #: bumped whenever the plots are to show another array, so the page
         #: can tell a reply about the audio it has from one about the audio
         #: before an edit. See `_sync_version`.
@@ -287,7 +337,11 @@ class Studio:
         self.events.publish("message", text=i18n.translate(text, self.language))
 
     def _push_state(self) -> None:
-        self.events.publish("state", state=self.state())
+        # the list goes out when it has changed since the last push: a few
+        # thousand files are half a megabyte, and the page keeps the last one
+        self.events.publish("state", state=self.state(
+            files=self._files_pushed != self.files_version))
+        self._files_pushed = self.files_version
 
     def _sync_version(self) -> None:
         """Bump the version if the plots now show a different array.
@@ -362,12 +416,14 @@ class Studio:
     # ----------------------------------------------------------------- state
 
     @command
-    def state(self) -> Dict:
-        """Everything the page shows that is not the plots' data."""
+    def state(self, files: bool = True) -> Dict:
+        """Everything the page shows that is not the plots' data; with
+        *files* False, all but the Files list, whose version says which list
+        it is."""
         self._sync_version()
         s = self.session
         selection = s.selection()
-        return {
+        out = {
             "version": self.version,
             "has_audio": s.has_audio,
             "name": s.name,
@@ -388,8 +444,7 @@ class Studio:
             # replacing the clip would lose audio no file holds
             "unsaved": s.has_unsaved_audio(),
             "crossfade_ms": s.crossfade_ms,
-            "files": [{"path": p, "name": name}
-                      for p, name in zip(self.files, shown_names(self.files))],
+            "files_version": self.files_version,
             "markers": [{"start": m.start, "end": m.end, "label": m.label}
                         for m in s.markers],
             "playing": self.player.playing,
@@ -400,12 +455,17 @@ class Studio:
             "gain_db": self.gain_db,
             "analysis": dict(self.settings.__dict__),
             "call": self.settings.call(),
+            "mfcc_takes_fft": analysis.mfcc_takes_fft(),
             "language": self.language,
             "options": dict(self.options.values),
             "busy": [owner for owner, _ in self.jobs.running()],
             "monitoring": self.monitor.running,
             "version_info": {"kudiostudio": __version__, "kudio": kudio.__version__},
         }
+        if files:
+            out["files"] = [{"path": p, "name": name}
+                            for p, name in zip(self.files, shown_names(self.files))]
+        return out
 
     @command
     def rail(self) -> List[Dict]:
@@ -417,9 +477,36 @@ class Studio:
     def _last_dir(self) -> str:
         return self.prefs.get("last_dir", "") or str(Path.home())
 
+    def _save_dir(self) -> str:
+        """Where a save dialog starts: the output folder Settings names, else
+        the folder last saved to, else the one last opened from. One folder
+        for both sent every export back into the recordings folder the
+        moment the next take there was opened.
+
+        A recordings folder is often one that cannot be written to, a
+        read-only copy or a share; a save dialog that starts there fails
+        only at the end. So a folder that will not take a file is said
+        once and the dialog starts in the home folder instead."""
+        chosen = self.options["output_dir"]
+        if chosen and Path(chosen).is_dir():
+            folder = chosen
+        else:
+            folder = self.prefs.get("last_save_dir", "") or self._last_dir()
+        if Path(folder).is_dir() and not writable(folder):
+            if folder not in self._unwritable:
+                self._unwritable.add(folder)
+                self.say(f"{folder} cannot be written to: the save starts in the home folder. "
+                         "Settings → Output folder sets where every save starts.")
+            return str(Path.home())
+        return folder
+
     def remember_dir(self, path) -> None:
-        """Start the next dialog in *path*'s folder."""
+        """Start the next open dialog in *path*'s folder."""
         self.prefs.set("last_dir", str(Path(path).parent))
+
+    def remember_save_dir(self, path) -> None:
+        """Start the next save dialog in the folder *path* was written to."""
+        self.prefs.set("last_save_dir", str(Path(path).parent))
 
     def _show(self, dialog: Callable, *args):
         # the dialog waits for the person, not for this lock
@@ -435,19 +522,24 @@ class Studio:
         """Ask for a path in the window's own dialog.
 
         *kind* is one of `PATH_KINDS`. *suggested* is a file name, put in
-        the last folder used, or a full path. Returns ``{"path": ...}`` --
-        a list for ``open_many``, None when the person cancelled -- or
+        the folder last saved to (``save``) or last opened from (the rest),
+        or a full path. Returns ``{"path": ...}`` -- a list for
+        ``open_many``, None when the person cancelled -- or
         ``{"needs_path": True, "suggested": ...}`` when there is no window,
         so the page asks for one itself.
+
+        A folder dialog picks inputs as often as outputs (Batch, the
+        corpus panels), so it starts where files are opened from.
         """
         if kind not in PATH_KINDS:
             raise ValueError(f"unknown dialog {kind!r}")
+        base = self._save_dir() if kind == "save" else self._last_dir()
         if suggested and Path(suggested).is_absolute():
             start = Path(suggested)
         elif suggested:
-            start = Path(self._last_dir()) / suggested
+            start = Path(base) / suggested
         else:
-            start = Path(self._last_dir())
+            start = Path(base)
         if self.dialogs is None:
             return {"needs_path": True, "suggested": str(start)}
         types = tuple(file_types) or ("All files (*.*)",)
@@ -483,21 +575,41 @@ class Studio:
         """Add *paths* to the file list and open the first.
 
         A manifest among them goes to the Manifest panel instead: given to
-        `kudio.file_load` it only fails as a file that is not audio.
+        `kudio.file_load` it only fails as a file that is not audio. A path
+        that is not a file stays out of the list, and the status line names
+        it: written the way Git Bash writes them (``/c/Users/...``), a few
+        thousand paths once filled the list with entries none of which would
+        open.
         """
-        paths = [str(p) for p in paths if str(p).strip()]
+        paths, empty = expand_paths([str(p) for p in paths if str(p).strip()])
+        absent = [p for p in paths if not Path(p).is_file()]
+        missing = set(absent)                       # a few thousand paths at a time
+        paths = [p for p in paths if p not in missing]
         manifests = [p for p in paths if is_manifest(p)]
         paths = [p for p in paths if not is_manifest(p)]
         if manifests:
             # one panel, one manifest: the last one named is the one shown
             self.open_manifest(manifests[-1])
-        if not paths:
-            return self.state()
+        known = set(self.files)
         for p in paths:
             resolved = str(Path(p).resolve())
-            if resolved not in self.files:
+            if resolved not in known:
                 self.files.append(resolved)
-        self.load(str(Path(paths[0]).resolve()))
+                known.add(resolved)
+                self.files_version += 1
+        if paths:
+            self.load(str(Path(paths[0]).resolve()))
+        if empty:
+            self.say(f"No audio in {empty[0]}" + (f" and {len(empty) - 1} more" if len(empty) > 1
+                                                   else "") + ".")
+        if absent:
+            # said last, so "Loaded ..." does not take its place on the line
+            first = Path(absent[0]).name or absent[0]
+            if len(absent) == 1:
+                self.say(f"Not found: {first} — left out of the Files list.")
+            else:
+                self.say(f"Not found: {first} and {len(absent) - 1} more — "
+                         f"left out of the Files list.")
         return self.state()
 
     @command
@@ -515,10 +627,12 @@ class Studio:
             self.session.load_file(path)
         except Exception as e:  # noqa: BLE001 - reported to the person
             self.say(f"Could not open {Path(path).name} — {type(e).__name__}: {e}")
-            return self.state()
+            return self.state(files=False)
         self.remember_dir(path)
         self.remember_file(path)
-        return self.state()
+        # the list has not changed, and with a few thousand files in it is
+        # most of what a reply would weigh
+        return self.state(files=False)
 
     def remember_file(self, path: str) -> None:
         """Note the file the clip now is, for reopening it at the next start."""
@@ -537,6 +651,7 @@ class Studio:
     def remove_file(self, path: str) -> Dict:
         if path in self.files:
             self.files.remove(path)
+            self.files_version += 1
             self._push_state()
         return self.state()
 
@@ -802,7 +917,7 @@ class Studio:
     def set_analysis(self, **changes) -> Dict:
         """Change the view and its parameters, e.g. ``mode="mel"``."""
         values = dict(self.settings.__dict__)
-        values.update({k: (v if k == "mode" else int(v))
+        values.update({k: (v if k == "mode" else bool(v) if k == "log_freq" else int(v))
                        for k, v in changes.items() if k in values})
         before = self.settings
         self.settings = analysis.Settings(**values).checked()
@@ -844,7 +959,8 @@ class Studio:
         y, sr, version = self.audio()
         if y is None:
             return None, version
-        settings = self.settings
+        # the log axis is how the image is drawn, not what it holds
+        settings = replace(self.settings, log_freq=False)
         origin = self.session.origin
         key = (version, settings, origin)
         with self._image_lock:
@@ -938,7 +1054,10 @@ class Studio:
         which the page names in the status bar when it opens."""
         return {"kudiostudio": __version__, "kudio": kudio.__version__,
                 "plugins": [p.source for p in self.plugins if not p.error],
-                "left_out": [self._say_left_out(p) for p in self.plugins if p.error]}
+                "left_out": [self._say_left_out(p) for p in self.plugins if p.error],
+                # the status line's last word, for a page that was not there to
+                # hear it: files named on the command line open before it comes
+                "said": i18n.translate(getattr(self, "_said", ""), self.language)}
 
     @command
     def open_guide(self) -> Dict:

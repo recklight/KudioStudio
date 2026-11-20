@@ -13,7 +13,9 @@ consume.
 """
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional, Tuple
 
 import numpy as np
@@ -27,6 +29,26 @@ MODES = ("stft", "mel", "mfcc")
 #: The colour range is chosen from the image: a floor near the median keeps
 #: the noise bed dark instead of washing everything out to mid-colour.
 LEVEL_PERCENTILES = (40.0, 99.8)
+
+#: The largest STFT computed, frames times bins. Every view starts from the
+#: full STFT, mel and MFCC included, so this counts n_fft // 2 + 1 bins
+#: whatever the view keeps. At 64 million values the complex64 STFT of
+#: float32 audio is 512 MB, the power taken from it 256 MB more, and an STFT
+#: view holds another 256 MB of float32 after that: about 1 GB at the peak.
+#: Ten minutes at 192 kHz with n_fft 65536 and a hop of 16384 is 7032 frames
+#: of 32769 bins, 230 million, and is refused with what to change.
+MAX_IMAGE_VALUES = 64_000_000
+
+#: what kudio 4.1's mfcc computes its STFT with, whatever the window asks:
+#: librosa's own defaults
+LIBROSA_N_FFT, LIBROSA_HOP = 2048, 512
+
+
+@lru_cache(maxsize=1)
+def mfcc_takes_fft() -> bool:
+    """Whether the kudio installed passes n_fft and hop_length on to its
+    MFCC. kudio 4.1 does not, and computes it at librosa's 2048 and 512."""
+    return "n_fft" in inspect.signature(kudio.mfcc).parameters
 
 
 def mono(y: np.ndarray) -> np.ndarray:
@@ -86,11 +108,16 @@ class Settings:
     hop_length: int = 256
     n_mels: int = 64
     n_mfcc: int = 40
+    #: the STFT's frequency axis on a log scale. How it is drawn, not what is
+    #: computed, so the kudio call is the same either way
+    log_freq: bool = False
 
     def checked(self) -> "Settings":
         if self.mode not in MODES:
             raise ValueError(f"unknown view {self.mode!r}")
-        for name, low, high in (("n_fft", 64, 8192), ("hop_length", 16, 4096),
+        # 65536 points is 2.9 Hz a bin at 192 kHz, fine enough to part the
+        # lines of a 50 Hz hum
+        for name, low, high in (("n_fft", 64, 65536), ("hop_length", 16, 16384),
                                 ("n_mels", 8, 256), ("n_mfcc", 4, 128)):
             value = getattr(self, name)
             if not low <= value <= high:
@@ -105,6 +132,9 @@ class Settings:
         if self.mode == "mel":
             return (f"kudio.melspectrogram(y, sr=sr, n_frames=1, "
                     f"n_mels={self.n_mels}, n_fft={self.n_fft}, "
+                    f"hop_length={self.hop_length})")
+        if mfcc_takes_fft():
+            return (f"kudio.mfcc(y, sr, n_mfcc={self.n_mfcc}, n_fft={self.n_fft}, "
                     f"hop_length={self.hop_length})")
         return f"kudio.mfcc(y, sr, n_mfcc={self.n_mfcc})"
 
@@ -121,12 +151,24 @@ class Image:
     y_label: str
     y_units: Optional[str]
     levels: Tuple[float, float]
+    #: for a mel image, the centre frequency of each band, bottom first, so
+    #: the axis can be labelled in Hz where the bands are
+    bands_hz: Optional[Tuple[float, ...]] = None
 
 
 def image(y: np.ndarray, sr: int, settings: Settings) -> Image:
     """The view *settings* describes, for the whole of *y*."""
     y = mono(y)
     s = settings.checked()
+    fixed = s.mode == "mfcc" and not mfcc_takes_fft()
+    n_fft, hop = (LIBROSA_N_FFT, LIBROSA_HOP) if fixed else (s.n_fft, s.hop_length)
+    frames, bins = 1 + len(y) // hop, n_fft // 2 + 1
+    if frames * bins > MAX_IMAGE_VALUES:
+        # with the STFT fixed, the window's n_fft and hop_length change nothing
+        change = ("open a shorter clip" if fixed
+                  else "raise hop_length or lower n_fft, or open a shorter clip")
+        raise ValueError(f"{frames} frames of {bins} STFT bins is too large to hold; {change}")
+    bands = None
     if s.mode == "stft":
         stft = kudio.STFT(sr=sr, n_fft=s.n_fft, hop_length=s.hop_length)
         data, y_max, label, units = stft.forward(y), sr / 2.0, "Frequency", "Hz"
@@ -136,11 +178,18 @@ def image(y: np.ndarray, sr: int, settings: Settings) -> Image:
         data = kudio.melspectrogram(y, sr=sr, n_frames=1, n_mels=s.n_mels,
                                     n_fft=s.n_fft, hop_length=s.hop_length)
         y_max, label, units = float(s.n_mels), "Mel band", None
+        # the centres melspectrogram's filters sit on: librosa's Slaney
+        # scale from 0 Hz to Nyquist, n_mels bands between n_mels + 2 points
+        import librosa
+        edges = librosa.mel_frequencies(n_mels=s.n_mels + 2, fmin=0.0, fmax=sr / 2.0)
+        bands = tuple(float(f) for f in edges[1:-1])
     else:
         # (1, frames, n_mfcc), as kudio documents it. Not told apart by which
         # side is longer: a clip of fewer frames than coefficients would be
         # turned on its side
-        data = np.reshape(kudio.mfcc(y, sr, n_mfcc=s.n_mfcc), (-1, s.n_mfcc))
+        given = (dict(n_fft=s.n_fft, hop_length=s.hop_length) if mfcc_takes_fft()
+                 else {})
+        data = np.reshape(kudio.mfcc(y, sr, n_mfcc=s.n_mfcc, **given), (-1, s.n_mfcc))
         y_max, label, units = float(s.n_mfcc), "MFCC coefficient", None
     data = np.asarray(data, dtype=np.float32)
     if data.ndim != 2:
@@ -150,7 +199,7 @@ def image(y: np.ndarray, sr: int, settings: Settings) -> Image:
               else (0.0, 1.0))
     if not hi > lo:
         hi = lo + 1.0
-    return Image(data, len(y) / sr, y_max, label, units, (float(lo), float(hi)))
+    return Image(data, len(y) / sr, y_max, label, units, (float(lo), float(hi)), bands)
 
 
 @dataclass(frozen=True)
@@ -168,16 +217,32 @@ class Slice:
     t1: float
     y0: float = 0.0
     y1: float = 0.0
+    #: the rows are spaced evenly in log frequency rather than in Hz
+    log: bool = False
+
+
+def lowest_log_hz(img: Image) -> float:
+    """Where a log axis starts: the first bin above DC."""
+    if img.data.ndim == 2 and img.data.shape[1] > 1:
+        return img.y_max / (img.data.shape[1] - 1)
+    return 1.0
 
 
 def image_slice(img: Image, t0: float, t1: float, columns: int, rows: int,
-                y0: float = 0.0, y1: Optional[float] = None) -> Slice:
+                y0: float = 0.0, y1: Optional[float] = None, log: bool = False) -> Slice:
     """The stretch *t0*..*t1* of *img*, and of its vertical axis *y0*..*y1*
     (all of it when *y1* is None). Cut before it is pooled, so a zoom into
     the bottom of the axis gets the bins there at full resolution rather
-    than the few rows they would have been at full range."""
+    than the few rows they would have been at full range.
+
+    With *log*, which only an axis in Hz takes, the rows are spaced evenly
+    in log frequency from *y0*, or the first bin above DC, to *y1*. A row
+    narrower than a bin repeats that bin; a wider one takes the largest of
+    the bins it covers, as the linear rows do."""
     frames, bins = img.data.shape
     y1 = img.y_max if y1 is None else y1
+    if log and img.y_units == "Hz":
+        return _log_slice(img, t0, t1, columns, rows, y0, y1)
     if frames == 0 or img.duration <= 0 or img.y_max <= 0:
         return Slice(np.zeros((0, 0), np.uint8), t0, t1, y0, y1)
     per_frame = img.duration / frames
@@ -200,6 +265,34 @@ def image_slice(img: Image, t0: float, t1: float, columns: int, rows: int,
     return Slice(pixels, f0 * per_frame, f1 * per_frame, b0 * per_bin, b1 * per_bin)
 
 
+def _log_slice(img: Image, t0: float, t1: float, columns: int, rows: int,
+               y0: float, y1: float) -> Slice:
+    frames, bins = img.data.shape
+    per_bin = img.y_max / bins
+    lo = max(float(y0), lowest_log_hz(img))
+    hi = min(float(y1), img.y_max)
+    empty = Slice(np.zeros((0, 0), np.uint8), t0, t1, lo, hi, True)
+    if frames == 0 or img.duration <= 0 or not hi > lo:
+        return empty
+    per_frame = img.duration / frames
+    f0 = max(0, int(np.floor(t0 / per_frame)))
+    f1 = min(frames, int(np.ceil(t1 / per_frame)))
+    if f1 <= f0:
+        return empty
+    edges = np.geomspace(lo, hi, max(1, int(rows)) + 1)
+    starts = np.minimum(np.floor(edges[:-1] / per_bin).astype(np.int64), bins - 1)
+    stop = max(int(starts[-1]) + 1, min(bins, int(np.ceil(hi / per_bin))))
+    part = _pool(img.data[f0:f1, :stop], max(1, int(columns)), axis=0)
+    # reduceat takes the largest from one start to the next, and repeats the
+    # bin where two rows start on the same one
+    part = np.maximum.reduceat(part, starts, axis=1)
+    level_lo, level_hi = img.levels
+    scaled = np.nan_to_num(np.clip((part - level_lo) / (level_hi - level_lo), 0.0, 1.0),
+                           nan=0.0)
+    pixels = np.ascontiguousarray(np.round(scaled * 255).astype(np.uint8).T[::-1])
+    return Slice(pixels, f0 * per_frame, f1 * per_frame, lo, hi, True)
+
+
 def _pool(data: np.ndarray, size: int, axis: int) -> np.ndarray:
     """At most *size* entries along *axis*, each the largest of the ones it
     stands for -- a short click stays visible however far out the view is."""
@@ -210,5 +303,5 @@ def _pool(data: np.ndarray, size: int, axis: int) -> np.ndarray:
     return np.maximum.reduceat(data, edges, axis=axis)
 
 
-__all__ = ["MODES", "Peaks", "Settings", "Image", "Slice", "mono", "peaks",
-           "image", "image_slice"]
+__all__ = ["MODES", "MAX_IMAGE_VALUES", "Peaks", "Settings", "Image", "Slice", "mono",
+           "peaks", "image", "image_slice", "lowest_log_hz", "mfcc_takes_fft"]

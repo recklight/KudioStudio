@@ -198,7 +198,36 @@ export class TimePlot {
       ctx.lineTo(Math.round(x0) + 0.5, a.y + a.h);
       ctx.stroke();
     }
+    ctx.setLineDash([]);
+    this.drawMarkerLabels(ctx, a);
     ctx.restore();
+  }
+
+  /** Each marker's name at the top of its line, on a dark tab so it reads
+   *  over the spectrogram too, cut short where the next marker or the edge
+   *  of the plot comes first. The list beside the plots has it in full. */
+  drawMarkerLabels(ctx, a) {
+    ctx.font = `11px ${monoFont()}`;
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    const shown = this.markers.filter((m) => m.label)
+      .map((m) => ({ label: m.label, x: this.timeToX(m.start) }))
+      .filter((m) => m.x >= a.x - 1 && m.x <= a.x + a.w)
+      .sort((p, q) => p.x - q.x);
+    shown.forEach((m, i) => {
+      const left = m.x + 2;
+      const right = Math.min(a.x + a.w, i + 1 < shown.length ? shown[i + 1].x - 2 : Infinity);
+      let text = m.label;
+      while (text.length > 1 && ctx.measureText(text).width + 8 > right - left) {
+        text = `${text.slice(0, -2)}…`;
+      }
+      const w = ctx.measureText(text).width + 8;
+      if (w > right - left || text === "…") return;
+      ctx.fillStyle = "rgba(15, 17, 26, 0.72)";
+      ctx.fillRect(left, a.y + 2, w, 16);
+      ctx.fillStyle = this.colors.marker;
+      ctx.fillText(text, left + 4, a.y + 4);
+    });
   }
 
   drawSelection(ctx, a) {
