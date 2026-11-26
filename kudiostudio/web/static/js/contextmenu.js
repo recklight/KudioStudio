@@ -87,12 +87,10 @@ export function plotMenuItems(at, s, act) {
     return [
       { label: "Reset the frequency range", run: act.resetY, enabled: () => s.yZoomed },
       "-",
-      ...(s.mode === "mfcc" ? [] : [
-        { label: `Finer frequency detail (n_fft ${n * 2})`, run: () => act.resolution(2),
-          enabled: () => n * 2 <= 8192 },
-        { label: `Finer time detail (n_fft ${n / 2})`, run: () => act.resolution(0.5),
-          enabled: () => n / 2 >= 64 },
-      ]),
+      { label: `Finer frequency detail (n_fft ${n * 2})`, run: () => act.resolution(2),
+        enabled: () => n * 2 <= 8192 },
+      { label: `Finer time detail (n_fft ${n / 2})`, run: () => act.resolution(0.5),
+        enabled: () => n / 2 >= 64 },
       "-",
       ...["stft", "mel", "mfcc"].map((mode) => ({
         label: { stft: "STFT", mel: "Mel", mfcc: "MFCC" }[mode],

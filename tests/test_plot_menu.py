@@ -145,18 +145,23 @@ const stft = plotMenuItems({ which: "spec", time: null, value: 0, onAxis: true }
 const mfcc = plotMenuItems({ which: "spec", time: null, value: 0, onAxis: true },
                            { ...base, mode: "mfcc", nFft: 64 }, act);
 stft[2].run(); stft[3].run(); stft[6].run();
+const finer = mfcc.filter((i) => i.label?.startsWith("Finer"));
+finer[0]?.run();
 console.log(JSON.stringify({ stft: labels(stft), mfcc: labels(mfcc), calls,
   checked: stft.filter((i) => i.checked).map((i) => i.checked()),
-  enabled: [stft[0].enabled(), mfcc[0].enabled()] }));
+  enabled: [stft[0], mfcc[0], ...finer].map((i) => i.enabled()) }));
 """)
     assert seen["stft"] == ["Reset the frequency range", "-",
                             "Finer frequency detail (n_fft 1024)", "Finer time detail (n_fft 256)",
                             "-", "STFT", "Mel", "MFCC"]
-    # MFCC has no n_fft to trade
-    assert seen["mfcc"] == ["Reset the frequency range", "-", "-", "STFT", "Mel", "MFCC"]
-    assert seen["calls"] == [["resolution", 2], ["resolution", 0.5], ["mode", "mel"]]
+    # the MFCC is made from an STFT as well, and 64 is the least n_fft there is
+    assert seen["mfcc"] == ["Reset the frequency range", "-",
+                            "Finer frequency detail (n_fft 128)", "Finer time detail (n_fft 32)",
+                            "-", "STFT", "Mel", "MFCC"]
+    assert seen["calls"] == [["resolution", 2], ["resolution", 0.5], ["mode", "mel"],
+                             ["resolution", 2]]
     assert seen["checked"] == [True, False, False]
-    assert seen["enabled"] == [True, False]
+    assert seen["enabled"] == [True, False, True, False]
 
 
 # --------------------------------------------------------------- the plots

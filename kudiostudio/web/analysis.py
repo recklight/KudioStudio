@@ -13,9 +13,7 @@ consume.
 """
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Optional, Tuple
 
 import numpy as np
@@ -39,16 +37,38 @@ LEVEL_PERCENTILES = (40.0, 99.8)
 #: of 32769 bins, 230 million, and is refused with what to change.
 MAX_IMAGE_VALUES = 64_000_000
 
-#: what kudio 4.1's mfcc computes its STFT with, whatever the window asks:
-#: librosa's own defaults
-LIBROSA_N_FFT, LIBROSA_HOP = 2048, 512
+#: The mel scale kudio's mel filters are spaced on: 200/3 Hz a mel up to
+#: 1000 Hz, which is 15 mel, and from there 6.4 times the frequency every 27
+#: mel. M. Slaney, "Auditory Toolbox", Interval Research Corporation,
+#: Technical Report 1998-010, 1998.
+MEL_HZ = 200.0 / 3.0
+KNEE_HZ, KNEE_MEL = 1000.0, 15.0
+LOG_RATIO, LOG_MELS = 6.4, 27.0
 
 
-@lru_cache(maxsize=1)
-def mfcc_takes_fft() -> bool:
-    """Whether the kudio installed passes n_fft and hop_length on to its
-    MFCC. kudio 4.1 does not, and computes it at librosa's 2048 and 512."""
-    return "n_fft" in inspect.signature(kudio.mfcc).parameters
+def mel_to_hz(mel) -> np.ndarray:
+    mel = np.asarray(mel, dtype=np.float64)
+    above = KNEE_HZ * LOG_RATIO ** ((mel - KNEE_MEL) / LOG_MELS)
+    return np.where(mel < KNEE_MEL, mel * MEL_HZ, above)
+
+
+def hz_to_mel(hz) -> np.ndarray:
+    hz = np.asarray(hz, dtype=np.float64)
+    # where() works out both sides of the knee, and 0 Hz has no log
+    ratio = np.maximum(hz, KNEE_HZ) / KNEE_HZ
+    above = KNEE_MEL + LOG_MELS * np.log(ratio) / np.log(LOG_RATIO)
+    return np.where(hz < KNEE_HZ, hz / MEL_HZ, above)
+
+
+def mel_bands_hz(sr: int, n_mels: int) -> Tuple[float, ...]:
+    """Where the mel bands from 0 Hz to Nyquist are centred, lowest first.
+
+    A band's filter rises from the centre below its own and falls to the one
+    above, so the points are n_mels + 2, evenly spaced in mel, and the two at
+    the ends are no band's centre.
+    """
+    points = np.linspace(0.0, float(hz_to_mel(sr / 2.0)), n_mels + 2)
+    return tuple(mel_to_hz(points[1:-1]).tolist())
 
 
 def mono(y: np.ndarray) -> np.ndarray:
@@ -133,10 +153,8 @@ class Settings:
             return (f"kudio.melspectrogram(y, sr=sr, n_frames=1, "
                     f"n_mels={self.n_mels}, n_fft={self.n_fft}, "
                     f"hop_length={self.hop_length})")
-        if mfcc_takes_fft():
-            return (f"kudio.mfcc(y, sr, n_mfcc={self.n_mfcc}, n_fft={self.n_fft}, "
-                    f"hop_length={self.hop_length})")
-        return f"kudio.mfcc(y, sr, n_mfcc={self.n_mfcc})"
+        return (f"kudio.mfcc(y, sr, n_mfcc={self.n_mfcc}, n_fft={self.n_fft}, "
+                f"hop_length={self.hop_length})")
 
 
 @dataclass(frozen=True)
@@ -160,14 +178,10 @@ def image(y: np.ndarray, sr: int, settings: Settings) -> Image:
     """The view *settings* describes, for the whole of *y*."""
     y = mono(y)
     s = settings.checked()
-    fixed = s.mode == "mfcc" and not mfcc_takes_fft()
-    n_fft, hop = (LIBROSA_N_FFT, LIBROSA_HOP) if fixed else (s.n_fft, s.hop_length)
-    frames, bins = 1 + len(y) // hop, n_fft // 2 + 1
+    frames, bins = 1 + len(y) // s.hop_length, s.n_fft // 2 + 1
     if frames * bins > MAX_IMAGE_VALUES:
-        # with the STFT fixed, the window's n_fft and hop_length change nothing
-        change = ("open a shorter clip" if fixed
-                  else "raise hop_length or lower n_fft, or open a shorter clip")
-        raise ValueError(f"{frames} frames of {bins} STFT bins is too large to hold; {change}")
+        raise ValueError(f"{frames} frames of {bins} STFT bins is too large to hold; "
+                         f"raise hop_length or lower n_fft, or open a shorter clip")
     bands = None
     if s.mode == "stft":
         stft = kudio.STFT(sr=sr, n_fft=s.n_fft, hop_length=s.hop_length)
@@ -178,18 +192,13 @@ def image(y: np.ndarray, sr: int, settings: Settings) -> Image:
         data = kudio.melspectrogram(y, sr=sr, n_frames=1, n_mels=s.n_mels,
                                     n_fft=s.n_fft, hop_length=s.hop_length)
         y_max, label, units = float(s.n_mels), "Mel band", None
-        # the centres melspectrogram's filters sit on: librosa's Slaney
-        # scale from 0 Hz to Nyquist, n_mels bands between n_mels + 2 points
-        import librosa
-        edges = librosa.mel_frequencies(n_mels=s.n_mels + 2, fmin=0.0, fmax=sr / 2.0)
-        bands = tuple(float(f) for f in edges[1:-1])
+        bands = mel_bands_hz(sr, s.n_mels)
     else:
         # (1, frames, n_mfcc), as kudio documents it. Not told apart by which
         # side is longer: a clip of fewer frames than coefficients would be
         # turned on its side
-        given = (dict(n_fft=s.n_fft, hop_length=s.hop_length) if mfcc_takes_fft()
-                 else {})
-        data = np.reshape(kudio.mfcc(y, sr, n_mfcc=s.n_mfcc, **given), (-1, s.n_mfcc))
+        data = np.reshape(kudio.mfcc(y, sr, n_mfcc=s.n_mfcc, n_fft=s.n_fft,
+                                     hop_length=s.hop_length), (-1, s.n_mfcc))
         y_max, label, units = float(s.n_mfcc), "MFCC coefficient", None
     data = np.asarray(data, dtype=np.float32)
     if data.ndim != 2:
@@ -304,4 +313,5 @@ def _pool(data: np.ndarray, size: int, axis: int) -> np.ndarray:
 
 
 __all__ = ["MODES", "MAX_IMAGE_VALUES", "Peaks", "Settings", "Image", "Slice", "mono",
-           "peaks", "image", "image_slice", "lowest_log_hz", "mfcc_takes_fft"]
+           "peaks", "image", "image_slice", "lowest_log_hz", "mel_to_hz", "hz_to_mel",
+           "mel_bands_hz"]

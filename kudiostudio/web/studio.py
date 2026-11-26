@@ -455,7 +455,6 @@ class Studio:
             "gain_db": self.gain_db,
             "analysis": dict(self.settings.__dict__),
             "call": self.settings.call(),
-            "mfcc_takes_fft": analysis.mfcc_takes_fft(),
             "language": self.language,
             "options": dict(self.options.values),
             "busy": [owner for owner, _ in self.jobs.running()],

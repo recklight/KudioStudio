@@ -116,8 +116,7 @@ script, and the keys are shown beside the items that have one.
 On the analysis image's vertical axis the menu is the axis's own: reset the
 range; **Finer frequency detail** and **Finer time detail**, which double or
 halve n_fft and the hop with it, so the overlap between frames stays as it
-was; and STFT, Mel or MFCC. MFCC has no n_fft to change, so only the view is
-offered there.
+was; and STFT, Mel or MFCC. The menu is the same in all three views.
 
 ## Playing
 

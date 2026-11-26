@@ -4,10 +4,12 @@ and the local server. No browser; the page itself is checked by hand in a
 browser and in the window."""
 from __future__ import annotations
 
+import ast
 import http.client
 import json
 import re
 import socket
+import sys
 import threading
 import time
 from fnmatch import fnmatch
@@ -830,16 +832,93 @@ def test_a_mel_image_carries_the_frequency_of_each_band():
     assert np.all(np.diff(img.bands_hz) > 0)
 
 
-def test_the_mfcc_takes_the_frame_where_kudio_passes_it_on(monkeypatch):
+def test_the_mel_scale_is_the_auditory_toolbox_one():
+    """A straight line to 1000 Hz, 15 mel, then 6.4 times the frequency every
+    27 mel, which puts 6400 Hz at 42 and 40,960 at 69. One mel up there is a
+    factor of 1.0711703, the logSpacing of the toolbox's mfcc.m."""
+    hz, mel = [0.0, 200.0, 1000.0, 6400.0, 40960.0], [0.0, 3.0, 15.0, 42.0, 69.0]
+    assert analysis.hz_to_mel(hz) == pytest.approx(np.array(mel))
+    assert analysis.mel_to_hz(mel) == pytest.approx(np.array(hz))
+    line = analysis.mel_to_hz(np.arange(0.0, 16.0))
+    assert np.diff(line) == pytest.approx(np.full(15, 200 / 3))
+    curve = analysis.mel_to_hz(np.arange(15.0, 80.0))
+    assert curve[1:] / curve[:-1] == pytest.approx(np.full(64, 1.0711703), abs=1e-7)
+    back = np.linspace(0.0, 96000.0, 5001)
+    assert analysis.mel_to_hz(analysis.hz_to_mel(back)) == pytest.approx(back)
+
+
+def test_mel_bands_a_whole_mel_apart_are_where_the_scale_says():
+    """Nyquist at 15 mel and 14 bands, then at 42 mel and 41 bands: the
+    centres are the whole mels between, whose frequencies can be written
+    down. 24 and 33 mel are a third and two thirds of the 27 above the knee,
+    the cube root of 6.4 and its square."""
+    assert analysis.mel_bands_hz(2000, 14) == pytest.approx([k * 200 / 3 for k in range(1, 15)])
+    bands = analysis.mel_bands_hz(12800, 41)
+    assert len(bands) == 41
+    assert bands[:15] == pytest.approx([k * 200 / 3 for k in range(1, 16)])
+    assert (bands[23], bands[32]) == pytest.approx((1856.6355, 3447.0955), abs=1e-4)
+
+
+@pytest.mark.parametrize("sr, n_mels", [(8000, 16), (16000, 32), (48000, 40)])
+def test_a_tone_at_a_band_centre_is_loudest_in_that_band(sr, n_mels):
+    """The frequencies on the axis and the filters that make the image are
+    worked out in two places, here and in kudio."""
+    settings = analysis.Settings(mode="mel", n_mels=n_mels, n_fft=4096, hop_length=1024)
+    t = np.arange(8192) / sr
+    for band, hz in enumerate(analysis.mel_bands_hz(sr, n_mels)):
+        img = analysis.image(0.5 * np.sin(2 * np.pi * hz * t), sr, settings)
+        assert np.argmax(img.data[len(img.data) // 2]) == band, hz
+
+
+@pytest.mark.parametrize("sr, n_mels", [
+    (2, 8), (200, 256), (1999, 8), (2000, 14), (8000, 64), (11025, 4096), (16000, 128),
+    (22050, 64), (44100, 256), (48000, 2048), (192000, 256)])
+def test_mel_bands_are_where_librosa_puts_them(sr, n_mels):
+    librosa = pytest.importorskip("librosa")
+    theirs = librosa.mel_frequencies(n_mels=n_mels + 2, fmin=0.0, fmax=sr / 2.0)[1:-1]
+    assert np.array(analysis.mel_bands_hz(sr, n_mels)) == pytest.approx(theirs, rel=1e-12)
+
+
+def test_the_mel_view_is_drawn_without_librosa(monkeypatch):
+    # None there makes importing it fail, as it does where it is not installed
+    monkeypatch.setitem(sys.modules, "librosa", None)
+    monkeypatch.setattr(kudio, "melspectrogram",
+                        lambda y, n_mels, **_: np.zeros((10, n_mels), np.float32))
+    img = analysis.image(np.zeros(2000, np.float32), 2000,
+                         analysis.Settings(mode="mel", n_mels=14))
+    assert img.bands_hz == pytest.approx([k * 200 / 3 for k in range(1, 15)])
+
+
+def test_no_module_of_the_package_imports_librosa():
+    """It is not one of the dependencies. Where it is installed, something
+    else brought it."""
+    modules = sorted((ROOT / "kudiostudio").rglob("*.py"))
+    assert ROOT / "kudiostudio" / "web" / "analysis.py" in modules
+    found = []
+    for path in modules:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                names = [node.value]            # import_module("librosa.core")
+            else:
+                continue
+            if any(name.split(".")[0] == "librosa" for name in names):
+                found.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
+    assert found == []
+
+
+def test_the_mfcc_takes_the_frame():
     sr = 16000
     y = (0.1 * np.random.default_rng(0).standard_normal(sr)).astype(np.float32)
     settings = analysis.Settings(mode="mfcc", n_mfcc=20, n_fft=1024, hop_length=160)
-    if analysis.mfcc_takes_fft():
-        assert "n_fft=1024, hop_length=160" in settings.call()
-        assert analysis.image(y, sr, settings).data.shape[0] == 1 + sr // 160
-    monkeypatch.setattr(analysis, "mfcc_takes_fft", lambda: False)
-    assert settings.call() == "kudio.mfcc(y, sr, n_mfcc=20)"
-    assert analysis.image(y, sr, settings).data.shape[0] == 1 + sr // 512
+    assert settings.call() == "kudio.mfcc(y, sr, n_mfcc=20, n_fft=1024, hop_length=160)"
+    img = analysis.image(y, sr, settings)
+    assert img.data.shape == (1 + sr // 160, 20)
+    want = kudio.mfcc(y, sr, n_mfcc=20, n_fft=1024, hop_length=160)
+    assert np.array_equal(img.data, np.asarray(want[0], np.float32))
 
 
 def test_the_log_axis_comes_with_where_it_starts(server, tone):
@@ -855,16 +934,12 @@ def test_the_log_axis_comes_with_where_it_starts(server, tone):
     assert len(response.getheader("X-Kudio-Bands-Hz").split(",")) == 64
 
 
-@pytest.mark.parametrize("mode, takes_fft", [("mel", True), ("mfcc", True), ("mfcc", False)])
-def test_the_size_guard_counts_the_full_stft_every_view_starts_from(monkeypatch, mode, takes_fft):
-    """librosa computes all n_fft // 2 + 1 bins before the mel or MFCC
-    image keeps a few dozen rows of it, so the guard has to count those:
+@pytest.mark.parametrize("mode", ["mel", "mfcc"])
+def test_the_size_guard_counts_the_full_stft_every_view_starts_from(monkeypatch, mode):
+    """All n_fft // 2 + 1 bins are computed before the mel or MFCC image
+    keeps a few dozen rows of them, so the guard has to count those:
     60 s at 192 kHz, mel, n_fft 65536 and a hop of 256 keeps 64 rows but
     computes a complex64 STFT of 45,001 x 32,769, about 11.8 GB."""
-    from kudiostudio.web import analysis
-
-    really_takes_fft = analysis.mfcc_takes_fft()
-    monkeypatch.setattr(analysis, "mfcc_takes_fft", lambda: takes_fft)
     # 1 s at 16 kHz: 32 frames of 1025 bins at n_fft 2048 and hop 512, 32,800
     # values; the 64 mel rows or 40 coefficients alone are 2,048 or 1,280
     monkeypatch.setattr(analysis, "MAX_IMAGE_VALUES", 10_000)
@@ -872,11 +947,7 @@ def test_the_size_guard_counts_the_full_stft_every_view_starts_from(monkeypatch,
     settings = analysis.Settings(mode=mode, n_fft=2048, hop_length=512)
     with pytest.raises(ValueError, match="32 frames of 1025 STFT bins") as refused:
         analysis.image(y, 16000, settings)
-    # kudio 4.1's MFCC takes neither, so only a shorter clip helps there
-    fixed = mode == "mfcc" and not takes_fft
-    assert ("raise hop_length" in str(refused.value)) is not fixed
-    if mode == "mfcc" and takes_fft and not really_takes_fft:
-        return                  # the kudio installed cannot make this one
+    assert "raise hop_length" in str(refused.value)
     monkeypatch.setattr(analysis, "MAX_IMAGE_VALUES", 40_000)
     assert analysis.image(y, 16000, settings).data.size > 0
 

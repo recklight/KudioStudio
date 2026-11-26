@@ -12,8 +12,8 @@ STFT view. The line above the buttons is the call it makes.
 pYIN settles its voiced/unvoiced decision with a hidden Markov model over
 everything it is given at once, so it runs as a job on a button rather than
 following every edit. On my machine ten seconds of 16 kHz audio take about a
-second, plus a second or so the first time while librosa loads. The button
-reads **Tracking…** until it is done.
+second, and the first run after the window is opened a second or so more. The
+button reads **Tracking…** until it is done.
 
 ## The search range
 

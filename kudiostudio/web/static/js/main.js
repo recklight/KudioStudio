@@ -535,10 +535,6 @@ function renderAnalysis(s) {
     const input = $(name);
     if (document.activeElement !== input) input.value = a[name];
   }
-  // the MFCC takes the frame too, where the kudio installed passes it on
-  const spectral = a.mode === "stft" || a.mode === "mel" || (a.mode === "mfcc" && s.mfcc_takes_fft);
-  $("n_fft").disabled = !spectral;
-  $("hop_length").disabled = !spectral;
   $("log-freq").checked = Boolean(a.log_freq);
   $("log-freq").disabled = a.mode !== "stft";
   $("n_mels").disabled = a.mode !== "mel";

@@ -79,14 +79,16 @@ def stream_checks(tmp: Path) -> None:
     y = voice(sr, 1.5, 200.0)
     spec = kudio.SpectrogramStream(sr, n_fft=512, hop_length=256, seconds=10.0)
     live = spec.push(y)
-    import librosa
-    offline = np.abs(librosa.stft(y, n_fft=512, hop_length=256, window='hann',
-                                  center=False)).T
-    scale = 2.0 / np.sum(np.hanning(513)[:-1])
+    # the clip in one go, in float64: whole frames from the first sample on,
+    # with nothing padded on, under a periodic Hann window
+    window = np.hanning(513)[:-1]
+    frames = np.lib.stride_tricks.sliding_window_view(y.astype(np.float64), 512)[::256]
+    offline = np.abs(np.fft.rfft(frames * window, axis=1))
+    scale = 2.0 / np.sum(window)
     want = np.maximum(20 * np.log10(np.maximum(offline * scale, 1e-10)),
                       spec.floor_db)
     err = float(np.max(np.abs(live[:, 1:-1] - want[:, 1:-1])))
-    check("matches librosa center=False", err < 0.05, f"max |diff| {err:.4f} dB")
+    check("matches an uncentred STFT of the clip", err < 0.05, f"max |diff| {err:.4f} dB")
 
     print("\n  a long take does not drift or grow")
     spec = kudio.SpectrogramStream(16000, seconds=3.0)

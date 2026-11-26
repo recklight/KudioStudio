@@ -7,7 +7,7 @@ equivalent.
 
     python -m kudiostudio        # or: kudiostudio
 """
-__version__ = "2.2"
+__version__ = "2.3"
 __author__ = "RL"
 
 __all__ = ["__version__", "__author__"]
